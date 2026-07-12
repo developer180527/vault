@@ -59,6 +59,21 @@ void main() {
     expect(find.text('Settings'), findsOneWidget);
   });
 
+  testWidgets('phone in landscape keeps the bottom-nav shell (not desktop)',
+      (tester) async {
+    // Landscape phone: width 850 exceeds the desktop breakpoint, but the
+    // shortest side (390) marks it a phone → must stay on the mobile shell.
+    tester.view.physicalSize = const Size(850, 390);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_appWith(_container()));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsOneWidget); // mobile shell
+    expect(find.text('Trash'), findsNothing); // desktop-only sidebar item
+  });
+
   testWidgets('mobile overflows to a searchable Services hub past five',
       (tester) async {
     tester.view.physicalSize = const Size(400, 850);

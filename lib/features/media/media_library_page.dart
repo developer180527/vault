@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'data/local_media_library.dart';
 import 'data/media_providers.dart';
+import 'media_viewer_page.dart';
 import 'widgets/media_filter_pill.dart';
 import 'widgets/media_thumbnail.dart';
 
@@ -61,6 +63,10 @@ class _MediaGrid extends ConsumerWidget {
                     subtitle: 'No items match this filter.')
                 : GridView.builder(
                     padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
+                    // Decode two viewports of tiles ahead of the scroll so
+                    // thumbnails are generated and cached before they enter
+                    // view — the main lever against load-lag while scrolling.
+                    scrollCacheExtent: ScrollCacheExtent.viewport(2.0),
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
                       maxCrossAxisExtent: 160,
@@ -68,8 +74,14 @@ class _MediaGrid extends ConsumerWidget {
                       crossAxisSpacing: 6,
                     ),
                     itemCount: items.length,
-                    itemBuilder: (context, i) =>
-                        MediaThumbnail(item: items[i]),
+                    itemBuilder: (context, i) => GestureDetector(
+                      // Stable key keeps element/image identity across rebuilds
+                      // so cached thumbnails aren't dropped and reloaded. No
+                      // Hero here: per-cell heroes cause scroll flicker.
+                      key: ValueKey(items[i].id),
+                      onTap: () => Navigator.of(context).push(_viewerRoute(items, i)),
+                      child: MediaThumbnail(item: items[i]),
+                    ),
                   ),
           ),
         ),
@@ -98,6 +110,19 @@ class _MediaGrid extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// Fade transition into the fullscreen viewer (replaces the hero transition,
+/// which is unsafe for live video players).
+Route<void> _viewerRoute(List<MediaItem> items, int index) {
+  return PageRouteBuilder<void>(
+    transitionDuration: const Duration(milliseconds: 200),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
+    pageBuilder: (_, _, _) =>
+        MediaViewerPage(items: items, initialIndex: index),
+    transitionsBuilder: (_, animation, _, child) =>
+        FadeTransition(opacity: animation, child: child),
+  );
 }
 
 class _LimitedBanner extends StatelessWidget {

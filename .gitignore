@@ -12,6 +12,7 @@
 .swiftpm/
 migrate_working_dir/
 .claude/
+build_sideload.sh
 
 # IntelliJ related
 *.iml

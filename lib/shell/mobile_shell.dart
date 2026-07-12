@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
 import 'services_hub_page.dart';
+import 'widgets/action_bar.dart';
 import 'widgets/task_status_button.dart';
 
 /// Max destinations in a Material bottom bar. When there are more permitted
@@ -60,7 +61,11 @@ class MobileShell extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(services[shell.currentIndex].label),
-        actions: const [TaskStatusButton(), SizedBox(width: 4)],
+        actions: [
+          ActionBar(actions: services[shell.currentIndex].actions),
+          const TaskStatusButton(),
+          const SizedBox(width: 4),
+        ],
       ),
       body: shell,
       bottomNavigationBar: NavigationBar(

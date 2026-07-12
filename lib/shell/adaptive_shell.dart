@@ -1,20 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/platform/platform_info.dart';
 import '../core/services/service_registry.dart';
+import 'command_palette.dart';
 import 'desktop_shell.dart';
 import 'mobile_shell.dart';
 
-/// Width at which non-desktop platforms (web, tablets) switch from the mobile
-/// bottom-bar shell to the desktop sidebar shell. Native desktop OSes always
-/// use the sidebar regardless of window width.
+/// Width at which large-screen devices (web, tablets) switch from the mobile
+/// bottom-bar shell to the desktop sidebar shell.
 const kDesktopBreakpoint = 840.0;
 
-/// Whether to use the sidebar (desktop) shell. Native desktop always does;
-/// web and mobile decide by available width.
-bool useDesktopShell(double width) =>
-    isDesktopPlatform || width >= kDesktopBreakpoint;
+/// Below this shortest-side, a device is a phone and always uses the mobile
+/// shell — even in landscape (where its width can exceed [kDesktopBreakpoint]).
+const kPhoneShortestSide = 600.0;
+
+/// Whether to use the sidebar (desktop) shell.
+/// - Native desktop: always.
+/// - Phone (shortest side < 600): never — bottom-nav in both orientations.
+/// - Tablet / web: by available width.
+bool useDesktopShell(BuildContext context, double width) {
+  if (isDesktopPlatform) return true;
+  if (MediaQuery.sizeOf(context).shortestSide < kPhoneShortestSide) {
+    return false;
+  }
+  return width >= kDesktopBreakpoint;
+}
 
 /// Exposes the current form factor to descendants so feature pages can adapt
 /// (e.g. sub-tabs render as a dropdown on desktop, a TabBar on mobile)
@@ -48,12 +60,25 @@ class AdaptiveShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      final isDesktop = useDesktopShell(constraints.maxWidth);
-      return FormFactor(
-        isDesktop: isDesktop,
-        child: isDesktop
-            ? DesktopShell(shell: shell, services: services)
-            : MobileShell(shell: shell, services: services),
+      final isDesktop = useDesktopShell(context, constraints.maxWidth);
+      // Cmd/Ctrl-K opens the command palette app-wide. Placed here so the
+      // dialog resolves against the router's navigator/overlay.
+      return CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.keyK, meta: true): () =>
+              showCommandPalette(context),
+          const SingleActivator(LogicalKeyboardKey.keyK, control: true): () =>
+              showCommandPalette(context),
+        },
+        child: Focus(
+          autofocus: true,
+          child: FormFactor(
+            isDesktop: isDesktop,
+            child: isDesktop
+                ? DesktopShell(shell: shell, services: services)
+                : MobileShell(shell: shell, services: services),
+          ),
+        ),
       );
     });
   }

@@ -1,13 +1,20 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../logging/vault_log.dart';
 import '../services/service_registry.dart';
 import 'capability.dart';
 import 'manifest_source.dart';
 
-/// In debug we drive gating from an editable mock manifest so the UI works
-/// without a server. In release the manifest comes only from the server.
-const _useMockManifest = kDebugMode;
+final _log = VaultLog.tag('capability');
+
+/// Whether to drive gating from the editable in-app mock manifest instead of
+/// the (not-yet-built) server.
+///
+/// TODO(backend): set this back to `kDebugMode` — or remove the mock path —
+/// once `vaultd` + auth exist. Until then it stays `true` in every build so
+/// sideloaded release builds are usable without a server (otherwise the app
+/// correctly fails closed to the "couldn't reach your Vault server" screen).
+const _useMockManifest = true;
 
 /// The editable dev manifest (debug only). The Settings dev panel mutates this
 /// to simulate the server changing grants; [manifestProvider] mirrors it.
@@ -54,9 +61,25 @@ class ManifestController extends AsyncNotifier<CapabilityManifest> {
   Future<CapabilityManifest> build() async {
     if (_useMockManifest) {
       // Reactive to live edits from the dev panel.
-      return ref.watch(mockManifestProvider);
+      final manifest = ref.watch(mockManifestProvider);
+      _log.debug('Using mock manifest', fields: {
+        'services': manifest.capabilities.length,
+      });
+      return manifest;
     }
-    return const RemoteManifestSource().fetch();
+    try {
+      final manifest = await const RemoteManifestSource().fetch();
+      _log.info('Capability manifest loaded', fields: {
+        'profile': manifest.profileId,
+        'services': manifest.capabilities.length,
+      });
+      return manifest;
+    } catch (e, s) {
+      // Fail-closed: log why, the UI shows the retry screen.
+      _log.error('Manifest fetch failed — failing closed',
+          error: e, stackTrace: s);
+      rethrow;
+    }
   }
 
   /// Re-fetch after a failure (the retry button) or when the server signals a

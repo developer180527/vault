@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../actions/vault_action.dart';
+
 /// Broad grouping for organizing services in the desktop sidebar and the
 /// mobile Services hub once there are many of them.
 enum ServiceCategory {
@@ -41,6 +43,8 @@ class ServiceDefinition {
     this.category = ServiceCategory.tools,
     this.alwaysAvailable = false,
     this.subTabs = const [],
+    this.actions = const [],
+    this.toolbarLeading,
     this.builder,
   }) : assert(subTabs.length > 0 || builder != null,
             'A service needs sub-tabs or a root builder');
@@ -59,6 +63,16 @@ class ServiceDefinition {
   /// When non-empty the service renders as a tabbed view; otherwise [builder]
   /// provides a single page.
   final List<SubTab> subTabs;
+
+  /// Commands this service contributes — shown as buttons in the content
+  /// toolbar and listed in the Cmd-K palette. These replace what used to be
+  /// the File/View menus, now living contextually per service.
+  final List<VaultAction> actions;
+
+  /// Optional widget for the left of the desktop content toolbar — e.g. the
+  /// file browser's back/forward + current-directory name. Null → nothing.
+  final WidgetBuilder? toolbarLeading;
+
   final WidgetBuilder? builder;
 }
 

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/platform/platform_info.dart';
 import '../core/services/service_registry.dart';
 import 'widgets/app_title_bar.dart';
+import 'widgets/task_status_button.dart';
 
-/// Desktop layout matching the design: a full-width custom title bar (in-window
-/// menu bar + task status) across the top, then a permanent service sidebar on
-/// the left and the content pane on the right. The content pane has its own
-/// toolbar with back/forward navigation; feature pages add controls (like the
-/// sub-tab selector) into it.
+/// The sidebar (wide) layout, used by native desktop AND large tablets. The
+/// difference: only native desktop draws the custom in-window title bar (menu
+/// bar + traffic-light spacing + drag), because only there did we hide the OS
+/// title bar. Tablets keep the OS status bar, so they get a slim, safe-area
+/// header instead — no desktop menu chrome colliding with the status bar.
 class DesktopShell extends StatelessWidget {
   const DesktopShell({super.key, required this.shell, required this.services});
 
@@ -18,22 +20,46 @@ class DesktopShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      body: Column(
-        children: [
-          const AppTitleBar(),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Sidebar(shell: shell, services: services),
-                VerticalDivider(
-                    width: 1, thickness: 1, color: theme.dividerColor),
-                Expanded(child: shell),
-              ],
-            ),
+    final nativeDesktop = isDesktopPlatform;
+
+    final body = Column(
+      children: [
+        if (nativeDesktop) const AppTitleBar() else const _TabletTopBar(),
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _Sidebar(shell: shell, services: services),
+              VerticalDivider(
+                  width: 1, thickness: 1, color: theme.dividerColor),
+              Expanded(child: shell),
+            ],
           ),
-        ],
+        ),
+      ],
+    );
+
+    return Scaffold(
+      // Native desktop's title bar reserves its own space; tablets must clear
+      // the OS status bar.
+      body: nativeDesktop ? body : SafeArea(bottom: false, child: body),
+    );
+  }
+}
+
+/// Slim header for the sidebar layout on tablets: no desktop menu bar, just the
+/// background-task status where the desktop title bar would carry it.
+class _TabletTopBar extends StatelessWidget {
+  const _TabletTopBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      color: Theme.of(context).colorScheme.surface,
+      child: const Row(
+        children: [Spacer(), TaskStatusButton()],
       ),
     );
   }

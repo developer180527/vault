@@ -6,6 +6,7 @@ import '../../core/capability/capability.dart';
 import '../../core/capability/manifest_providers.dart';
 import '../../core/services/service_registry.dart';
 import '../../core/tasks/background_tasks.dart';
+import '../logs/log_viewer_page.dart';
 
 /// Settings. In debug it doubles as the **mock manifest editor** — a stand-in
 /// for the server's authoritative grants, so the capability-driven UI can be
@@ -26,6 +27,18 @@ class SettingsPage extends ConsumerWidget {
           leading: CircleAvatar(child: Icon(Icons.person_outline)),
           title: Text('This device'),
           subtitle: Text('Profile & device identity — server-managed'),
+        ),
+        const Divider(height: 32),
+        Text('Diagnostics', style: Theme.of(context).textTheme.titleSmall),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.article_outlined),
+          title: const Text('View logs'),
+          subtitle: const Text('Recent activity — useful for bug reports'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const LogViewerPage()),
+          ),
         ),
         if (kDebugMode) ...[
           const Divider(height: 32),

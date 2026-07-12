@@ -1,22 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:photo_manager/photo_manager.dart';
+import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
 import '../data/local_media_library.dart';
-import '../data/media_providers.dart';
 
-/// A single grid tile: the asset thumbnail, with a duration badge for videos.
-/// Thumbnail bytes are loaded lazily via the library port and cached in a
-/// small in-memory map keyed by asset id.
-class MediaThumbnail extends ConsumerStatefulWidget {
+/// A single grid tile. Uses photo_manager's own [AssetEntityImageProvider],
+/// which caches thumbnails at both the native (PHCachingImageManager /
+/// MediaStore) and Flutter [ImageCache] layers — the key to smooth,
+/// non-flickering scrolling of a large library. A duration badge overlays
+/// videos.
+class MediaThumbnail extends StatelessWidget {
   const MediaThumbnail({super.key, required this.item});
 
   final MediaItem item;
 
-  @override
-  ConsumerState<MediaThumbnail> createState() => _MediaThumbnailState();
-}
-
-class _MediaThumbnailState extends ConsumerState<MediaThumbnail> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -26,21 +23,22 @@ class _MediaThumbnailState extends ConsumerState<MediaThumbnail> {
         fit: StackFit.expand,
         children: [
           Container(color: scheme.surfaceContainerHighest),
-          FutureBuilder(
-            future: ref
-                .read(localMediaLibraryProvider)
-                .thumbnail(widget.item),
-            builder: (context, snapshot) {
-              final bytes = snapshot.data;
-              if (bytes == null) return const SizedBox.shrink();
-              return Image.memory(bytes, fit: BoxFit.cover);
-            },
+          Image(
+            image: AssetEntityImageProvider(
+              item.asset,
+              isOriginal: false,
+              thumbnailSize: const ThumbnailSize.square(300),
+            ),
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.low,
+            errorBuilder: (context, _, _) => const SizedBox.shrink(),
           ),
-          if (widget.item.kind == MediaKind.video)
+          if (item.kind == MediaKind.video)
             Positioned(
               right: 4,
               bottom: 4,
-              child: _DurationBadge(duration: widget.item.duration),
+              child: _DurationBadge(duration: item.duration),
             ),
         ],
       ),

@@ -55,6 +55,13 @@ abstract interface class LocalMediaLibrary {
   Future<List<MediaItem>> load({required MediaFilter filter, int limit = 200});
 
   Future<Uint8List?> thumbnail(MediaItem item, {int size = 300});
+
+  /// Full-resolution bytes for a photo, for the fullscreen viewer.
+  Future<Uint8List?> fullImage(MediaItem item);
+
+  /// A playable local file path for a video (may materialize from the OS photo
+  /// store). Null if unavailable.
+  Future<String?> videoPath(MediaItem item);
 }
 
 class PhotoManagerLibrary implements LocalMediaLibrary {
@@ -119,6 +126,13 @@ class PhotoManagerLibrary implements LocalMediaLibrary {
   @override
   Future<Uint8List?> thumbnail(MediaItem item, {int size = 300}) =>
       item.asset.thumbnailDataWithSize(ThumbnailSize.square(size));
+
+  @override
+  Future<Uint8List?> fullImage(MediaItem item) => item.asset.originBytes;
+
+  @override
+  Future<String?> videoPath(MediaItem item) async =>
+      (await item.asset.file)?.path;
 }
 
 /// Fallback where there is no photo library. Reports unsupported so the UI can
@@ -147,4 +161,10 @@ class UnsupportedMediaLibrary implements LocalMediaLibrary {
 
   @override
   Future<Uint8List?> thumbnail(MediaItem item, {int size = 300}) async => null;
+
+  @override
+  Future<Uint8List?> fullImage(MediaItem item) async => null;
+
+  @override
+  Future<String?> videoPath(MediaItem item) async => null;
 }

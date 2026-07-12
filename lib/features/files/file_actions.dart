@@ -1,0 +1,177 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/actions/vault_action.dart';
+import '../../core/capability/capability.dart';
+import '../../core/capability/manifest_providers.dart';
+import '../../core/logging/vault_log.dart';
+import '../../core/platform/platform_services.dart';
+import 'data/file_browser_controller.dart';
+import 'data/file_node.dart';
+import 'data/files_view.dart';
+
+final _log = VaultLog.tag('files');
+
+/// Capability gates for the Files service.
+bool _canWrite(WidgetRef ref) =>
+    ref.read(canProvider((serviceId: 'files', action: CapabilityAction.write)));
+bool _canDelete(WidgetRef ref) => ref
+    .read(canProvider((serviceId: 'files', action: CapabilityAction.delete)));
+
+/// Re-reads the current folder after a mutation (optimistic: the mock already
+/// changed; this refreshes the view).
+void _refresh(WidgetRef ref) {
+  ref.invalidate(currentChildrenProvider);
+  ref.invalidate(breadcrumbProvider);
+}
+
+/// Service-level actions for the Files toolbar + palette.
+final filesServiceActions = <VaultAction>[
+  VaultAction(
+    id: 'files.new-folder',
+    label: 'New Folder',
+    icon: Icons.create_new_folder_outlined,
+    isEnabled: _canWrite,
+    onInvoke: (context, ref) async {
+      final name = await _promptName(context, title: 'New folder');
+      if (name == null) return;
+      final parent = ref.read(fileBrowserControllerProvider).currentId;
+      await ref.read(fileRepositoryProvider).createFolder(parent, name);
+      _log.info('Created folder', fields: {'parent': parent, 'name': name});
+      _refresh(ref);
+    },
+  ),
+  VaultAction(
+    id: 'files.upload',
+    label: 'Upload',
+    icon: Icons.upload_file_outlined,
+    isEnabled: _canWrite,
+    onInvoke: (context, ref) async {
+      final picked = await ref
+          .read(fileSystemAccessProvider)
+          .pickFiles(allowMultiple: true);
+      if (picked.isEmpty) return;
+      final parent = ref.read(fileBrowserControllerProvider).currentId;
+      final repo = ref.read(fileRepositoryProvider);
+      for (final f in picked) {
+        await repo.addLocalFile(parent, f.name,
+            size: f.size, mediaKind: _mediaKindFor(f.mimeType, f.name));
+      }
+      _log.info('Queued uploads', fields: {
+        'parent': parent,
+        'count': picked.length,
+        'bytes': picked.fold<int>(0, (a, f) => a + f.size),
+      });
+      _refresh(ref);
+    },
+  ),
+  VaultAction(
+    id: 'files.toggle-view',
+    label: 'Toggle List / Grid',
+    icon: Icons.grid_view_outlined,
+    onInvoke: (context, ref) =>
+        ref.read(filesViewModeProvider.notifier).toggle(),
+  ),
+];
+
+/// Item-level actions for a file/folder row's context menu.
+List<VaultAction> fileItemActions(FileNode node) => [
+      VaultAction(
+        id: 'file.open',
+        label: node.isFolder ? 'Open' : 'Open / Preview',
+        icon: node.isFolder ? Icons.folder_open : Icons.open_in_new,
+        onInvoke: (context, ref) {
+          if (node.isFolder) {
+            ref.read(fileBrowserControllerProvider.notifier).openFolder(node.id);
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Open "${node.name}" — player next')));
+          }
+        },
+      ),
+      if (!node.isFolder)
+        VaultAction(
+          id: 'file.pin',
+          label: node.pinned ? 'Remove from Offline' : 'Make Available Offline',
+          icon: node.pinned ? Icons.cloud_off_outlined : Icons.download_for_offline_outlined,
+          isEnabled: _canWrite,
+          onInvoke: (context, ref) async {
+            await ref
+                .read(fileRepositoryProvider)
+                .setPinned(node.id, !node.pinned);
+            _refresh(ref);
+          },
+        ),
+      VaultAction(
+        id: 'file.rename',
+        label: 'Rename',
+        icon: Icons.drive_file_rename_outline,
+        isEnabled: _canWrite,
+        onInvoke: (context, ref) async {
+          final name =
+              await _promptName(context, title: 'Rename', initial: node.name);
+          if (name == null) return;
+          await ref.read(fileRepositoryProvider).rename(node.id, name);
+          _refresh(ref);
+        },
+      ),
+      VaultAction(
+        id: 'file.delete',
+        label: 'Move to Trash',
+        icon: Icons.delete_outline,
+        isDestructive: true,
+        isEnabled: _canDelete,
+        onInvoke: (context, ref) async {
+          await ref.read(fileRepositoryProvider).trash(node.id);
+          _log.info('Moved to trash',
+              fields: {'id': node.id, 'name': node.name});
+          _refresh(ref);
+        },
+      ),
+    ];
+
+FileMediaKind _mediaKindFor(String? mime, String name) {
+  final m = mime ?? '';
+  if (m.startsWith('image/')) return FileMediaKind.image;
+  if (m.startsWith('video/')) return FileMediaKind.video;
+  if (m.startsWith('audio/')) return FileMediaKind.audio;
+  final ext = name.split('.').last.toLowerCase();
+  if (['jpg', 'jpeg', 'png', 'gif', 'heic'].contains(ext)) {
+    return FileMediaKind.image;
+  }
+  if (['mp4', 'mov', 'mkv', 'avi'].contains(ext)) return FileMediaKind.video;
+  if (['mp3', 'flac', 'wav', 'm4a'].contains(ext)) return FileMediaKind.audio;
+  if (['pdf', 'doc', 'docx', 'txt', 'md'].contains(ext)) {
+    return FileMediaKind.document;
+  }
+  return FileMediaKind.none;
+}
+
+Future<String?> _promptName(BuildContext context,
+    {required String title, String? initial}) async {
+  final controller = TextEditingController(text: initial);
+  return showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Name'),
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () {
+            final v = controller.text.trim();
+            Navigator.of(context).pop(v.isEmpty ? null : v);
+          },
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}

@@ -1,7 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/logging/vault_log.dart';
 import '../../../core/platform/platform_info.dart';
 import 'local_media_library.dart';
+
+final _log = VaultLog.tag('media');
 
 /// The active library implementation for this host. Android/iOS/macOS have a
 /// system photo library; web, Windows, and Linux don't.
@@ -16,8 +19,11 @@ final localMediaLibraryProvider = Provider<LocalMediaLibrary>((ref) {
 /// already granted. Failures degrade to [MediaAccess.unavailable].
 class MediaAccessNotifier extends AsyncNotifier<MediaAccess> {
   @override
-  Future<MediaAccess> build() =>
-      ref.watch(localMediaLibraryProvider).requestAccess();
+  Future<MediaAccess> build() async {
+    final access = await ref.watch(localMediaLibraryProvider).requestAccess();
+    _log.info('Media access resolved', fields: {'state': access.name});
+    return access;
+  }
 
   /// Re-request after the user changes settings, or taps "Allow".
   Future<void> refresh() async {

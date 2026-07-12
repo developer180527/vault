@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import 'core/capability/manifest_providers.dart';
 import 'core/services/service_registry.dart';
+import 'features/files/file_actions.dart';
+import 'features/files/files_page.dart';
+import 'features/files/widgets/files_toolbar_leading.dart';
 import 'features/media/media_library_page.dart';
 import 'features/placeholder_page.dart';
 import 'features/settings/settings_page.dart';
@@ -30,8 +33,9 @@ final vaultServices = <ServiceDefinition>[
     icon: Icons.description_outlined,
     selectedIcon: Icons.description,
     category: ServiceCategory.files,
-    builder: (_) => const PlaceholderPage(
-        title: 'My files', icon: Icons.description_outlined),
+    actions: filesServiceActions,
+    toolbarLeading: (_) => const FilesToolbarLeading(),
+    builder: (_) => const FilesPage(),
   ),
   ServiceDefinition(
     id: 'torrent',

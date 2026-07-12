@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
+import '../core/actions/vault_action.dart';
 import '../core/services/service_registry.dart';
 import 'adaptive_shell.dart';
+import 'widgets/action_bar.dart';
 
 /// Renders one service from its definition. On desktop every service gets a
 /// content toolbar (back/forward on the left, sub-tab selector on the right,
@@ -54,6 +55,8 @@ class _ServicePageState extends State<ServicePage>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _ContentToolbar(
+              actions: widget.service.actions,
+              leading: widget.service.toolbarLeading?.call(context),
               selector: tabs.isEmpty ? null : _SubTabSelector(
                 tabs: tabs,
                 index: _controller!.index,
@@ -92,51 +95,30 @@ class _ServicePageState extends State<ServicePage>
   }
 }
 
-/// Desktop content header: browser-style back/forward on the left, an optional
-/// per-service control slot (the sub-tab selector) on the right.
+/// Desktop content header: a service-provided leading widget (e.g. the file
+/// browser's back/forward + directory name) on the left, then the service's
+/// action buttons and an optional sub-tab selector on the right. This toolbar
+/// is where the old File/View menus now live, per service.
 class _ContentToolbar extends StatelessWidget {
-  const _ContentToolbar({this.selector});
+  const _ContentToolbar({this.selector, this.leading, this.actions = const []});
 
   final Widget? selector;
+  final Widget? leading;
+  final List<VaultAction> actions;
 
   @override
   Widget build(BuildContext context) {
-    final canBack = GoRouter.of(context).canPop();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 16, 6),
+      padding: const EdgeInsets.fromLTRB(12, 8, 16, 6),
       child: Row(
         children: [
-          _NavArrow(
-            icon: Icons.arrow_back,
-            enabled: canBack,
-            onPressed: canBack ? () => context.pop() : null,
-          ),
-          const SizedBox(width: 4),
-          // Forward has no history stack yet; disabled until detail routes push.
-          const _NavArrow(icon: Icons.arrow_forward, enabled: false),
+          ?leading,
           const Spacer(),
+          ActionBar(actions: actions),
+          if (selector != null) const SizedBox(width: 8),
           ?selector,
         ],
       ),
-    );
-  }
-}
-
-class _NavArrow extends StatelessWidget {
-  const _NavArrow(
-      {required this.icon, required this.enabled, this.onPressed});
-
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton.filledTonal(
-      iconSize: 18,
-      visualDensity: VisualDensity.compact,
-      onPressed: enabled ? onPressed : null,
-      icon: Icon(icon),
     );
   }
 }
