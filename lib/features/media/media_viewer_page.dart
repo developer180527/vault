@@ -6,6 +6,7 @@ import 'package:photo_view/photo_view_gallery.dart';
 import 'data/local_media_library.dart';
 import 'data/media_providers.dart';
 import 'widgets/vault_media_player.dart';
+import 'widgets/viewer_top_bar.dart';
 
 /// Fullscreen media viewer: swipe between items, pinch-zoom / double-tap photos,
 /// and play videos inline. Opened from the Media grid with a hero transition.
@@ -42,12 +43,9 @@ class _MediaViewerPageState extends ConsumerState<MediaViewerPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        title: Text('${_index + 1} of ${widget.items.length}',
-            style: const TextStyle(fontSize: 15)),
-      ),
+      // Standardized fullscreen-media chrome; editing actions land in its
+      // action slot later.
+      appBar: ViewerTopBar(title: '${_index + 1} of ${widget.items.length}'),
       body: PhotoViewGallery.builder(
         pageController: _controller,
         itemCount: widget.items.length,

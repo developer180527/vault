@@ -73,6 +73,14 @@ class MusicPlayerController extends Notifier<MusicPlayerState> {
 
   Future<void> next() => _player.seekToNext();
   Future<void> previous() => _player.seekToPrevious();
+
+  /// Stop playback and clear the queue. `current` becomes null, which also
+  /// dismisses the mini-player pill.
+  Future<void> stop() async {
+    await _player.stop();
+    state = const MusicPlayerState();
+    _log.info('Stopped playback, queue cleared');
+  }
   Future<void> seek(Duration position) => _player.seek(position);
 
   Future<void> setShuffle(bool on) async {

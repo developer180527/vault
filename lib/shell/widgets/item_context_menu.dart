@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/actions/vault_action.dart';
+import '../../core/platform/haptics.dart';
 import 'context_menu.dart';
 
 /// Wraps a widget so it exposes context actions the way each platform expects:
@@ -54,8 +55,15 @@ class ContextMenuRegion extends ConsumerWidget {
         );
     return GestureDetector(
       behavior: behavior,
-      onSecondaryTapDown: (d) => open(d.globalPosition),
-      onLongPressStart: (d) => open(d.globalPosition),
+      // -Up, not -Down: tap-down callbacks fire speculatively on EVERY
+      // recognizer still competing in the gesture arena, so a right-click on
+      // an item opened both the item menu and the enclosing empty-space menu.
+      // Up callbacks only fire for the arena winner (the innermost region).
+      onSecondaryTapUp: (d) => open(d.globalPosition),
+      onLongPressStart: (d) {
+        VaultHaptics.impact();
+        open(d.globalPosition);
+      },
       child: child,
     );
   }

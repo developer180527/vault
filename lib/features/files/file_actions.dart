@@ -7,7 +7,7 @@ import '../../core/capability/manifest_providers.dart';
 import '../../core/logging/vault_log.dart';
 import '../../core/platform/platform_services.dart';
 import 'data/file_browser_controller.dart';
-import 'data/file_node.dart';
+import '../../core/models/file_node.dart';
 import 'data/files_view.dart';
 
 final _log = VaultLog.tag('files');
@@ -74,26 +74,63 @@ final filesServiceActions = <VaultAction>[
   ),
 ];
 
-/// Item-level actions for a file/folder row's context menu.
+/// Item-level actions for a file/folder row's context menu, composed from two
+/// sections so the menu scales per file kind:
+///
+///   [kind-specific actions] + [actions common to every node]
+///
+/// Supporting a new file type (or giving one extra tools — "Set as wallpaper",
+/// "Extract archive"…) means extending [_kindActions] only; the common tail
+/// (offline, rename, trash) stays uniform everywhere.
 List<VaultAction> fileItemActions(FileNode node) => [
+      ..._kindActions(node),
+      ..._commonActions(node),
+    ];
+
+/// The kind-specific section: what "opening" means for this node, plus any
+/// per-kind extras.
+List<VaultAction> _kindActions(FileNode node) {
+  if (node.isFolder) {
+    return [
       VaultAction(
         id: 'file.open',
-        label: node.isFolder ? 'Open' : 'Open / Preview',
-        icon: node.isFolder ? Icons.folder_open : Icons.open_in_new,
-        onInvoke: (context, ref) {
-          if (node.isFolder) {
-            ref.read(fileBrowserControllerProvider.notifier).openFolder(node.id);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Open "${node.name}" — player next')));
-          }
-        },
+        label: 'Open',
+        icon: Icons.folder_open,
+        onInvoke: (context, ref) =>
+            ref.read(fileBrowserControllerProvider.notifier).openFolder(node.id),
       ),
+    ];
+  }
+
+  final (label, icon) = switch (node.mediaKind) {
+    FileMediaKind.image => ('View Photo', Icons.photo_outlined),
+    FileMediaKind.video => ('Play Video', Icons.play_circle_outline),
+    FileMediaKind.audio => ('Play Audio', Icons.music_note_outlined),
+    FileMediaKind.document => ('Open Document', Icons.description_outlined),
+    FileMediaKind.none => ('Open / Preview', Icons.open_in_new),
+  };
+  return [
+    VaultAction(
+      id: 'file.open',
+      label: label,
+      icon: icon,
+      // TODO(files): hand media kinds to the viewer/player once file bytes
+      // are reachable (needs sync); documents to a platform open-with.
+      onInvoke: (context, ref) => ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Open "${node.name}" — player next'))),
+    ),
+  ];
+}
+
+/// Actions every node gets, regardless of kind.
+List<VaultAction> _commonActions(FileNode node) => [
       if (!node.isFolder)
         VaultAction(
           id: 'file.pin',
           label: node.pinned ? 'Remove from Offline' : 'Make Available Offline',
-          icon: node.pinned ? Icons.cloud_off_outlined : Icons.download_for_offline_outlined,
+          icon: node.pinned
+              ? Icons.cloud_off_outlined
+              : Icons.download_for_offline_outlined,
           isEnabled: _canWrite,
           onInvoke: (context, ref) async {
             await ref

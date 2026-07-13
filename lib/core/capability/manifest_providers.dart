@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../client/vault_client.dart';
 import '../logging/vault_log.dart';
 import '../services/service_registry.dart';
 import 'capability.dart';
@@ -68,7 +69,9 @@ class ManifestController extends AsyncNotifier<CapabilityManifest> {
       return manifest;
     }
     try {
-      final manifest = await const RemoteManifestSource().fetch();
+      // Through the VaultClient seam — the mock client serves a full grant;
+      // HttpVaultClient will serve the server's real manifest.
+      final manifest = await ref.read(vaultClientProvider).fetchManifest();
       _log.info('Capability manifest loaded', fields: {
         'profile': manifest.profileId,
         'services': manifest.capabilities.length,

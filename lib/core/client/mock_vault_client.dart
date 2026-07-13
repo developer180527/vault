@@ -1,42 +1,196 @@
-import 'file_node.dart';
+import 'dart:async';
+import 'dart:math' as math;
 
-/// Read side of the file browser. Backed later by the drift mirror that the
-/// sync engine keeps current from the server journal; for now a mock provides
-/// a believable tree so the UI can be built and verified. The UI always reads
-/// through this — never the server directly.
-abstract interface class FileRepository {
-  /// Direct children of [parentId] (null = the My Files root), already sorted
-  /// (folders first, then name). Reads from the local mirror, so it's instant
-  /// and works offline.
-  Future<List<FileNode>> children(String? parentId);
+import '../capability/capability.dart';
+import '../capability/manifest_source.dart';
+import '../jobs/job.dart';
+import '../logging/vault_log.dart';
+import '../models/file_node.dart';
+import 'vault_client.dart';
 
-  /// A node by id, for breadcrumb/detail.
-  Future<FileNode?> node(String id);
+final _log = VaultLog.tag('client.mock');
 
-  /// The chain from the root down to [id], for the breadcrumb.
-  Future<List<FileNode>> pathTo(String id);
+/// Stand-in Vault server: an in-memory file tree and an in-process job
+/// scheduler with believable timing. Lets every feature be built and demoed
+/// against the real [VaultClient] contract before vaultd exists.
+class MockVaultClient implements VaultClient {
+  MockVaultClient({
+    required this.serviceIds,
+    Duration jobTick = const Duration(milliseconds: 400),
+    int maxConcurrentJobs = 2,
+  })  : files = MockFileRepository(),
+        _jobs = _MockJobScheduler(tick: jobTick, maxConcurrent: maxConcurrentJobs);
 
-  // --- Mutations (increment 2). Applied optimistically to the mirror; the real
-  // repository will also enqueue a server job and reconcile from the journal.
+  /// Deferred so constructing the client never touches other providers.
+  final List<String> Function() serviceIds;
 
-  /// Create a folder under [parentId]. Returns its id.
-  Future<String> createFolder(String? parentId, String name);
+  @override
+  final MockFileRepository files;
 
-  /// Register a picked local file as a pending upload (localOnly) node.
-  Future<String> addLocalFile(String? parentId, String name,
-      {int? size, FileMediaKind mediaKind = FileMediaKind.none});
+  final _MockJobScheduler _jobs;
 
-  Future<void> rename(String id, String newName);
+  @override
+  VaultJobsApi get jobs => _jobs;
 
-  Future<void> setPinned(String id, bool pinned);
+  @override
+  Future<CapabilityManifest> fetchManifest() async =>
+      MockManifestSource.fullGrant(serviceIds());
 
-  /// Soft-delete → trash (never destroys).
-  Future<void> trash(String id);
+  @override
+  void dispose() => _jobs.dispose();
 }
 
-/// In-memory tree standing in for the synced mirror. Models the files-on-demand
-/// world: most nodes are `remoteOnly`, some are `available`/`pinned`, a couple
-/// are mid-transfer or shared — so every badge state is exercised.
+/// In-process job scheduler simulating the server's. Jobs are queued on
+/// submit and started automatically as slots free up (max [maxConcurrent]
+/// running); progress ticks until completion. A source containing the word
+/// "fail" fails partway — handy for exercising the retry path in dev/tests.
+class _MockJobScheduler implements VaultJobsApi {
+  _MockJobScheduler({required this.tick, required this.maxConcurrent});
+
+  final Duration tick;
+  final int maxConcurrent;
+
+  final _jobs = <String, VaultJob>{};
+  final _timers = <String, Timer>{};
+  final _changes = StreamController<List<VaultJob>>.broadcast();
+  final _random = math.Random();
+  int _seq = 0;
+  bool _disposed = false;
+
+  List<VaultJob> _snapshot() {
+    final list = _jobs.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
+  }
+
+  void _emit() {
+    if (!_disposed) _changes.add(_snapshot());
+  }
+
+  @override
+  Stream<List<VaultJob>> watch() async* {
+    yield _snapshot();
+    yield* _changes.stream;
+  }
+
+  @override
+  Future<VaultJob> submit(JobRequest request) async {
+    final job = VaultJob(
+      id: 'job-${_seq++}',
+      kind: request.kind,
+      title: request.title ?? _titleFor(request.source),
+      source: request.source,
+      createdAt: DateTime.now(),
+    );
+    _jobs[job.id] = job;
+    _log.info('Job submitted',
+        fields: {'id': job.id, 'kind': job.kind.name, 'title': job.title});
+    _emit();
+    _schedule();
+    return job;
+  }
+
+  @override
+  Future<void> cancel(String id) async {
+    final job = _jobs[id];
+    if (job == null || job.state.isFinished) return;
+    _timers.remove(id)?.cancel();
+    _jobs[id] = job.copyWith(state: JobState.canceled);
+    _emit();
+    _schedule(); // the freed slot may start a queued job
+  }
+
+  @override
+  Future<void> retry(String id) async {
+    final job = _jobs[id];
+    if (job == null ||
+        (job.state != JobState.failed && job.state != JobState.canceled)) {
+      return;
+    }
+    _jobs[id] = job.copyWith(state: JobState.queued, progress: 0, message: null);
+    _emit();
+    _schedule();
+  }
+
+  @override
+  Future<void> clearFinished() async {
+    _jobs.removeWhere((_, j) => j.state.isFinished);
+    _emit();
+  }
+
+  /// The scheduler core: fill free slots with queued jobs, oldest first.
+  void _schedule() {
+    if (_disposed) return;
+    var running = _jobs.values.where((j) => j.state == JobState.running).length;
+    final queued = _jobs.values.where((j) => j.state == JobState.queued).toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    for (final job in queued) {
+      if (running >= maxConcurrent) break;
+      _start(job.id);
+      running++;
+    }
+  }
+
+  void _start(String id) {
+    _jobs[id] = _jobs[id]!.copyWith(state: JobState.running);
+    _emit();
+    _timers[id] = Timer.periodic(tick, (_) => _tick(id));
+  }
+
+  void _tick(String id) {
+    final job = _jobs[id];
+    if (job == null || job.state != JobState.running) {
+      _timers.remove(id)?.cancel();
+      return;
+    }
+    final progress = job.progress + 0.05 + _random.nextDouble() * 0.1;
+
+    // Deterministic failure hook for dev/tests.
+    if (job.source.contains('fail') && progress > 0.4) {
+      _timers.remove(id)?.cancel();
+      _jobs[id] = job.copyWith(
+          state: JobState.failed, message: 'Simulated failure (mock server)');
+      _emit();
+      _schedule();
+      return;
+    }
+
+    if (progress >= 1) {
+      _timers.remove(id)?.cancel();
+      _jobs[id] = job.copyWith(state: JobState.completed, progress: 1);
+      _log.info('Job completed', fields: {'id': id, 'title': job.title});
+      _emit();
+      _schedule();
+      return;
+    }
+
+    _jobs[id] = job.copyWith(progress: progress);
+    _emit();
+  }
+
+  String _titleFor(String source) {
+    // magnet:?xt=...&dn=<display name>
+    final dn = Uri.tryParse(source)?.queryParameters['dn'];
+    if (dn != null && dn.isNotEmpty) return dn;
+    final tail = Uri.tryParse(source)?.pathSegments.lastOrNull;
+    if (tail != null && tail.isNotEmpty) return tail;
+    return source;
+  }
+
+  void dispose() {
+    _disposed = true;
+    for (final t in _timers.values) {
+      t.cancel();
+    }
+    _timers.clear();
+    _changes.close();
+  }
+}
+
+/// In-memory tree standing in for the synced mirror. Models the
+/// files-on-demand world: most nodes are `remoteOnly`, some are
+/// `available`/`pinned`, a couple are mid-transfer or shared — so every badge
+/// state is exercised.
 class MockFileRepository implements FileRepository {
   MockFileRepository() {
     _seed();

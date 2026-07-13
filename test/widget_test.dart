@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,7 +28,7 @@ Widget _appWith(ProviderContainer container) => UncontrolledProviderScope(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('desktop shell shows sidebar with all granted services',
+  testWidgets('desktop sidebar shows pinned + always-available services',
       (tester) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1.0;
@@ -36,15 +37,19 @@ void main() {
     await tester.pumpWidget(_appWith(_container()));
     await tester.pumpAndSettle();
 
+    // Default pins (mock manifest: first 4) + always-available Settings/You.
     expect(find.text('Media'), findsWidgets);
-    expect(find.text('Torrent'), findsOneWidget);
     expect(find.text('My files'), findsOneWidget);
-    expect(find.text('AI Chat'), findsOneWidget);
+    expect(find.text('Music'), findsOneWidget);
+    expect(find.text('Torrent'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('You'), findsOneWidget);
     expect(find.text('Trash'), findsOneWidget);
+    // Unpinned services launch from the You page, not the sidebar.
+    expect(find.text('AI Chat'), findsNothing);
   });
 
-  testWidgets('mobile bottom bar shows all services when they fit',
+  testWidgets('mobile dock shows pinned services plus the fixed You slot',
       (tester) async {
     tester.view.physicalSize = const Size(400, 850);
     tester.view.devicePixelRatio = 1.0;
@@ -53,10 +58,51 @@ void main() {
     await tester.pumpWidget(_appWith(_container()));
     await tester.pumpAndSettle();
 
-    // 5 services fit directly in a Material bottom bar → no hub overflow.
-    expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.text('More'), findsNothing);
-    expect(find.text('Settings'), findsOneWidget);
+    // The dock is a static row of the default pins (mock manifest: first 4)
+    // plus the anchored You avatar. Nothing scrolls.
+    expect(find.text('My files'), findsOneWidget);
+    expect(find.text('Music'), findsOneWidget);
+    expect(find.text('Torrent'), findsOneWidget);
+    expect(find.byIcon(Icons.person_outline), findsOneWidget);
+    expect(find.byType(ListWheelScrollView), findsNothing);
+    // Unpinned services and Settings are not dock destinations (You page).
+    expect(find.text('AI Chat'), findsNothing);
+    expect(find.text('Settings'), findsNothing);
+  });
+
+  testWidgets('You page launches unpinned services full-screen (dock hidden)',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 850);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_appWith(_container()));
+    await tester.pumpAndSettle();
+
+    // Open the You page from the anchored avatar slot.
+    await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, 'You'), findsOneWidget);
+
+    // AI Chat is unpinned by default (mock manifest pins the first four), so
+    // it launches over the shell: no dock, its own app bar.
+    // (The filled person icon is the dock's active You avatar — its presence
+    // is the "dock is visible" marker below.)
+    await tester.tap(find.text('AI Chat'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, 'AI Chat'), findsOneWidget);
+    expect(find.byIcon(Icons.person), findsNothing); // dock hidden
+
+    // Back returns to the shell with the dock restored.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.person), findsOneWidget);
+
+    // The gear on the You page opens Settings full-screen the same way.
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, 'Settings'), findsOneWidget);
+    expect(find.byIcon(Icons.person), findsNothing); // dock hidden
   });
 
   testWidgets('phone in landscape keeps the bottom-nav shell (not desktop)',
@@ -70,44 +116,82 @@ void main() {
     await tester.pumpWidget(_appWith(_container()));
     await tester.pumpAndSettle();
 
-    expect(find.byType(NavigationBar), findsOneWidget); // mobile shell
+    expect(find.byIcon(Icons.person_outline), findsOneWidget); // mobile dock
     expect(find.text('Trash'), findsNothing); // desktop-only sidebar item
   });
 
-  testWidgets('mobile overflows to a searchable Services hub past five',
+  testWidgets('tapping a pinned dock service switches the active branch',
       (tester) async {
     tester.view.physicalSize = const Size(400, 850);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    // A 6th service forces the hub: bar shows pinned + "More".
-    final services = [
-      ...vaultServices,
-      ServiceDefinition(
-        id: 'extra',
-        label: 'Extra',
-        icon: Icons.extension_outlined,
-        selectedIcon: Icons.extension,
-        builder: (_) => const SizedBox.shrink(),
-      ),
-    ];
-    final container = ProviderContainer(overrides: [
-      serviceRegistryProvider.overrideWithValue(services),
-      localMediaLibraryProvider
-          .overrideWithValue(const UnsupportedMediaLibrary()),
-    ]);
-    addTearDown(container.dispose);
+    await tester.pumpWidget(_appWith(_container()));
+    await tester.pumpAndSettle();
 
+    await tester.tap(find.text('My files'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(AppBar, 'My files'), findsOneWidget);
+  });
+
+  testWidgets('right-clicking a file opens ONE menu, with kind-aware actions',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 850);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_appWith(_container()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('My files'));
+    await tester.pumpAndSettle();
+
+    // Secondary-tap a document row: its item menu appears (document open
+    // verb + common actions), and the enclosing empty-space region must NOT
+    // also fire (that double-fired when the region listened on tap-DOWN).
+    await tester.tap(find.text('Tax Return 2025.pdf'),
+        buttons: kSecondaryButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Open Document'), findsOneWidget);
+    expect(find.text('Rename'), findsOneWidget);
+    expect(find.text('New Folder'), findsNothing); // empty-space menu absent
+  });
+
+  testWidgets('paste-a-link submits a job that runs to completion',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 850);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final container = _container();
+    addTearDown(container.dispose);
     await tester.pumpWidget(_appWith(container));
     await tester.pumpAndSettle();
 
-    expect(find.text('More'), findsOneWidget);
-
-    await tester.tap(find.text('More'));
+    // Torrent is pinned by default; Downloads is its first sub-tab.
+    await tester.tap(find.text('Torrent'));
     await tester.pumpAndSettle();
-    expect(find.text('Services'), findsOneWidget); // hub app bar
-    expect(find.widgetWithText(TextField, 'Search services'),
-        findsOneWidget); // searchable
+    expect(find.text('No downloads yet'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Add download'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byType(TextField), 'https://y.test/episode-1.mp4');
+    await tester.tap(find.text('Add'));
+    await tester.pump();
+
+    // The scheduler picks it up automatically and drives it to done. Pump
+    // fixed steps: pumpAndSettle would stop between progress ticks (a pending
+    // timer schedules no frame until it fires).
+    await tester.pumpAndSettle();
+    expect(find.text('episode-1.mp4'), findsOneWidget);
+    for (var i = 0;
+        i < 100 &&
+            tester.widgetList(find.byIcon(Icons.check_circle_outline)).isEmpty;
+        i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+    expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
   });
 
   testWidgets('revoking a service in the manifest removes it from navigation',

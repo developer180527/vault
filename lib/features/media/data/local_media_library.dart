@@ -10,12 +10,12 @@ enum MediaAccess { authorized, limited, denied, unavailable }
 
 enum MediaKind { image, video }
 
-/// What the filter pill is set to.
+/// What the filter pill is set to. Music is not a filter — it's its own
+/// top-level service tab.
 enum MediaFilter {
   all('All', Icons.grid_view_outlined),
   photos('Photos', Icons.photo_outlined),
-  videos('Videos', Icons.videocam_outlined),
-  music('Music', Icons.music_note_outlined);
+  videos('Videos', Icons.videocam_outlined);
 
   const MediaFilter(this.label, this.icon);
   final String label;
@@ -101,14 +101,10 @@ class PhotoManagerLibrary implements LocalMediaLibrary {
     required MediaFilter filter,
     int limit = 200,
   }) async {
-    // Music is sourced from a chosen folder, not the photo library, so it never
-    // reaches here — but the switch must be exhaustive.
-    if (filter == MediaFilter.music) return const [];
     final type = switch (filter) {
       MediaFilter.all => RequestType.common,
       MediaFilter.photos => RequestType.image,
       MediaFilter.videos => RequestType.video,
-      MediaFilter.music => RequestType.common,
     };
     final albums = await PhotoManager.getAssetPathList(
       type: type,

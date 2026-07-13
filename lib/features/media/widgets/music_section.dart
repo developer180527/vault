@@ -2,13 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../../core/actions/vault_action.dart';
 import '../../../core/platform/platform_info.dart';
+import '../../../shell/adaptive_shell.dart';
 import '../data/music_library.dart';
 import '../data/music_player_controller.dart';
 import '../music_player_page.dart';
 
-/// The Music view inside the Media tab: lists the user's added tracks with a
-/// mini-player, or prompts to add music the first time.
+Future<void> _addMusic(WidgetRef ref) async {
+  final added = await ref.read(musicLibraryProvider).addMusic();
+  if (added) ref.read(musicRevisionProvider.notifier).bump();
+}
+
+/// Toolbar/palette actions for the Music service — "Add music" lives in the
+/// app bar (top-right, next to the tab title) rather than inside the list.
+final musicServiceActions = <VaultAction>[
+  VaultAction(
+    id: 'music.add',
+    label: 'Add music',
+    icon: Icons.add,
+    onInvoke: (context, ref) => _addMusic(ref),
+  ),
+];
+
+/// The Music tab: lists the user's added tracks with a mini-player, or prompts
+/// to add music the first time.
 class MusicSection extends ConsumerWidget {
   const MusicSection({super.key});
 
@@ -17,13 +35,6 @@ class MusicSection extends ConsumerWidget {
     final tracksAsync = ref.watch(musicTracksProvider);
     final playerState = ref.watch(musicPlayerProvider);
 
-    Future<void> addMusic() async {
-      final added = await ref.read(musicLibraryProvider).addMusic();
-      if (added) {
-        ref.read(musicRevisionProvider.notifier).bump();
-      }
-    }
-
     return Column(
       children: [
         Expanded(
@@ -31,11 +42,14 @@ class MusicSection extends ConsumerWidget {
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text('Music unavailable: $e')),
             data: (tracks) => tracks.isEmpty
-                ? _AddMusicPrompt(onAdd: addMusic)
-                : _TrackList(tracks: tracks, onAdd: addMusic),
+                ? _AddMusicPrompt(onAdd: () => _addMusic(ref))
+                : _TrackList(tracks: tracks),
           ),
         ),
-        if (playerState.current != null) const _MiniPlayer(),
+        // On mobile the shell shows a floating mini-player pill above the
+        // dock instead; the inline bar is desktop/tablet-only.
+        if (playerState.current != null && FormFactor.isDesktopOf(context))
+          const _MiniPlayer(),
       ],
     );
   }
@@ -82,58 +96,39 @@ class _AddMusicPrompt extends StatelessWidget {
 }
 
 class _TrackList extends ConsumerWidget {
-  const _TrackList({required this.tracks, required this.onAdd});
+  const _TrackList({required this.tracks});
 
   final List<MusicTrack> tracks;
-  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final playerState = ref.watch(musicPlayerProvider);
-    return Column(
-      children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: TextButton.icon(
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Add more'),
-              onPressed: onAdd,
-            ),
+    return ListView.builder(
+      itemCount: tracks.length,
+      itemBuilder: (context, i) {
+        final track = tracks[i];
+        final isCurrent = playerState.current?.id == track.id;
+        return ListTile(
+          leading: Icon(
+            isCurrent ? Icons.equalizer : Icons.music_note,
+            color: isCurrent ? Theme.of(context).colorScheme.primary : null,
           ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            itemCount: tracks.length,
-            itemBuilder: (context, i) {
-              final track = tracks[i];
-              final isCurrent = playerState.current?.id == track.id;
-              return ListTile(
-                leading: Icon(
-                  isCurrent ? Icons.equalizer : Icons.music_note,
-                  color:
-                      isCurrent ? Theme.of(context).colorScheme.primary : null,
-                ),
-                title: Text(track.title,
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                onTap: () {
-                  ref
-                      .read(musicPlayerProvider.notifier)
-                      .playQueue(tracks, i);
-                  _openPlayer(context);
-                },
-              );
-            },
-          ),
-        ),
-      ],
+          title:
+              Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          onTap: () {
+            ref.read(musicPlayerProvider.notifier).playQueue(tracks, i);
+            _openPlayer(context);
+          },
+        );
+      },
     );
   }
 }
 
 void _openPlayer(BuildContext context) {
-  Navigator.of(context).push(MaterialPageRoute<void>(
+  // Root navigator so the full-screen player covers the whole shell (app bar +
+  // bottom nav), not just the tab's body.
+  Navigator.of(context, rootNavigator: true).push(MaterialPageRoute<void>(
     fullscreenDialog: true,
     builder: (_) => const MusicPlayerPage(),
   ));

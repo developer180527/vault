@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../data/file_node.dart';
+import '../../../core/models/file_node.dart';
 import 'file_status_badge.dart';
 
 /// Grid-view tile for a file/folder (the "grid" View mode). A large kind icon,

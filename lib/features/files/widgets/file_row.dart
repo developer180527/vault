@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../data/file_node.dart';
+import '../../../core/models/file_node.dart';
 import 'file_status_badge.dart';
 
 /// One row in the file list, used on both form factors. Shows a kind icon, the

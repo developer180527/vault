@@ -1,11 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'file_node.dart';
-import 'file_repository.dart';
+import '../../../core/client/vault_client.dart';
+import '../../../core/models/file_node.dart';
 
+/// The file namespace, through the [VaultClient] seam (mock today, vaultd
+/// later). Feature code reads this, never the client directly, so the files
+/// feature stays decoupled from how the server is reached.
 final fileRepositoryProvider =
-    Provider<FileRepository>((ref) => MockFileRepository());
+    Provider<FileRepository>((ref) => ref.watch(vaultClientProvider).files);
 
 /// Browse location plus Finder-style back/forward history. `currentId` is null
 /// at the My Files root.

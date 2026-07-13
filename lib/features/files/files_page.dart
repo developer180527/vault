@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../shell/adaptive_shell.dart';
 import '../../shell/widgets/item_context_menu.dart';
 import 'data/file_browser_controller.dart';
-import 'data/file_node.dart';
+import '../../core/models/file_node.dart';
 import 'data/files_view.dart';
 import 'file_actions.dart';
 import 'widgets/file_row.dart';
@@ -21,9 +22,15 @@ class FilesPage extends ConsumerWidget {
     final childrenAsync = ref.watch(currentChildrenProvider);
     final viewMode = ref.watch(filesViewModeProvider);
 
+    // Desktop keeps the Finder-style bar at the bottom; on mobile it moves to
+    // the top (just under the app bar) where a thumb doesn't cover it and the
+    // floating dock can't overlap it.
+    final isDesktop = FormFactor.isDesktopOf(context);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (!isDesktop) const _PathBar(atTop: true),
         Expanded(
           // Empty-space menu: right-click / long-press anywhere not on an item.
           child: ContextMenuRegion(
@@ -40,7 +47,7 @@ class FilesPage extends ConsumerWidget {
             ),
           ),
         ),
-        const _PathBar(),
+        if (isDesktop) const _PathBar(),
       ],
     );
   }
@@ -89,10 +96,13 @@ class FilesPage extends ConsumerWidget {
   }
 }
 
-/// Finder-style path bar pinned to the bottom of the browser, showing the full
-/// path and letting the user jump to any ancestor.
+/// Finder-style path bar showing the full path and letting the user jump to
+/// any ancestor. Pinned to the bottom on desktop, or just under the toolbar
+/// ([atTop]) on mobile.
 class _PathBar extends ConsumerWidget {
-  const _PathBar();
+  const _PathBar({this.atTop = false});
+
+  final bool atTop;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -100,10 +110,12 @@ class _PathBar extends ConsumerWidget {
     final controller = ref.read(fileBrowserControllerProvider.notifier);
     final scheme = Theme.of(context).colorScheme;
 
+    final edge = BorderSide(color: Theme.of(context).dividerColor);
     return Container(
       decoration: BoxDecoration(
         color: scheme.surfaceContainerLow,
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+        border: Border(top: atTop ? BorderSide.none : edge,
+            bottom: atTop ? edge : BorderSide.none),
       ),
       height: 32,
       child: SingleChildScrollView(

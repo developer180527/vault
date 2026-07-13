@@ -6,20 +6,15 @@ import 'data/local_media_library.dart';
 import 'data/media_providers.dart';
 import 'media_viewer_page.dart';
 import 'widgets/media_thumbnail.dart';
-import 'widgets/music_section.dart';
 
-/// The Media tab: on-device photos/videos (gated behind a real OS permission)
-/// and local music, chosen with the filter dropdown in the tab's status bar.
+/// The Media tab: on-device photos/videos (gated behind a real OS permission),
+/// narrowed with the filter dropdown in the tab's status bar. Music lives in
+/// its own top-level service tab.
 class MediaLibraryPage extends ConsumerWidget {
   const MediaLibraryPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final filter = ref.watch(mediaFilterProvider);
-
-    // Music is its own source (a chosen folder), independent of photo access.
-    if (filter == MediaFilter.music) return const MusicSection();
-
     final access = ref.watch(mediaAccessProvider);
 
     return access.when(
@@ -82,7 +77,10 @@ class _MediaGrid extends ConsumerWidget {
                       // so cached thumbnails aren't dropped and reloaded. No
                       // Hero here: per-cell heroes cause scroll flicker.
                       key: ValueKey(items[i].id),
-                      onTap: () => Navigator.of(context).push(_viewerRoute(items, i)),
+                      // Root navigator so the viewer covers the whole shell
+                      // (app bar + bottom nav), not just the tab's body.
+                      onTap: () => Navigator.of(context, rootNavigator: true)
+                          .push(_viewerRoute(items, i)),
                       child: MediaThumbnail(item: items[i]),
                     ),
                   ),

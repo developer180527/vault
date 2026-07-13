@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/local_media_library.dart';
 import '../data/media_providers.dart';
 
-/// Pill-shaped dropdown for the media filter (All / Photos / Videos / Music).
+/// Pill-shaped dropdown for the media filter (All / Photos / Videos).
 /// Lives in the tab's status-bar slot (where the background-work cloud used to
 /// be), replacing the floating bottom pill.
 class MediaFilterDropdown extends ConsumerWidget {

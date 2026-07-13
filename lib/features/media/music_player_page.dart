@@ -35,12 +35,26 @@ class MusicPlayerPage extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(28, 8, 28, 28),
             child: Column(
               children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: IconButton(
-                    icon: const Icon(Icons.keyboard_arrow_down, size: 32),
-                    onPressed: () => Navigator.of(context).maybePop(),
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down, size: 32),
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                    // Stop entirely: kills playback, clears the queue, and
+                    // (via current == null) removes the mini-player pill.
+                    IconButton(
+                      tooltip: 'Stop',
+                      icon: const Icon(Icons.stop_circle_outlined, size: 30),
+                      onPressed: () async {
+                        await controller.stop();
+                        if (context.mounted) {
+                          Navigator.of(context).maybePop();
+                        }
+                      },
+                    ),
+                  ],
                 ),
                 const Spacer(),
                 _Artwork(scheme: scheme),

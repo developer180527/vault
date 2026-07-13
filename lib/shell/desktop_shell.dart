@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/platform/platform_info.dart';
+import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
 import 'widgets/app_title_bar.dart';
 
@@ -46,25 +48,36 @@ class DesktopShell extends StatelessWidget {
   }
 }
 
-class _Sidebar extends StatelessWidget {
+class _Sidebar extends ConsumerWidget {
   const _Sidebar({required this.shell, required this.services});
 
   final StatefulNavigationShell shell;
   final List<ServiceDefinition> services;
 
-  /// Sidebar entries grouped by category. Headers appear only when more than
-  /// one category is present, so a small install stays clean; a large one stays
-  /// organized. Branch index is the service's position in [services].
-  Widget _buildGroupedList(BuildContext context) {
+  /// Sidebar entries grouped by category, honoring the user's pins from the
+  /// You page: a service is listed when it's pinned, always-available
+  /// (Settings, You), or currently active (so unpinning the page you're on
+  /// doesn't strand you). Everything else launches from the You page shelf.
+  /// Headers appear only when more than one category is present, so a small
+  /// install stays clean; a large one stays organized. Branch index is the
+  /// service's position in [services].
+  Widget _buildGroupedList(BuildContext context, List<String> pinnedIds) {
     final theme = Theme.of(context);
-    final categoriesPresent =
-        services.map((s) => s.category).toSet().length > 1;
+    bool visible(int i, ServiceDefinition s) =>
+        pinnedIds.contains(s.id) ||
+        s.alwaysAvailable ||
+        i == shell.currentIndex;
+    final categoriesPresent = {
+      for (var i = 0; i < services.length; i++)
+        if (visible(i, services[i])) services[i].category,
+    }.length > 1;
 
     final children = <Widget>[];
     for (final category in ServiceCategory.values) {
       final inCategory = [
         for (var i = 0; i < services.length; i++)
-          if (services[i].category == category) (i, services[i]),
+          if (services[i].category == category && visible(i, services[i]))
+            (i, services[i]),
       ];
       if (inCategory.isEmpty) continue;
       if (categoriesPresent) {
@@ -89,8 +102,10 @@ class _Sidebar extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final pinnedIds =
+        ref.watch(pinnedServicesProvider).asData?.value ?? const <String>[];
     return Container(
       width: 220,
       color: theme.colorScheme.surfaceContainerLow,
@@ -98,7 +113,7 @@ class _Sidebar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 12),
-          Expanded(child: _buildGroupedList(context)),
+          Expanded(child: _buildGroupedList(context, pinnedIds)),
           Divider(height: 1, color: theme.dividerColor),
           Padding(
             padding: const EdgeInsets.all(8),

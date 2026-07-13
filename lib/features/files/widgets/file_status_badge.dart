@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../data/file_node.dart';
+import '../../../core/models/file_node.dart';
 
 /// Compact trailing indicator that renders a node's *storage* state (and a
 /// share marker when relevant) as small icons. Keeps the two axes visually

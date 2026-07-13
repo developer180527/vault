@@ -3,8 +3,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../capability/manifest_providers.dart';
 
-/// Which services the user has pinned to the mobile bottom bar, persisted
-/// per device. Defaults to the server's suggested order (`defaultPinned`) until
+/// Hard cap on dock pins — the dock row is static (no scrolling), so this is
+/// what fits comfortably beside the fixed You slot on a phone. Everything else
+/// is one tap away on the You page.
+const kMaxDockPins = 4;
+
+/// Which services the user has pinned to the mobile dock, persisted per
+/// device. Defaults to the server's suggested order (`defaultPinned`) until
 /// the user customizes it. The shell intersects this with currently-permitted
 /// services, so a revoked pin simply drops off.
 class PinnedServicesNotifier extends AsyncNotifier<List<String>> {
@@ -25,15 +30,20 @@ class PinnedServicesNotifier extends AsyncNotifier<List<String>> {
     await prefs.setStringList(_key, ids);
   }
 
-  Future<void> toggle(String serviceId) async {
+  /// Pin/unpin a service. [maxPins] caps how many can be pinned (pass
+  /// [kMaxDockPins] from the mobile dock; null for the desktop sidebar, which
+  /// can hold any number). Returns false when pinning would exceed the cap
+  /// (the caller tells the user to unpin something first).
+  Future<bool> toggle(String serviceId, {int? maxPins}) async {
     final current = state.asData?.value ?? const <String>[];
-    final next = current.contains(serviceId)
-        ? (List.of(current)..remove(serviceId))
-        : (List.of(current)..add(serviceId));
-    await _persist(next);
+    if (current.contains(serviceId)) {
+      await _persist(List.of(current)..remove(serviceId));
+    } else {
+      if (maxPins != null && current.length >= maxPins) return false;
+      await _persist([...current, serviceId]);
+    }
+    return true;
   }
-
-  Future<void> setAll(List<String> ids) => _persist(ids);
 }
 
 final pinnedServicesProvider =

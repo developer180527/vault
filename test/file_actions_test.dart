@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:vault/features/files/data/file_browser_controller.dart';
-import 'package:vault/features/files/data/file_node.dart';
+import 'package:vault/core/models/file_node.dart';
 
 void main() {
   test('createFolder adds an optimistic localOnly node', () async {

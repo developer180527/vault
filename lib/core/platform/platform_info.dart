@@ -16,6 +16,9 @@ bool get isDesktopPlatform =>
 bool get isMacOS =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
 
+/// iOS specifically — gets the translucent "liquid glass" dock treatment.
+bool get isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
 /// Mobile OSes, which have a system photo library and scoped media permissions.
 bool get isAndroidOrIOS =>
     !kIsWeb &&

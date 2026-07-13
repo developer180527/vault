@@ -8,10 +8,13 @@ import 'core/services/service_registry.dart';
 import 'features/files/file_actions.dart';
 import 'features/files/files_page.dart';
 import 'features/files/widgets/files_toolbar_leading.dart';
+import 'features/jobs/jobs_page.dart';
 import 'features/media/media_library_page.dart';
 import 'features/media/widgets/media_filter_dropdown.dart';
+import 'features/media/widgets/music_section.dart';
 import 'features/placeholder_page.dart';
 import 'features/settings/settings_page.dart';
+import 'features/user/user_page.dart';
 import 'shell/adaptive_shell.dart';
 import 'shell/service_page.dart';
 import 'shell/widgets/boot_screens.dart';
@@ -41,18 +44,27 @@ final vaultServices = <ServiceDefinition>[
     builder: (_) => const FilesPage(),
   ),
   ServiceDefinition(
+    id: 'music',
+    label: 'Music',
+    icon: Icons.music_note_outlined,
+    selectedIcon: Icons.music_note,
+    category: ServiceCategory.media,
+    actions: musicServiceActions,
+    builder: (_) => const MusicSection(),
+  ),
+  ServiceDefinition(
     id: 'torrent',
     label: 'Torrent',
     icon: Icons.public_outlined,
     selectedIcon: Icons.public,
     category: ServiceCategory.tools,
+    actions: torrentServiceActions,
     subTabs: [
       SubTab(
         id: 'downloads',
         label: 'Downloads',
         icon: Icons.download_outlined,
-        builder: (_) => const PlaceholderPage(
-            title: 'Downloads', icon: Icons.download_outlined),
+        builder: (_) => const JobsPage(),
       ),
       SubTab(
         id: 'search',
@@ -80,6 +92,16 @@ final vaultServices = <ServiceDefinition>[
     category: ServiceCategory.system,
     alwaysAvailable: true, // never lock a user out of their own device
     builder: (_) => const SettingsPage(),
+  ),
+  ServiceDefinition(
+    id: 'user',
+    label: 'You',
+    icon: Icons.person_outline,
+    selectedIcon: Icons.person,
+    category: ServiceCategory.system,
+    alwaysAvailable: true, // identity/devices must always be reachable
+    actions: userServiceActions,
+    builder: (_) => const UserPage(),
   ),
 ];
 
