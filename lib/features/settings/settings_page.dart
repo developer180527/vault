@@ -1,12 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 import '../../core/capability/capability.dart';
 import '../../core/capability/manifest_providers.dart';
+import '../../core/prefs/theme_prefs.dart';
 import '../../core/services/service_registry.dart';
 import '../../core/tasks/background_tasks.dart';
 import '../logs/log_viewer_page.dart';
+
+/// App version shown in the About section. TODO(release): read from
+/// package_info_plus once versioning is wired to CI.
+const _appVersion = '0.1.0 (dev)';
 
 /// Settings. In debug it doubles as the **mock manifest editor** — a stand-in
 /// for the server's authoritative grants, so the capability-driven UI can be
@@ -18,10 +24,18 @@ class SettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      // Include the bottom safe-area inset so the last row clears the iOS home
+      // indicator / bottom nav on release builds.
+      padding: EdgeInsets.fromLTRB(
+          16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
-        Text('Account', style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 4),
+        const _SectionHeader('Appearance'),
+        const _AppearanceSection(),
+        const Divider(height: 32),
+        const _SectionHeader('Storage'),
+        const _StorageSection(),
+        const Divider(height: 32),
+        const _SectionHeader('Account'),
         const ListTile(
           contentPadding: EdgeInsets.zero,
           leading: CircleAvatar(child: Icon(Icons.person_outline)),
@@ -29,7 +43,7 @@ class SettingsPage extends ConsumerWidget {
           subtitle: Text('Profile & device identity — server-managed'),
         ),
         const Divider(height: 32),
-        Text('Diagnostics', style: Theme.of(context).textTheme.titleSmall),
+        const _SectionHeader('Diagnostics'),
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: const Icon(Icons.article_outlined),
@@ -40,14 +54,131 @@ class SettingsPage extends ConsumerWidget {
             MaterialPageRoute<void>(builder: (_) => const LogViewerPage()),
           ),
         ),
+        const Divider(height: 32),
+        const _SectionHeader('About'),
+        const ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.info_outline),
+          title: Text('Vault'),
+          subtitle: Text('Version $_appVersion'),
+        ),
         if (kDebugMode) ...[
           const Divider(height: 32),
+          const _SectionHeader('Developer'),
           const _MockManifestEditor(),
           const Divider(height: 32),
           const _BackgroundTaskDemo(),
           const Divider(height: 32),
           const _CrashDemo(),
         ],
+      ],
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
+  }
+}
+
+/// Theme picker (System / Light / Dark), persisted.
+class _AppearanceSection extends ConsumerWidget {
+  const _AppearanceSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(themeModeProvider).asData?.value ?? ThemeMode.system;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: SegmentedButton<ThemeMode>(
+        segments: const [
+          ButtonSegment(
+              value: ThemeMode.system,
+              icon: Icon(Icons.brightness_auto_outlined),
+              label: Text('System')),
+          ButtonSegment(
+              value: ThemeMode.light,
+              icon: Icon(Icons.light_mode_outlined),
+              label: Text('Light')),
+          ButtonSegment(
+              value: ThemeMode.dark,
+              icon: Icon(Icons.dark_mode_outlined),
+              label: Text('Dark')),
+        ],
+        selected: {mode},
+        onSelectionChanged: (s) =>
+            ref.read(themeModeProvider.notifier).set(s.first),
+      ),
+    );
+  }
+}
+
+/// Shows the in-memory image cache footprint and lets the user clear cached
+/// thumbnails/media — a real lever now that the grid caches aggressively.
+class _StorageSection extends StatefulWidget {
+  const _StorageSection();
+
+  @override
+  State<_StorageSection> createState() => _StorageSectionState();
+}
+
+class _StorageSectionState extends State<_StorageSection> {
+  ImageCache get _cache => PaintingBinding.instance.imageCache;
+
+  String _fmtBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    const units = ['KB', 'MB', 'GB'];
+    var size = bytes / 1024;
+    var i = 0;
+    while (size >= 1024 && i < units.length - 1) {
+      size /= 1024;
+      i++;
+    }
+    return '${size.toStringAsFixed(1)} ${units[i]}';
+  }
+
+  Future<void> _clear() async {
+    _cache.clear();
+    _cache.clearLiveImages();
+    await PhotoManager.clearFileCache();
+    if (mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cache cleared')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.sd_storage_outlined),
+          title: const Text('Image cache'),
+          subtitle: Text(
+              '${_fmtBytes(_cache.currentSizeBytes)} · ${_cache.currentSize} images'),
+          trailing: TextButton(
+            onPressed: _clear,
+            child: const Text('Clear'),
+          ),
+        ),
       ],
     );
   }

@@ -45,6 +45,7 @@ class ServiceDefinition {
     this.subTabs = const [],
     this.actions = const [],
     this.toolbarLeading,
+    this.statusBar,
     this.builder,
   }) : assert(subTabs.length > 0 || builder != null,
             'A service needs sub-tabs or a root builder');
@@ -72,6 +73,10 @@ class ServiceDefinition {
   /// Optional widget for the left of the desktop content toolbar — e.g. the
   /// file browser's back/forward + current-directory name. Null → nothing.
   final WidgetBuilder? toolbarLeading;
+
+  /// Optional per-tab status/control shown in the top-right status slot (where
+  /// the background-work cloud used to be) — e.g. the Media filter dropdown.
+  final WidgetBuilder? statusBar;
 
   final WidgetBuilder? builder;
 }

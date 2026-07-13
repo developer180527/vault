@@ -57,6 +57,7 @@ class _ServicePageState extends State<ServicePage>
             _ContentToolbar(
               actions: widget.service.actions,
               leading: widget.service.toolbarLeading?.call(context),
+              statusBar: widget.service.statusBar?.call(context),
               selector: tabs.isEmpty ? null : _SubTabSelector(
                 tabs: tabs,
                 index: _controller!.index,
@@ -100,10 +101,12 @@ class _ServicePageState extends State<ServicePage>
 /// action buttons and an optional sub-tab selector on the right. This toolbar
 /// is where the old File/View menus now live, per service.
 class _ContentToolbar extends StatelessWidget {
-  const _ContentToolbar({this.selector, this.leading, this.actions = const []});
+  const _ContentToolbar(
+      {this.selector, this.leading, this.statusBar, this.actions = const []});
 
   final Widget? selector;
   final Widget? leading;
+  final Widget? statusBar;
   final List<VaultAction> actions;
 
   @override
@@ -115,6 +118,8 @@ class _ContentToolbar extends StatelessWidget {
           ?leading,
           const Spacer(),
           ActionBar(actions: actions),
+          if (statusBar != null) const SizedBox(width: 8),
+          ?statusBar,
           if (selector != null) const SizedBox(width: 8),
           ?selector,
         ],

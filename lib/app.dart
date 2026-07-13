@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/capability/manifest_providers.dart';
+import 'core/prefs/theme_prefs.dart';
 import 'core/services/service_registry.dart';
 import 'features/files/file_actions.dart';
 import 'features/files/files_page.dart';
 import 'features/files/widgets/files_toolbar_leading.dart';
 import 'features/media/media_library_page.dart';
+import 'features/media/widgets/media_filter_dropdown.dart';
 import 'features/placeholder_page.dart';
 import 'features/settings/settings_page.dart';
 import 'shell/adaptive_shell.dart';
@@ -25,6 +27,7 @@ final vaultServices = <ServiceDefinition>[
     icon: Icons.tv_outlined,
     selectedIcon: Icons.tv,
     category: ServiceCategory.media,
+    statusBar: (_) => const MediaFilterDropdown(),
     builder: (_) => const MediaLibraryPage(),
   ),
   ServiceDefinition(
@@ -135,6 +138,8 @@ class VaultApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final themeMode =
+        ref.watch(themeModeProvider).asData?.value ?? ThemeMode.system;
     return MaterialApp.router(
       title: 'Vault',
       debugShowCheckedModeBanner: false,
@@ -146,6 +151,7 @@ class VaultApp extends ConsumerWidget {
         colorSchemeSeed: const Color(0xFF3B6EA5),
         brightness: Brightness.dark,
       ),
+      themeMode: themeMode,
       routerConfig: router,
     );
   }

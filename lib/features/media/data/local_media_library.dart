@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:photo_manager/photo_manager.dart';
 
 import '../../../core/platform/platform_info.dart';
@@ -11,12 +12,14 @@ enum MediaKind { image, video }
 
 /// What the filter pill is set to.
 enum MediaFilter {
-  all('All'),
-  photos('Photos'),
-  videos('Videos');
+  all('All', Icons.grid_view_outlined),
+  photos('Photos', Icons.photo_outlined),
+  videos('Videos', Icons.videocam_outlined),
+  music('Music', Icons.music_note_outlined);
 
-  const MediaFilter(this.label);
+  const MediaFilter(this.label, this.icon);
   final String label;
+  final IconData icon;
 }
 
 /// One on-device media item. Wraps photo_manager's [AssetEntity] but keeps the
@@ -98,10 +101,14 @@ class PhotoManagerLibrary implements LocalMediaLibrary {
     required MediaFilter filter,
     int limit = 200,
   }) async {
+    // Music is sourced from a chosen folder, not the photo library, so it never
+    // reaches here — but the switch must be exhaustive.
+    if (filter == MediaFilter.music) return const [];
     final type = switch (filter) {
       MediaFilter.all => RequestType.common,
       MediaFilter.photos => RequestType.image,
       MediaFilter.videos => RequestType.video,
+      MediaFilter.music => RequestType.common,
     };
     final albums = await PhotoManager.getAssetPathList(
       type: type,

@@ -5,17 +5,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'data/local_media_library.dart';
 import 'data/media_providers.dart';
 import 'media_viewer_page.dart';
-import 'widgets/media_filter_pill.dart';
 import 'widgets/media_thumbnail.dart';
+import 'widgets/music_section.dart';
 
-/// The Media tab: the user's on-device photos and videos, gated behind a real
-/// OS permission request, with a floating filter pill. (Server-streamed music
-/// and movies attach here later as additional filters/sections.)
+/// The Media tab: on-device photos/videos (gated behind a real OS permission)
+/// and local music, chosen with the filter dropdown in the tab's status bar.
 class MediaLibraryPage extends ConsumerWidget {
   const MediaLibraryPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final filter = ref.watch(mediaFilterProvider);
+
+    // Music is its own source (a chosen folder), independent of photo access.
+    if (filter == MediaFilter.music) return const MusicSection();
+
     final access = ref.watch(mediaAccessProvider);
 
     return access.when(
@@ -47,7 +51,6 @@ class _MediaGrid extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final itemsAsync = ref.watch(mediaItemsProvider);
-    final filter = ref.watch(mediaFilterProvider);
 
     return Stack(
       children: [
@@ -62,7 +65,7 @@ class _MediaGrid extends ConsumerWidget {
                     title: 'Nothing here yet',
                     subtitle: 'No items match this filter.')
                 : GridView.builder(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                     // Decode two viewports of tiles ahead of the scroll so
                     // thumbnails are generated and cached before they enter
                     // view — the main lever against load-lag while scrolling.
@@ -95,18 +98,6 @@ class _MediaGrid extends ConsumerWidget {
                   ref.read(localMediaLibraryProvider).presentLimitedPicker(),
             ),
           ),
-        Positioned(
-          bottom: 20,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: MediaFilterPill(
-              value: filter,
-              onChanged: (f) =>
-                  ref.read(mediaFilterProvider.notifier).set(f),
-            ),
-          ),
-        ),
       ],
     );
   }

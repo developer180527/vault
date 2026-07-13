@@ -6,7 +6,6 @@ import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
 import 'services_hub_page.dart';
 import 'widgets/action_bar.dart';
-import 'widgets/task_status_button.dart';
 
 /// Max destinations in a Material bottom bar. When there are more permitted
 /// services than this, the last slot becomes "More" (opening the Services hub)
@@ -63,8 +62,8 @@ class MobileShell extends ConsumerWidget {
         title: Text(services[shell.currentIndex].label),
         actions: [
           ActionBar(actions: services[shell.currentIndex].actions),
-          const TaskStatusButton(),
-          const SizedBox(width: 4),
+          ?services[shell.currentIndex].statusBar?.call(context),
+          const SizedBox(width: 8),
         ],
       ),
       body: shell,

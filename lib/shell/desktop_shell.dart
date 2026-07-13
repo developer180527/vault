@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import '../core/platform/platform_info.dart';
 import '../core/services/service_registry.dart';
 import 'widgets/app_title_bar.dart';
-import 'widgets/task_status_button.dart';
 
 /// The sidebar (wide) layout, used by native desktop AND large tablets. The
 /// difference: only native desktop draws the custom in-window title bar (menu
@@ -24,7 +23,7 @@ class DesktopShell extends StatelessWidget {
 
     final body = Column(
       children: [
-        if (nativeDesktop) const AppTitleBar() else const _TabletTopBar(),
+        if (nativeDesktop) const AppTitleBar(),
         Expanded(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -43,24 +42,6 @@ class DesktopShell extends StatelessWidget {
       // Native desktop's title bar reserves its own space; tablets must clear
       // the OS status bar.
       body: nativeDesktop ? body : SafeArea(bottom: false, child: body),
-    );
-  }
-}
-
-/// Slim header for the sidebar layout on tablets: no desktop menu bar, just the
-/// background-task status where the desktop title bar would carry it.
-class _TabletTopBar extends StatelessWidget {
-  const _TabletTopBar();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      color: Theme.of(context).colorScheme.surface,
-      child: const Row(
-        children: [Spacer(), TaskStatusButton()],
-      ),
     );
   }
 }

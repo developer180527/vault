@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../core/platform/platform_info.dart';
-import 'task_status_button.dart';
 
 /// Custom title bar for the native-desktop frameless window. Deliberately has
 /// NO menu bar — File/Edit/View actions were relocated to the per-service
@@ -25,7 +24,6 @@ class AppTitleBar extends StatelessWidget {
         children: [
           if (isMacOS) const SizedBox(width: 78),
           const Expanded(child: _DragArea()),
-          const TaskStatusButton(),
           if (isWindowsOrLinux) const _CaptionButtons(),
           const SizedBox(width: 6),
         ],

@@ -1,5 +1,7 @@
 package com.example.vault
 
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceActivity
 
-class MainActivity : FlutterActivity()
+// Extends AudioServiceActivity so just_audio_background can run the media
+// foreground service and show lock-screen controls.
+class MainActivity : AudioServiceActivity()
