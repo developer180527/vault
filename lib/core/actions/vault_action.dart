@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../platform/design/adaptive_icons.dart';
+
 /// A single invokable command. The unit that replaced the menu bar: the same
 /// action object is rendered in the content toolbar, the right-click/long-press
 /// context menu, AND the Cmd-K command palette — and it works identically on
@@ -20,7 +22,9 @@ class VaultAction {
 
   final String id;
   final String label;
-  final IconData icon;
+
+  /// Semantic icon — SF Symbol on Apple platforms, Material glyph elsewhere.
+  final AdaptiveIconData icon;
 
   /// Optional keyboard accelerator, shown in the palette and active app-wide.
   final SingleActivator? shortcut;

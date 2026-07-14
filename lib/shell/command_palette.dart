@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/actions/vault_action.dart';
 import '../core/capability/manifest_providers.dart';
+import '../core/platform/design/adaptive_icons.dart';
 
 /// Opens the Cmd-K command palette. This is the keyboard-first home for every
 /// command — the modern replacement for a menu bar's discoverability. It lists
@@ -87,7 +88,7 @@ class _CommandPaletteState extends ConsumerState<_CommandPalette> {
                       itemBuilder: (context, i) {
                         final c = commands[i];
                         return ListTile(
-                          leading: Icon(c.icon, size: 20),
+                          leading: AdaptiveIcon(c.icon, size: 20),
                           title: Text(c.label),
                           onTap: () => _invoke(c),
                         );

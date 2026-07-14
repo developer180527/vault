@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../actions/vault_action.dart';
+import '../platform/design/adaptive_icons.dart';
 
 /// Broad grouping for organizing services in the desktop sidebar and the
 /// mobile Services hub once there are many of them.
@@ -26,7 +27,7 @@ class SubTab {
 
   final String id;
   final String label;
-  final IconData icon;
+  final AdaptiveIconData icon;
   final WidgetBuilder builder;
 }
 
@@ -39,7 +40,6 @@ class ServiceDefinition {
     required this.id,
     required this.label,
     required this.icon,
-    required this.selectedIcon,
     this.category = ServiceCategory.tools,
     this.alwaysAvailable = false,
     this.subTabs = const [],
@@ -52,8 +52,10 @@ class ServiceDefinition {
 
   final String id;
   final String label;
-  final IconData icon;
-  final IconData selectedIcon;
+
+  /// Semantic icon resolving to SF Symbols on Apple platforms, Material
+  /// elsewhere (with filled selected variants for navigation).
+  final AdaptiveIconData icon;
   final ServiceCategory category;
 
   /// Visible even when absent from the manifest (e.g. account/settings), so a

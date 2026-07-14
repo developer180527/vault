@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/actions/vault_action.dart';
+import '../../core/platform/design/adaptive_icons.dart';
 
 /// Renders a list of [VaultAction]s as toolbar buttons, overflowing into a "⋯"
 /// menu past [maxVisible]. Hidden actions (failed `isEnabled`, i.e. a missing
@@ -30,7 +31,7 @@ class ActionBar extends ConsumerWidget {
         for (final a in inline)
           IconButton(
             tooltip: a.label,
-            icon: Icon(a.icon),
+            icon: AdaptiveIcon(a.icon),
             onPressed: () => a.onInvoke(context, ref),
           ),
         if (overflow.isNotEmpty)
@@ -38,7 +39,7 @@ class ActionBar extends ConsumerWidget {
             menuChildren: [
               for (final a in overflow)
                 MenuItemButton(
-                  leadingIcon: Icon(a.icon, size: 18),
+                  leadingIcon: AdaptiveIcon(a.icon, size: 18),
                   onPressed: () => a.onInvoke(context, ref),
                   child: Text(a.label),
                 ),

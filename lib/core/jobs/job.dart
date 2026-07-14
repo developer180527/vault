@@ -1,18 +1,19 @@
-import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:flutter/foundation.dart';
+
+import '../platform/design/adaptive_icons.dart';
 
 /// What kind of work a job does. Torrent and URL downloads run ON THE SERVER
 /// (the client only submits and observes); uploads are client-side work
 /// tracked through the same pipeline so the UI treats all background work
 /// uniformly.
 enum JobKind {
-  torrent('Torrent', Icons.swap_vert_circle_outlined),
-  download('Download', Icons.download_outlined), // yt-dlp style URL fetch
-  upload('Upload', Icons.upload_outlined);
+  torrent('Torrent', VaultIcons.jobTorrent),
+  download('Download', VaultIcons.jobDownload), // yt-dlp style URL fetch
+  upload('Upload', VaultIcons.jobUpload);
 
   const JobKind(this.label, this.icon);
   final String label;
-  final IconData icon;
+  final AdaptiveIconData icon;
 }
 
 enum JobState {

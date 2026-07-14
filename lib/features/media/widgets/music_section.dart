@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../../core/actions/vault_action.dart';
+import '../../../core/platform/design/adaptive_icons.dart';
 import '../../../core/platform/platform_info.dart';
 import '../../../shell/adaptive_shell.dart';
 import '../data/music_library.dart';
@@ -20,7 +21,7 @@ final musicServiceActions = <VaultAction>[
   VaultAction(
     id: 'music.add',
     label: 'Add music',
-    icon: Icons.add,
+    icon: VaultIcons.add,
     onInvoke: (context, ref) => _addMusic(ref),
   ),
 ];

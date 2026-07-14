@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/actions/vault_action.dart';
+import '../../core/platform/design/adaptive_icons.dart';
 
 const double _menuWidth = 240;
 const double _rowHeight = 40;
@@ -96,7 +97,7 @@ class _ContextMenuBody extends StatelessWidget {
                   child: Row(
                     children: [
                       const SizedBox(width: 12),
-                      Icon(a.icon,
+                      AdaptiveIcon(a.icon,
                           size: 18,
                           color: a.isDestructive ? scheme.error : null),
                       const SizedBox(width: 12),

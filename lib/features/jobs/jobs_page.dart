@@ -6,6 +6,7 @@ import '../../core/capability/capability.dart';
 import '../../core/capability/manifest_providers.dart';
 import '../../core/client/vault_client.dart';
 import '../../core/jobs/job.dart';
+import '../../core/platform/design/adaptive_icons.dart';
 
 /// Live job list from the client seam. StreamProvider so every view (tab,
 /// future status chip) shares one subscription.
@@ -20,14 +21,14 @@ final torrentServiceActions = <VaultAction>[
   VaultAction(
     id: 'jobs.add',
     label: 'Add download',
-    icon: Icons.add_link,
+    icon: VaultIcons.addLink,
     isEnabled: _canSubmit,
     onInvoke: (context, ref) => promptAddDownload(context, ref),
   ),
   VaultAction(
     id: 'jobs.clear-finished',
     label: 'Clear finished',
-    icon: Icons.clear_all,
+    icon: VaultIcons.clearFinished,
     onInvoke: (context, ref) =>
         ref.read(vaultClientProvider).jobs.clearFinished(),
   ),
@@ -94,7 +95,10 @@ class JobsPage extends ConsumerWidget {
       data: (jobs) => jobs.isEmpty
           ? const _EmptyJobs()
           : ListView.builder(
-              padding: const EdgeInsets.only(top: 4, bottom: 96),
+              // Bottom inset so the last job scrolls clear of the floating
+              // dock (the tab bar above already consumed the top inset).
+              padding: EdgeInsets.only(
+                  top: 4, bottom: 12 + MediaQuery.paddingOf(context).bottom),
               itemCount: jobs.length,
               itemBuilder: (context, i) => _JobTile(job: jobs[i]),
             ),
@@ -156,7 +160,7 @@ class _JobTile extends ConsumerWidget {
     };
 
     return ListTile(
-      leading: Icon(job.kind.icon),
+      leading: AdaptiveIcon(job.kind.icon),
       title: Text(job.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,8 +168,10 @@ class _JobTile extends ConsumerWidget {
           if (job.state == JobState.running ||
               job.state == JobState.queued) ...[
             const SizedBox(height: 6),
+            // Always a determinate value: the indeterminate variant runs an
+            // endless animation, burning frames while queued jobs just wait.
             LinearProgressIndicator(
-              value: job.state == JobState.queued ? null : job.progress,
+              value: job.state == JobState.queued ? 0 : job.progress,
               minHeight: 4,
               borderRadius: BorderRadius.circular(2),
             ),

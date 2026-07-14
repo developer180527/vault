@@ -5,6 +5,7 @@ import 'package:photo_manager/photo_manager.dart';
 
 import '../../core/capability/capability.dart';
 import '../../core/capability/manifest_providers.dart';
+import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/prefs/theme_prefs.dart';
 import '../../core/services/service_registry.dart';
 import '../../core/tasks/background_tasks.dart';
@@ -238,7 +239,7 @@ class _ServiceGrantTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ExpansionTile(
       tilePadding: EdgeInsets.zero,
-      leading: Icon(service.icon),
+      leading: AdaptiveIcon(service.icon),
       title: Text(service.label),
       subtitle: Text(service.alwaysAvailable
           ? 'Always available'

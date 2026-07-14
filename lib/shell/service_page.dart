@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/actions/vault_action.dart';
+import '../core/platform/design/adaptive_icons.dart';
 import '../core/services/service_registry.dart';
 import 'adaptive_shell.dart';
 import 'widgets/action_bar.dart';
@@ -74,7 +75,12 @@ class _ServicePageState extends State<ServicePage>
   Widget _buildMobile() {
     final tabs = widget.service.subTabs;
     if (tabs.isEmpty) return widget.service.builder!(context);
-    return Column(
+    // SafeArea (top only): the shell's glass toolbar extends over the body;
+    // the TabBar must start below it. Children keep the bottom inset for
+    // scrolling under the dock.
+    return SafeArea(
+      bottom: false,
+      child: Column(
       children: [
         Material(
           color: Theme.of(context).colorScheme.surface,
@@ -92,6 +98,7 @@ class _ServicePageState extends State<ServicePage>
           ),
         ),
       ],
+      ),
     );
   }
 }
@@ -144,7 +151,7 @@ class _SubTabSelector extends StatelessWidget {
       menuChildren: [
         for (var i = 0; i < tabs.length; i++)
           MenuItemButton(
-            leadingIcon: Icon(tabs[i].icon, size: 18),
+            leadingIcon: AdaptiveIcon(tabs[i].icon, size: 18),
             onPressed: () => onSelected(i),
             child: Text(tabs[i].label),
           ),
@@ -152,7 +159,7 @@ class _SubTabSelector extends StatelessWidget {
       builder: (context, controller, _) => OutlinedButton.icon(
         onPressed: () =>
             controller.isOpen ? controller.close() : controller.open(),
-        icon: Icon(current.icon, size: 18),
+        icon: AdaptiveIcon(current.icon, size: 18),
         label: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

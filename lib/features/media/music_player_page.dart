@@ -109,14 +109,30 @@ class _Artwork extends StatelessWidget {
 }
 
 /// Position scrubber bound to the player's streams.
-class _Scrubber extends StatelessWidget {
+class _Scrubber extends StatefulWidget {
   const _Scrubber({required this.player});
   final AudioPlayer player;
 
   @override
+  State<_Scrubber> createState() => _ScrubberState();
+}
+
+class _ScrubberState extends State<_Scrubber> {
+  AudioPlayer get player => widget.player;
+
+  /// Throttled position stream, created once. The default positionStream
+  /// emits up to every 16ms — rebuilding the slider ~60×/s for the whole
+  /// playback session. 200ms is indistinguishable on a scrubber and cuts
+  /// that work by >90%.
+  late final Stream<Duration> _position = player.createPositionStream(
+    minPeriod: const Duration(milliseconds: 200),
+    maxPeriod: const Duration(milliseconds: 500),
+  );
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<Duration>(
-      stream: player.positionStream,
+      stream: _position,
       builder: (context, snapshot) {
         final position = snapshot.data ?? Duration.zero;
         final total = player.duration ?? Duration.zero;

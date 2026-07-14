@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/actions/vault_action.dart';
 import '../../core/capability/manifest_providers.dart';
+import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/platform/haptics.dart';
 import '../../core/prefs/pinned_services.dart';
 import '../../core/services/service_registry.dart';
@@ -22,7 +23,7 @@ final userServiceActions = <VaultAction>[
   VaultAction(
     id: 'user.settings',
     label: 'Settings',
-    icon: Icons.settings_outlined,
+    icon: VaultIcons.settings,
     onInvoke: (context, ref) {
       Navigator.of(context, rootNavigator: true).push(MaterialPageRoute<void>(
         builder: (_) => Scaffold(
@@ -52,7 +53,13 @@ class UserPage extends ConsumerWidget {
     ];
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 96),
+      // Inset for the shell's translucent toolbar and floating dock, so the
+      // page scrolls beneath both.
+      padding: EdgeInsets.fromLTRB(
+          16,
+          16 + MediaQuery.paddingOf(context).top,
+          16,
+          16 + MediaQuery.paddingOf(context).bottom),
       children: [
         const _ProfileHeader(),
         const SizedBox(height: 24),
@@ -117,7 +124,7 @@ class _ServiceTile extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-      leading: Icon(service.icon),
+      leading: AdaptiveIcon(service.icon),
       title: Text(service.label),
       onTap: () => _launch(context, service),
       trailing: IconButton(

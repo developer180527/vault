@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'core/capability/manifest_providers.dart';
 import 'core/prefs/theme_prefs.dart';
+import 'core/platform/design/adaptive_icons.dart';
 import 'core/services/service_registry.dart';
 import 'features/files/file_actions.dart';
 import 'features/files/files_page.dart';
@@ -27,8 +28,7 @@ final vaultServices = <ServiceDefinition>[
   ServiceDefinition(
     id: 'media',
     label: 'Media',
-    icon: Icons.tv_outlined,
-    selectedIcon: Icons.tv,
+    icon: VaultIcons.media,
     category: ServiceCategory.media,
     statusBar: (_) => const MediaFilterDropdown(),
     builder: (_) => const MediaLibraryPage(),
@@ -36,8 +36,7 @@ final vaultServices = <ServiceDefinition>[
   ServiceDefinition(
     id: 'files',
     label: 'My files',
-    icon: Icons.description_outlined,
-    selectedIcon: Icons.description,
+    icon: VaultIcons.files,
     category: ServiceCategory.files,
     actions: filesServiceActions,
     toolbarLeading: (_) => const FilesToolbarLeading(),
@@ -46,8 +45,7 @@ final vaultServices = <ServiceDefinition>[
   ServiceDefinition(
     id: 'music',
     label: 'Music',
-    icon: Icons.music_note_outlined,
-    selectedIcon: Icons.music_note,
+    icon: VaultIcons.music,
     category: ServiceCategory.media,
     actions: musicServiceActions,
     builder: (_) => const MusicSection(),
@@ -55,21 +53,20 @@ final vaultServices = <ServiceDefinition>[
   ServiceDefinition(
     id: 'torrent',
     label: 'Torrent',
-    icon: Icons.public_outlined,
-    selectedIcon: Icons.public,
+    icon: VaultIcons.torrent,
     category: ServiceCategory.tools,
     actions: torrentServiceActions,
     subTabs: [
       SubTab(
         id: 'downloads',
         label: 'Downloads',
-        icon: Icons.download_outlined,
+        icon: VaultIcons.jobDownload,
         builder: (_) => const JobsPage(),
       ),
       SubTab(
         id: 'search',
         label: 'Search',
-        icon: Icons.search,
+        icon: VaultIcons.search,
         builder: (_) =>
             const PlaceholderPage(title: 'Search', icon: Icons.search),
       ),
@@ -78,8 +75,7 @@ final vaultServices = <ServiceDefinition>[
   ServiceDefinition(
     id: 'chat',
     label: 'AI Chat',
-    icon: Icons.chat_bubble_outline,
-    selectedIcon: Icons.chat_bubble,
+    icon: VaultIcons.chat,
     category: ServiceCategory.tools,
     builder: (_) => const PlaceholderPage(
         title: 'AI Chat', icon: Icons.chat_bubble_outline),
@@ -87,8 +83,7 @@ final vaultServices = <ServiceDefinition>[
   ServiceDefinition(
     id: 'settings',
     label: 'Settings',
-    icon: Icons.settings_outlined,
-    selectedIcon: Icons.settings,
+    icon: VaultIcons.settings,
     category: ServiceCategory.system,
     alwaysAvailable: true, // never lock a user out of their own device
     builder: (_) => const SettingsPage(),
@@ -96,8 +91,7 @@ final vaultServices = <ServiceDefinition>[
   ServiceDefinition(
     id: 'user',
     label: 'You',
-    icon: Icons.person_outline,
-    selectedIcon: Icons.person,
+    icon: VaultIcons.user,
     category: ServiceCategory.system,
     alwaysAvailable: true, // identity/devices must always be reachable
     actions: userServiceActions,

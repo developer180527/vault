@@ -60,7 +60,14 @@ class _MediaGrid extends ConsumerWidget {
                     title: 'Nothing here yet',
                     subtitle: 'No items match this filter.')
                 : GridView.builder(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                    // The shell's toolbar and dock are translucent layers the
+                    // grid scrolls beneath — inset the content, not the
+                    // viewport.
+                    padding: EdgeInsets.fromLTRB(
+                        12,
+                        12 + MediaQuery.paddingOf(context).top,
+                        12,
+                        12 + MediaQuery.paddingOf(context).bottom),
                     // Decode two viewports of tiles ahead of the scroll so
                     // thumbnails are generated and cached before they enter
                     // view — the main lever against load-lag while scrolling.
@@ -88,7 +95,7 @@ class _MediaGrid extends ConsumerWidget {
         ),
         if (limited)
           Positioned(
-            top: 8,
+            top: 8 + MediaQuery.paddingOf(context).top,
             left: 12,
             right: 12,
             child: _LimitedBanner(

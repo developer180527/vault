@@ -27,7 +27,11 @@ class FilesPage extends ConsumerWidget {
     // floating dock can't overlap it.
     final isDesktop = FormFactor.isDesktopOf(context);
 
-    return Column(
+    // SafeArea (top only): the mobile shell's toolbar is translucent glass
+    // extending over the body — the pinned breadcrumb must start below it.
+    return SafeArea(
+      bottom: false,
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (!isDesktop) const _PathBar(atTop: true),
@@ -49,6 +53,7 @@ class FilesPage extends ConsumerWidget {
         ),
         if (isDesktop) const _PathBar(),
       ],
+      ),
     );
   }
 

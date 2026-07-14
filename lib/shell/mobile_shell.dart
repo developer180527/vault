@@ -1,28 +1,29 @@
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 
-import '../core/platform/haptics.dart';
-import '../core/platform/platform_info.dart';
+import '../core/platform/design/adaptive_icons.dart';
+import '../core/platform/design/native_glass.dart';
 import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
 import '../features/media/data/music_player_controller.dart';
 import '../features/media/music_player_page.dart';
 import 'widgets/action_bar.dart';
+import 'widgets/glass_app_bar.dart';
 
-/// Mobile layout. The bottom nav is a floating pill dock:
+/// Mobile layout, Apple Music-style bottom chrome:
 ///
-///   [ Media │ Files │ Music │ Torrent │ ⊙ You ]
+///   [ mini-player pill (when a track is loaded)      ]
+///   [ Media │ Files │ Music │ Torrent ]   ( ⊙ You )
 ///
-/// A static row of the user's pinned services (max [kMaxDockPins]) plus the
-/// You slot anchored at the right edge. Nothing scrolls: the dock is a
-/// muscle-memory instrument, and the You page carries the full services shelf
-/// for everything unpinned. On iOS the pill is translucent "liquid glass"
-/// (backdrop blur over the content flowing beneath it).
+/// A static dock pill holds the pinned services (max [kMaxDockPins]) with a
+/// capsule highlight on the active tab; the You slot is a detached circular
+/// button. Every surface renders in the platform's design language via
+/// [NativeGlassSurface] — real UIKit liquid glass on iOS, elevated Material
+/// elsewhere — and icons resolve to SF Symbols on Apple platforms.
 class MobileShell extends ConsumerWidget {
   const MobileShell({super.key, required this.shell, required this.services});
 
@@ -36,10 +37,10 @@ class MobileShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final pinnedIds =
         ref.watch(pinnedServicesProvider).asData?.value ?? const <String>[];
-    // Dock = pinned ∩ permitted, in pin order. 'user' anchors the right slot
-    // and is never part of the pinnable row. Capped for display: the desktop
-    // sidebar allows unlimited pins, and this device may have been resized /
-    // rotated from that layout with more pinned than the dock has slots.
+    // Dock = pinned ∩ permitted, in pin order. 'user' anchors the detached
+    // circle and is never part of the pinnable row. Capped for display: the
+    // desktop sidebar allows unlimited pins and this device may have been
+    // resized/rotated from that layout with more pinned than the dock holds.
     final dock = [
       for (final id in pinnedIds)
         for (final s in services)
@@ -47,10 +48,12 @@ class MobileShell extends ConsumerWidget {
     ].take(kMaxDockPins).toList();
 
     return Scaffold(
-      // Content flows underneath the floating pill (and shows through the
-      // glass on iOS).
+      // Content flows underneath the floating chrome (and shows through the
+      // glass) at BOTH edges: the toolbar and the dock are translucent layers
+      // the page scrolls beneath.
       extendBody: true,
-      appBar: AppBar(
+      extendBodyBehindAppBar: true,
+      appBar: GlassAppBar(
         title: Text(services[shell.currentIndex].label),
         actions: [
           ActionBar(actions: services[shell.currentIndex].actions),
@@ -58,11 +61,17 @@ class MobileShell extends ConsumerWidget {
           const SizedBox(width: 8),
         ],
       ),
-      body: shell,
-      bottomNavigationBar: _BottomBarArea(
-        shell: shell,
-        services: services,
-        dock: dock,
+      // RepaintBoundaries keep the two layers independent: mini-player /
+      // capsule updates don't re-rasterize the page, and page scrolling
+      // doesn't re-rasterize the chrome — which matters extra here because
+      // the chrome holds platform views (hybrid-composition layer splits).
+      body: RepaintBoundary(child: shell),
+      bottomNavigationBar: RepaintBoundary(
+        child: _BottomBarArea(
+          shell: shell,
+          services: services,
+          dock: dock,
+        ),
       ),
     );
   }
@@ -71,9 +80,9 @@ class MobileShell extends ConsumerWidget {
 const double _kDockHeight = 64;
 const double _kMiniPlayerHeight = 44;
 
-/// The floating stack at the bottom: the music mini-player pill (when a track
-/// is loaded) hovering just above the dock pill. Both share the same side
-/// margins and the same glass treatment on iOS.
+/// The floating stack at the bottom: mini-player pill above, then the dock
+/// pill and the detached You circle. Shared side margins; every surface gets
+/// the platform material from [NativeGlassSurface].
 class _BottomBarArea extends ConsumerWidget {
   const _BottomBarArea({
     required this.shell,
@@ -85,25 +94,239 @@ class _BottomBarArea extends ConsumerWidget {
   final List<ServiceDefinition> services;
   final List<ServiceDefinition> dock;
 
+  String get _currentId => services[shell.currentIndex].id;
+
+  int _branchIndexOf(String id) => services.indexWhere((s) => s.id == id);
+
+  void _open(String id) {
+    final branch = _branchIndexOf(id);
+    if (branch < 0) return;
+    // No haptic here: native tab bars switch silently.
+    // Re-tapping the active service resets its branch stack.
+    shell.goBranch(branch, initialLocation: branch == shell.currentIndex);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hasTrack = ref.watch(musicPlayerProvider).current != null;
+    final onUserPage = _currentId == 'user';
     // Sit a little lower than the OS-suggested inset (gesture bars reserve
-    // more than the pill needs), but never flush against the screen edge.
+    // more than the chrome needs), but never flush against the screen edge.
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final bottomGap = math.max(6.0, bottomInset - 10.0);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, bottomGap),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (hasTrack) ...[
-            const _MiniPlayerPill(),
-            const SizedBox(height: 8),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        // Chrome geometry, shared by the Flutter layout below and the native
+        // glass panel behind it (one platform view for all surfaces).
+        final dockTop = hasTrack ? _kMiniPlayerHeight + 8.0 : 0.0;
+        final height = dockTop + _kDockHeight;
+        final chrome = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (hasTrack) ...[
+              const _MiniPlayerPill(),
+              const SizedBox(height: 8),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: NativeGlassSurface(
+                    radius: _kDockHeight / 2,
+                    child: SizedBox(
+                      height: _kDockHeight,
+                      // Inner padding keeps the end slots clear of the pill's
+                      // curved ends, so the capsule geometry is identical for
+                      // every slot — including the extremes.
+                      child: Padding(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 10),
+                        child: _DockRow(
+                          dock: dock,
+                          selectedIndex: onUserPage
+                              ? -1
+                              : dock.indexWhere((s) => s.id == _currentId),
+                          onTap: (s) => _open(s.id),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // The You slot: a detached circle, Apple Music-style.
+                NativeGlassSurface(
+                  radius: _kDockHeight / 2,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _open('user'),
+                    child: SizedBox(
+                      width: _kDockHeight,
+                      height: _kDockHeight,
+                      child: Center(
+                        child: CircleAvatar(
+                          radius: 17,
+                          backgroundColor: onUserPage
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                          child: AdaptiveIcon(
+                            VaultIcons.user,
+                            selected: onUserPage,
+                            size: 20,
+                            color: onUserPage
+                                ? Theme.of(context)
+                                    .colorScheme
+                                    .onPrimaryContainer
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
-          _FloatingDock(shell: shell, services: services, dock: dock),
+        );
+
+        return NativeGlassPanel(
+          size: Size(width, height),
+          regions: [
+            if (hasTrack)
+              GlassRegion(
+                rect: Rect.fromLTWH(0, 0, width, _kMiniPlayerHeight),
+                radius: _kMiniPlayerHeight / 2,
+              ),
+            GlassRegion(
+              rect: Rect.fromLTWH(
+                  0, dockTop, width - _kDockHeight - 8, _kDockHeight),
+              radius: _kDockHeight / 2,
+            ),
+            GlassRegion(
+              rect: Rect.fromLTWH(
+                  width - _kDockHeight, dockTop, _kDockHeight, _kDockHeight),
+              radius: _kDockHeight / 2,
+            ),
+          ],
+          child: chrome,
+        );
+      }),
+    );
+  }
+}
+
+/// The dock slots with a single selection capsule that SLIDES between them
+/// (spring-out curve), like the native tab bar's lozenge — rather than each
+/// slot lighting up its own highlight.
+class _DockRow extends StatelessWidget {
+  const _DockRow({
+    required this.dock,
+    required this.selectedIndex,
+    required this.onTap,
+  });
+
+  final List<ServiceDefinition> dock;
+
+  /// -1 = nothing selected (the You page is active).
+  final int selectedIndex;
+  final ValueChanged<ServiceDefinition> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (dock.isEmpty) return const SizedBox.shrink();
+    final n = dock.length;
+
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = constraints.maxWidth;
+      final slotWidth = width / n;
+      // The dock row sits inside the pill with its own horizontal padding,
+      // so every slot — including the extremes — has identical geometry and
+      // the capsule is simply centered on its slot. No edge clamping: that
+      // asymmetry was what made the end slots look wrong.
+      final capsuleWidth = math.min(slotWidth + 6, width);
+      final i = selectedIndex.clamp(0, n - 1);
+      final left = i * slotWidth + (slotWidth - capsuleWidth) / 2;
+      return Stack(
+        children: [
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOutBack,
+            left: left,
+            top: 7,
+            width: capsuleWidth,
+            height: _kDockHeight - 14,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 150),
+              opacity: selectedIndex < 0 ? 0 : 1,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.secondaryContainer.withValues(alpha: 0.85),
+                  borderRadius:
+                      BorderRadius.circular((_kDockHeight - 14) / 2),
+                ),
+              ),
+            ),
+          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < n; i++)
+                Expanded(
+                  child: _DockItem(
+                    service: dock[i],
+                    selected: i == selectedIndex,
+                    onTap: () => onTap(dock[i]),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      );
+    });
+  }
+}
+
+/// One dock slot: icon + label. The selection capsule is drawn by [_DockRow].
+class _DockItem extends StatelessWidget {
+  const _DockItem({
+    required this.service,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ServiceDefinition service;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = selected ? scheme.primary : scheme.onSurfaceVariant;
+    // GestureDetector, not InkWell: native tab bars have no ripple/highlight.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AdaptiveIcon(service.icon, selected: selected, size: 22, color: color),
+          const SizedBox(height: 2),
+          Text(
+            service.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
+          ),
         ],
       ),
     );
@@ -123,7 +346,7 @@ class _MiniPlayerPill extends ConsumerWidget {
     if (track == null) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
 
-    return _DockPill(
+    return NativeGlassSurface(
       radius: _kMiniPlayerHeight / 2,
       child: InkWell(
         onTap: () => Navigator.of(context, rootNavigator: true)
@@ -136,7 +359,7 @@ class _MiniPlayerPill extends ConsumerWidget {
           child: Row(
             children: [
               const SizedBox(width: 16),
-              Icon(Icons.music_note, size: 18, color: scheme.primary),
+              AdaptiveIcon(VaultIcons.music, size: 18, color: scheme.primary),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(track.title,
@@ -150,184 +373,22 @@ class _MiniPlayerPill extends ConsumerWidget {
                   final playing = snapshot.data?.playing ?? false;
                   return IconButton(
                     visualDensity: VisualDensity.compact,
-                    icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+                    icon: AdaptiveIcon(
+                        playing ? VaultIcons.pause : VaultIcons.play,
+                        size: 20),
                     onPressed: controller.togglePlay,
                   );
                 },
               ),
               IconButton(
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.skip_next),
+                icon: const AdaptiveIcon(VaultIcons.skipNext, size: 20),
                 onPressed: controller.next,
               ),
               const SizedBox(width: 6),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _FloatingDock extends StatelessWidget {
-  const _FloatingDock({
-    required this.shell,
-    required this.services,
-    required this.dock,
-  });
-
-  final StatefulNavigationShell shell;
-  final List<ServiceDefinition> services;
-
-  /// The pinned services shown as fixed slots, in pin order.
-  final List<ServiceDefinition> dock;
-
-  String get _currentId => services[shell.currentIndex].id;
-
-  int _branchIndexOf(String id) => services.indexWhere((s) => s.id == id);
-
-  void _open(String id) {
-    final branch = _branchIndexOf(id);
-    if (branch < 0) return;
-    VaultHaptics.selection();
-    // Re-tapping the active service resets its branch stack.
-    shell.goBranch(branch, initialLocation: branch == shell.currentIndex);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final onUserPage = _currentId == 'user';
-
-    return _DockPill(
-      radius: _kDockHeight / 2,
-      child: SizedBox(
-        height: _kDockHeight,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final s in dock)
-              Expanded(
-                child: _DockItem(
-                  service: s,
-                  selected: !onUserPage && s.id == _currentId,
-                  onTap: () => _open(s.id),
-                ),
-              ),
-            VerticalDivider(
-                width: 1,
-                indent: 14,
-                endIndent: 14,
-                color: scheme.outlineVariant),
-            // The You slot: anchored, opens the services shelf + profile.
-            InkWell(
-              onTap: () => _open('user'),
-              child: SizedBox(
-                width: 64,
-                child: Center(
-                  child: CircleAvatar(
-                    radius: 17,
-                    backgroundColor: onUserPage
-                        ? scheme.primaryContainer
-                        : scheme.surfaceContainerHighest,
-                    child: Icon(
-                      onUserPage ? Icons.person : Icons.person_outline,
-                      size: 20,
-                      color: onUserPage
-                          ? scheme.onPrimaryContainer
-                          : scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// The pill's surface. iOS gets "liquid glass": a backdrop blur over the
-/// content scrolling beneath, a translucent tint, and a hairline highlight —
-/// the closest a Flutter-rendered surface gets to the native material (real
-/// UIKit glass would need a platform view). Everywhere else it's a plain
-/// elevated Material pill.
-class _DockPill extends StatelessWidget {
-  const _DockPill({required this.child, required this.radius});
-
-  final Widget child;
-  final double radius;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final radius = BorderRadius.circular(this.radius);
-
-    if (!isIOS) {
-      return Material(
-        color: scheme.surfaceContainer,
-        elevation: 6,
-        borderRadius: radius,
-        clipBehavior: Clip.antiAlias,
-        child: child,
-      );
-    }
-
-    return ClipRRect(
-      borderRadius: radius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: radius,
-            color: scheme.surfaceContainer.withValues(alpha: 0.55),
-            border: Border.all(
-              color: scheme.onSurface.withValues(alpha: 0.10),
-              width: 0.5,
-            ),
-          ),
-          // Material keeps InkWell ripples working inside the glass.
-          child: Material(type: MaterialType.transparency, child: child),
-        ),
-      ),
-    );
-  }
-}
-
-class _DockItem extends StatelessWidget {
-  const _DockItem({
-    required this.service,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final ServiceDefinition service;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final color = selected ? scheme.primary : scheme.onSurfaceVariant;
-    return InkWell(
-      onTap: onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(selected ? service.selectedIcon : service.icon,
-              size: 24, color: color),
-          const SizedBox(height: 2),
-          Text(
-            service.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: color,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                ),
-          ),
-        ],
       ),
     );
   }

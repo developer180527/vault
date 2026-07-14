@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_view/photo_view.dart';
@@ -77,22 +78,34 @@ class _MediaViewerPageState extends ConsumerState<MediaViewerPage> {
 }
 
 /// Full-resolution photo, with the fast thumbnail as an instant placeholder.
-class _PhotoContent extends StatelessWidget {
+/// Stateful so the load futures are created ONCE — a FutureBuilder fed a
+/// fresh `library.fullImage(...)` per build refetched and re-decoded the
+/// full-res image on every viewer rebuild (each page swipe sets state).
+class _PhotoContent extends StatefulWidget {
   const _PhotoContent({required this.item, required this.library});
 
   final MediaItem item;
   final LocalMediaLibrary library;
 
   @override
+  State<_PhotoContent> createState() => _PhotoContentState();
+}
+
+class _PhotoContentState extends State<_PhotoContent> {
+  late final Future<Uint8List?> _full = widget.library.fullImage(widget.item);
+  late final Future<Uint8List?> _thumb =
+      widget.library.thumbnail(widget.item, size: 600);
+
+  @override
   Widget build(BuildContext context) {
     return FutureBuilder(
-      future: library.fullImage(item),
+      future: _full,
       builder: (context, snapshot) {
         if (snapshot.data case final bytes?) {
           return Image.memory(bytes, fit: BoxFit.contain);
         }
         return FutureBuilder(
-          future: library.thumbnail(item, size: 600),
+          future: _thumb,
           builder: (context, thumb) => thumb.data != null
               ? Image.memory(thumb.data!, fit: BoxFit.contain)
               : const Center(child: CircularProgressIndicator()),

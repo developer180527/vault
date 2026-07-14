@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/platform/design/adaptive_icons.dart';
 import '../core/platform/platform_info.dart';
 import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
@@ -121,8 +122,7 @@ class _Sidebar extends ConsumerWidget {
               service: ServiceDefinition(
                 id: 'trash',
                 label: 'Trash',
-                icon: Icons.delete_outline,
-                selectedIcon: Icons.delete,
+                icon: VaultIcons.trash,
                 builder: (_) => const SizedBox.shrink(),
               ),
               selected: false,
@@ -159,7 +159,7 @@ class _SidebarItem extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                Icon(selected ? service.selectedIcon : service.icon, size: 20),
+                AdaptiveIcon(service.icon, selected: selected, size: 20),
                 const SizedBox(width: 12),
                 Text(service.label,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(

@@ -5,6 +5,7 @@ import '../../core/actions/vault_action.dart';
 import '../../core/capability/capability.dart';
 import '../../core/capability/manifest_providers.dart';
 import '../../core/logging/vault_log.dart';
+import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/platform/platform_services.dart';
 import 'data/file_browser_controller.dart';
 import '../../core/models/file_node.dart';
@@ -30,7 +31,7 @@ final filesServiceActions = <VaultAction>[
   VaultAction(
     id: 'files.new-folder',
     label: 'New Folder',
-    icon: Icons.create_new_folder_outlined,
+    icon: VaultIcons.newFolder,
     isEnabled: _canWrite,
     onInvoke: (context, ref) async {
       final name = await _promptName(context, title: 'New folder');
@@ -44,7 +45,7 @@ final filesServiceActions = <VaultAction>[
   VaultAction(
     id: 'files.upload',
     label: 'Upload',
-    icon: Icons.upload_file_outlined,
+    icon: VaultIcons.upload,
     isEnabled: _canWrite,
     onInvoke: (context, ref) async {
       final picked = await ref
@@ -68,7 +69,7 @@ final filesServiceActions = <VaultAction>[
   VaultAction(
     id: 'files.toggle-view',
     label: 'Toggle List / Grid',
-    icon: Icons.grid_view_outlined,
+    icon: VaultIcons.toggleView,
     onInvoke: (context, ref) =>
         ref.read(filesViewModeProvider.notifier).toggle(),
   ),
@@ -95,7 +96,7 @@ List<VaultAction> _kindActions(FileNode node) {
       VaultAction(
         id: 'file.open',
         label: 'Open',
-        icon: Icons.folder_open,
+        icon: VaultIcons.folderOpen,
         onInvoke: (context, ref) =>
             ref.read(fileBrowserControllerProvider.notifier).openFolder(node.id),
       ),
@@ -103,11 +104,11 @@ List<VaultAction> _kindActions(FileNode node) {
   }
 
   final (label, icon) = switch (node.mediaKind) {
-    FileMediaKind.image => ('View Photo', Icons.photo_outlined),
-    FileMediaKind.video => ('Play Video', Icons.play_circle_outline),
-    FileMediaKind.audio => ('Play Audio', Icons.music_note_outlined),
-    FileMediaKind.document => ('Open Document', Icons.description_outlined),
-    FileMediaKind.none => ('Open / Preview', Icons.open_in_new),
+    FileMediaKind.image => ('View Photo', VaultIcons.photo),
+    FileMediaKind.video => ('Play Video', VaultIcons.playVideo),
+    FileMediaKind.audio => ('Play Audio', VaultIcons.music),
+    FileMediaKind.document => ('Open Document', VaultIcons.document),
+    FileMediaKind.none => ('Open / Preview', VaultIcons.openPreview),
   };
   return [
     VaultAction(
@@ -129,8 +130,8 @@ List<VaultAction> _commonActions(FileNode node) => [
           id: 'file.pin',
           label: node.pinned ? 'Remove from Offline' : 'Make Available Offline',
           icon: node.pinned
-              ? Icons.cloud_off_outlined
-              : Icons.download_for_offline_outlined,
+              ? VaultIcons.offlineRemove
+              : VaultIcons.offlineAdd,
           isEnabled: _canWrite,
           onInvoke: (context, ref) async {
             await ref
@@ -142,7 +143,7 @@ List<VaultAction> _commonActions(FileNode node) => [
       VaultAction(
         id: 'file.rename',
         label: 'Rename',
-        icon: Icons.drive_file_rename_outline,
+        icon: VaultIcons.rename,
         isEnabled: _canWrite,
         onInvoke: (context, ref) async {
           final name =
@@ -155,7 +156,7 @@ List<VaultAction> _commonActions(FileNode node) => [
       VaultAction(
         id: 'file.delete',
         label: 'Move to Trash',
-        icon: Icons.delete_outline,
+        icon: VaultIcons.trash,
         isDestructive: true,
         isEnabled: _canDelete,
         onInvoke: (context, ref) async {
