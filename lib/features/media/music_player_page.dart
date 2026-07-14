@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../core/platform/platform_info.dart';
+import 'data/dominant_color.dart';
+import 'data/music_metadata.dart';
 import 'data/music_player_controller.dart';
 
 /// Full-screen now-playing screen, styled after Apple Music: large artwork,
-/// track title, scrubber, and transport controls. Reads the global music
-/// controller so it reflects (and drives) playback started from the list.
+/// track title/artist, scrubber, transport controls, and a volume/output row.
+/// The background gradient is tinted from the album art's dominant color.
 class MusicPlayerPage extends ConsumerWidget {
   const MusicPlayerPage({super.key});
 
@@ -18,21 +22,32 @@ class MusicPlayerPage extends ConsumerWidget {
     final track = state.current;
     final scheme = Theme.of(context).colorScheme;
 
+    final meta =
+        track == null ? const TrackMetadata() : metadataFor(ref, track.path);
+    final artColor = track == null
+        ? null
+        : ref.watch(trackArtColorProvider(track.path)).asData?.value;
+
     return Scaffold(
-      body: Container(
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 400),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              scheme.primaryContainer,
+              // Art-tinted when available; theme container otherwise. Blend
+              // toward surface so text/controls stay readable on loud covers.
+              artColor == null
+                  ? scheme.primaryContainer
+                  : Color.lerp(artColor, scheme.surface, 0.25)!,
               scheme.surface,
             ],
           ),
         ),
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(28, 8, 28, 28),
+            padding: const EdgeInsets.fromLTRB(28, 8, 28, 20),
             child: Column(
               children: [
                 Row(
@@ -57,23 +72,26 @@ class MusicPlayerPage extends ConsumerWidget {
                   ],
                 ),
                 const Spacer(),
-                _Artwork(scheme: scheme),
-                const SizedBox(height: 40),
+                _Artwork(art: meta.art),
+                const SizedBox(height: 32),
                 Text(
-                  track?.title ?? 'Nothing playing',
+                  meta.title ?? track?.title ?? 'Nothing playing',
                   style: Theme.of(context).textTheme.titleLarge,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 4),
-                Text('Local music',
-                    style: TextStyle(color: scheme.onSurfaceVariant)),
-                const SizedBox(height: 24),
+                Text(meta.artist ?? 'Local music',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 20),
                 _Scrubber(player: player),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 _Controls(controller: controller, player: player),
                 const Spacer(),
+                _VolumeRow(player: player),
               ],
             ),
           ),
@@ -84,11 +102,13 @@ class MusicPlayerPage extends ConsumerWidget {
 }
 
 class _Artwork extends StatelessWidget {
-  const _Artwork({required this.scheme});
-  final ColorScheme scheme;
+  const _Artwork({this.art});
+
+  final Uint8List? art;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final side = MediaQuery.sizeOf(context).width.clamp(200.0, 360.0) - 56;
     return Container(
       width: side,
@@ -103,12 +123,17 @@ class _Artwork extends StatelessWidget {
               offset: const Offset(0, 20)),
         ],
       ),
-      child: Icon(Icons.music_note, size: side * 0.4, color: scheme.primary),
+      clipBehavior: Clip.antiAlias,
+      child: art != null
+          ? Image.memory(art!, fit: BoxFit.cover, gaplessPlayback: true)
+          : Icon(Icons.music_note, size: side * 0.4, color: scheme.primary),
     );
   }
 }
 
-/// Position scrubber bound to the player's streams.
+/// Position scrubber. While dragging, the thumb follows the finger (a local
+/// drag value) instead of snapping back to the last stream tick — and stays
+/// put after release until playback catches up to the seek target.
 class _Scrubber extends StatefulWidget {
   const _Scrubber({required this.player});
   final AudioPlayer player;
@@ -129,6 +154,9 @@ class _ScrubberState extends State<_Scrubber> {
     maxPeriod: const Duration(milliseconds: 500),
   );
 
+  /// Non-null while dragging or waiting for the seek to land.
+  double? _dragMs;
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<Duration>(
@@ -136,7 +164,17 @@ class _ScrubberState extends State<_Scrubber> {
       builder: (context, snapshot) {
         final position = snapshot.data ?? Duration.zero;
         final total = player.duration ?? Duration.zero;
-        final max = total.inMilliseconds.toDouble();
+        final max = total.inMilliseconds.toDouble().clamp(1.0, double.infinity);
+
+        // Release the held drag value once playback has caught up with the
+        // seek target (or drifted past it).
+        if (_dragMs != null &&
+            (position.inMilliseconds - _dragMs!).abs() < 1000) {
+          _dragMs = null;
+        }
+        final shown =
+            (_dragMs ?? position.inMilliseconds.toDouble()).clamp(0.0, max);
+
         return Column(
           children: [
             SliderTheme(
@@ -146,12 +184,14 @@ class _ScrubberState extends State<_Scrubber> {
                     const RoundSliderThumbShape(enabledThumbRadius: 6),
               ),
               child: Slider(
-                value: position.inMilliseconds
-                    .clamp(0, max <= 0 ? 1 : max.toInt())
-                    .toDouble(),
-                max: max <= 0 ? 1 : max,
-                onChanged: (v) =>
-                    player.seek(Duration(milliseconds: v.round())),
+                value: shown,
+                max: max,
+                onChangeStart: (v) => setState(() => _dragMs = v),
+                onChanged: (v) => setState(() => _dragMs = v),
+                onChangeEnd: (v) {
+                  player.seek(Duration(milliseconds: v.round()));
+                  // Keep _dragMs until the stream reflects the new position.
+                },
               ),
             ),
             Padding(
@@ -159,7 +199,7 @@ class _ScrubberState extends State<_Scrubber> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(_fmt(position),
+                  Text(_fmt(Duration(milliseconds: shown.round())),
                       style: Theme.of(context).textTheme.bodySmall),
                   Text(_fmt(total),
                       style: Theme.of(context).textTheme.bodySmall),
@@ -236,6 +276,57 @@ class _Controls extends StatelessWidget {
             );
           },
         ),
+      ],
+    );
+  }
+}
+
+/// Volume slider plus (on iOS) the system audio-output picker for AirPlay /
+/// Bluetooth routing.
+class _VolumeRow extends StatelessWidget {
+  const _VolumeRow({required this.player});
+  final AudioPlayer player;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Icon(Icons.volume_down, size: 20, color: scheme.onSurfaceVariant),
+        Expanded(
+          child: StreamBuilder<double>(
+            stream: player.volumeStream,
+            builder: (context, snap) {
+              final volume = (snap.data ?? player.volume).clamp(0.0, 1.0);
+              return SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape:
+                      const RoundSliderThumbShape(enabledThumbRadius: 5),
+                ),
+                child: Slider(
+                  value: volume,
+                  onChanged: player.setVolume,
+                ),
+              );
+            },
+          ),
+        ),
+        Icon(Icons.volume_up, size: 20, color: scheme.onSurfaceVariant),
+        if (isIOS) ...[
+          const SizedBox(width: 8),
+          // System output picker (AirPlay/Bluetooth). Interactive platform
+          // view: tapping presents the native route sheet.
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: UiKitView(
+              viewType: 'vault/route-picker',
+              creationParams: {'tint': scheme.onSurfaceVariant.toARGB32()},
+              creationParamsCodec: const StandardMessageCodec(),
+            ),
+          ),
+        ],
       ],
     );
   }

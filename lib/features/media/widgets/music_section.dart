@@ -7,6 +7,7 @@ import '../../../core/platform/design/adaptive_icons.dart';
 import '../../../core/platform/platform_info.dart';
 import '../../../shell/adaptive_shell.dart';
 import '../data/music_library.dart';
+import '../data/music_metadata.dart';
 import '../data/music_player_controller.dart';
 import '../music_player_page.dart';
 
@@ -104,18 +105,41 @@ class _TrackList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final playerState = ref.watch(musicPlayerProvider);
+    final scheme = Theme.of(context).colorScheme;
     return ListView.builder(
       itemCount: tracks.length,
       itemBuilder: (context, i) {
         final track = tracks[i];
+        final meta = metadataFor(ref, track.path);
         final isCurrent = playerState.current?.id == track.id;
         return ListTile(
-          leading: Icon(
-            isCurrent ? Icons.equalizer : Icons.music_note,
-            color: isCurrent ? Theme.of(context).colorScheme.primary : null,
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: meta.art != null
+                  // cacheWidth: decode a thumbnail, not the full cover.
+                  ? Image.memory(meta.art!,
+                      fit: BoxFit.cover, cacheWidth: 132, gaplessPlayback: true)
+                  : ColoredBox(
+                      color: scheme.surfaceContainerHighest,
+                      child: Icon(Icons.music_note,
+                          size: 20, color: scheme.onSurfaceVariant),
+                    ),
+            ),
           ),
-          title:
-              Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          title: Text(meta.title ?? track.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: isCurrent ? TextStyle(color: scheme.primary) : null),
+          subtitle: meta.artist == null
+              ? null
+              : Text(meta.artist!,
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+          trailing: isCurrent
+              ? Icon(Icons.equalizer, size: 20, color: scheme.primary)
+              : null,
           onTap: () {
             ref.read(musicPlayerProvider.notifier).playQueue(tracks, i);
             _openPlayer(context);

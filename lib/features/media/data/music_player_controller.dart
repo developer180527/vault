@@ -5,6 +5,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 
 import '../../../core/logging/vault_log.dart';
 import 'music_library.dart';
+import 'music_metadata.dart';
 
 final _log = VaultLog.tag('music.player');
 
@@ -45,6 +46,10 @@ class MusicPlayerController extends Notifier<MusicPlayerState> {
   /// Start a queue at [startIndex].
   Future<void> playQueue(List<MusicTrack> tracks, int startIndex) async {
     state = MusicPlayerState(queue: tracks, index: startIndex);
+    // Real tags when the metadata pass has finished; filename fallback if
+    // the user hits play before it lands.
+    final meta =
+        ref.read(musicMetadataProvider).asData?.value ?? const {};
     try {
       await _player.setAudioSources(
         [
@@ -53,7 +58,12 @@ class MusicPlayerController extends Notifier<MusicPlayerState> {
               t.path,
               // Tag drives the lock-screen / notification metadata for
               // background playback.
-              tag: MediaItem(id: t.id, title: t.title, album: 'Local music'),
+              tag: MediaItem(
+                id: t.id,
+                title: meta[t.path]?.title ?? t.title,
+                artist: meta[t.path]?.artist,
+                album: meta[t.path]?.album ?? 'Local music',
+              ),
             ),
         ],
         initialIndex: startIndex,

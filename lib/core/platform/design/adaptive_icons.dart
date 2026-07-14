@@ -205,6 +205,21 @@ abstract final class VaultIcons {
     sfSymbol: 'pencil',
   );
 
+  static const share = AdaptiveIconData(
+    material: Icons.share_outlined,
+    sfSymbol: 'square.and.arrow.up',
+  );
+
+  static const edit = AdaptiveIconData(
+    material: Icons.tune,
+    sfSymbol: 'slider.horizontal.3',
+  );
+
+  static const crop = AdaptiveIconData(
+    material: Icons.crop,
+    sfSymbol: 'crop',
+  );
+
   static const search = AdaptiveIconData(
     material: Icons.search,
     sfSymbol: 'magnifyingglass',

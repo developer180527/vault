@@ -47,6 +47,7 @@ dependencies:
   just_audio: ^0.10.6
   file_picker: ^11.0.2
   just_audio_background: ^0.0.1-beta.17
+  audio_metadata_reader: ^1.6.0
 
 dev_dependencies:
   flutter_test:

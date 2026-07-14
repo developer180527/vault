@@ -1,4 +1,4 @@
-# Things to do in the app (Tue Jul 14) -- NOT RESOLVED 
+# Things to do in the app (Tue Jul 14) -- RESOLVED Jul 15 (pending device verification) 
 
 1\. Need to make media viewing in the media service in a container so photos / videos are rendered 
 in a container which leaves space for buttons like back, edit, crop and etc, just like a regular

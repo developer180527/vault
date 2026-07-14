@@ -4,14 +4,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 
+import '../../core/platform/design/adaptive_icons.dart';
 import 'data/local_media_library.dart';
 import 'data/media_providers.dart';
 import 'widgets/vault_media_player.dart';
 import 'widgets/viewer_top_bar.dart';
 
-/// Fullscreen media viewer: swipe between items, pinch-zoom / double-tap photos,
-/// and play videos inline. Opened from the Media grid with a hero transition.
-/// Uses PhotoViewGallery so zoom and page-swipe coexist cleanly (a plain
+/// Media viewer: swipe between items, pinch-zoom / double-tap photos, and
+/// play videos inline. The media renders in a CONTAINED area between the top
+/// bar and the bottom action bar (back/share/edit/crop/delete), like a
+/// regular media viewer — not edge-to-edge behind overlaid chrome. Uses
+/// PhotoViewGallery so zoom and page-swipe coexist cleanly (a plain
 /// InteractiveViewer would swallow the swipe).
 class MediaViewerPage extends ConsumerStatefulWidget {
   const MediaViewerPage({
@@ -43,10 +46,10 @@ class _MediaViewerPageState extends ConsumerState<MediaViewerPage> {
     final library = ref.read(localMediaLibraryProvider);
     return Scaffold(
       backgroundColor: Colors.black,
-      extendBodyBehindAppBar: true,
-      // Standardized fullscreen-media chrome; editing actions land in its
-      // action slot later.
+      // Standardized fullscreen-media chrome; the media is contained between
+      // the top bar and the action bar rather than rendered behind them.
       appBar: ViewerTopBar(title: '${_index + 1} of ${widget.items.length}'),
+      bottomNavigationBar: const _ViewerActionBar(),
       body: PhotoViewGallery.builder(
         pageController: _controller,
         itemCount: widget.items.length,
@@ -72,6 +75,59 @@ class _MediaViewerPageState extends ConsumerState<MediaViewerPage> {
             child: _PhotoContent(item: item, library: library),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Bottom action bar: the standard media-viewer tools. Share/edit/crop are
+/// placeholders until the editing pipeline exists — the container and layout
+/// are the point (media is sized between the bars, leaving room for chrome).
+class _ViewerActionBar extends StatelessWidget {
+  const _ViewerActionBar();
+
+  @override
+  Widget build(BuildContext context) {
+    void comingSoon(String what) =>
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('$what — coming with the media editing tools')));
+
+    return ColoredBox(
+      color: Colors.black,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 52,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              IconButton(
+                tooltip: 'Share',
+                color: Colors.white,
+                icon: const AdaptiveIcon(VaultIcons.share, size: 22),
+                onPressed: () => comingSoon('Share'),
+              ),
+              IconButton(
+                tooltip: 'Edit',
+                color: Colors.white,
+                icon: const AdaptiveIcon(VaultIcons.edit, size: 22),
+                onPressed: () => comingSoon('Edit'),
+              ),
+              IconButton(
+                tooltip: 'Crop',
+                color: Colors.white,
+                icon: const AdaptiveIcon(VaultIcons.crop, size: 22),
+                onPressed: () => comingSoon('Crop'),
+              ),
+              IconButton(
+                tooltip: 'Delete',
+                color: Colors.white,
+                icon: const AdaptiveIcon(VaultIcons.trash, size: 22),
+                onPressed: () => comingSoon('Delete'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

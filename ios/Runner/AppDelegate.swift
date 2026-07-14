@@ -19,6 +19,9 @@ import UIKit
     engineBridge.pluginRegistry
       .registrar(forPlugin: "vault.native-glass-panel")?
       .register(NativeGlassPanelViewFactory(), withId: "vault/native-glass-panel")
+    engineBridge.pluginRegistry
+      .registrar(forPlugin: "vault.route-picker")?
+      .register(RoutePickerViewFactory(), withId: "vault/route-picker")
 
     // Real SF Symbols: renders UIImage(systemName:) to a white template PNG
     // that the Dart SfSymbolIcon widget tints and caches.

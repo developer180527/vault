@@ -1,3 +1,4 @@
+import AVKit
 import Flutter
 import UIKit
 
@@ -73,6 +74,44 @@ class NativeGlassPanelViewFactory: NSObject, FlutterPlatformViewFactory {
 
   func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
     return FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+/// Factory for "vault/route-picker": the system AirPlay/audio-output picker
+/// (AVRoutePickerView). Interactive — tapping it presents the route sheet.
+class RoutePickerViewFactory: NSObject, FlutterPlatformViewFactory {
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    return RoutePickerPlatformView(frame: frame, args: args as? [String: Any])
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    return FlutterStandardMessageCodec.sharedInstance()
+  }
+}
+
+class RoutePickerPlatformView: NSObject, FlutterPlatformView {
+  private let picker: AVRoutePickerView
+
+  init(frame: CGRect, args: [String: Any]?) {
+    picker = AVRoutePickerView(frame: frame)
+    if let argb = (args?["tint"] as? NSNumber)?.uint32Value {
+      let color = UIColor(
+        red: CGFloat((argb >> 16) & 0xFF) / 255,
+        green: CGFloat((argb >> 8) & 0xFF) / 255,
+        blue: CGFloat(argb & 0xFF) / 255,
+        alpha: CGFloat((argb >> 24) & 0xFF) / 255)
+      picker.tintColor = color
+      picker.activeTintColor = color
+    }
+    super.init()
+  }
+
+  func view() -> UIView {
+    return picker
   }
 }
 
