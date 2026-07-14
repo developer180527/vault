@@ -1,6 +1,6 @@
 # Vault Backend Design
 
-Status: v2.1 design, July 15 2026 — survived two adversarial review
+Status: v2.2 design, July 15 2026 — survived three adversarial review
 rounds (see "Review decisions" at the bottom); ready to build against.
 Next step: Phase 0 (Tailscale on the server), then the vaultd skeleton. The client's `VaultClient` interface
 (`lib/core/client/vault_client.dart`) is the API contract this server
@@ -69,22 +69,30 @@ paths), and subpath rewrites break them in ways that surface as mystery
 ```
 tailscale serve --bg --https 443  http://127.0.0.1:8080   # vaultd API (members)
 tailscale serve --bg --https 9443 http://127.0.0.1:8081   # Pocket ID at ROOT (members: login/OIDC)
-tailscale serve --bg --https 8443 http://127.0.0.1:8082   # admin surface (qBittorrent UI, ops)
+tailscale serve --bg --https 8443 http://127.0.0.1:8082   # qBittorrent UI at ROOT (admins)
 ```
+
+**Rule: one port per web app, every app at its own root.** No subpath
+rewrites, ever — Pocket ID *and* qBittorrent both serve absolute asset
+paths and break behind a stripped prefix. Future admin UIs each get the
+next port. Ports are free on a tailnet; debugging asset 404s is not.
 
 ACLs: members → 443 + 9443; admins → everything. Pocket ID's own admin
 panel lives behind its admin passkey (and only tailnet devices can reach
 the port at all). OIDC issuer URL: `https://vault-server.<tailnet>.ts.net:9443`.
 
-Caddyfile sketch — keep routing dumb and explicit so the proxy and the
-ACLs can be verified against each other at a glance:
+Caddyfile sketch — dumb and explicit so proxy and ACLs can be verified
+against each other at a glance:
 
 ```
-:8080 { reverse_proxy vaultd:8080 }        # member API
-:8081 { reverse_proxy pocket-id:80 }        # IdP, root path, untouched
-:8082 {                                     # admin surface
-  handle_path /qbit/* { reverse_proxy qbittorrent:8090 }
+:8080 {
+  reverse_proxy vaultd:8080
+  # SSE must not buffer: vaultd flushes per event; Caddy passes through.
+  @sse path /v1/jobs/watch
+  reverse_proxy @sse vaultd:8080 { flush_interval -1 }
 }
+:8081 { reverse_proxy pocket-id:80 }        # IdP, root, untouched
+:8082 { reverse_proxy qbittorrent:8090 }    # admin UI, root, untouched
 ```
 
 Every container still binds 127.0.0.1 only; Caddy is the only thing the
@@ -206,11 +214,20 @@ Linux convention (`/Users` is macOS-ism; same idea, right home):
 - Library dirs stay `0700`, owned by that uid. Isolation between workers
   and libraries comes from **mounts** (workers only see `staging/`), not
   from uid juggling.
-- **MoveFile utility:** completion moves try `os.Rename` first; on
-  `EXDEV` (staging and the user library on different filesystems — which
-  becomes the NORM once per-user ZFS datasets exist) fall back to
-  streaming copy → fsync → verify length/hash → unlink source. Never
+- **Atomic ingest (the one write rule):** nothing appears in a library
+  except via atomic rename of a verified temp file. Every ingest — MoveFile
+  completions, yt-dlp output, backup uploads — streams into
+  `users/<u>/.incoming/<uuid>` (SAME filesystem as the destination), fsync,
+  verify length/hash, then local `os.Rename` into place. A crash mid-copy
+  leaves only invisible temp files; a reader can never observe a
+  half-written file. Startup sweeps stale `.incoming/` entries.
+- **MoveFile utility:** try `os.Rename` first; on `EXDEV` (staging and the
+  user library on different filesystems — the NORM once per-user ZFS
+  datasets exist) fall back to the atomic-ingest copy path above. Never
   assume rename works across the staging boundary.
+- **Quota / disk-full:** uploads check the user's quota and free space
+  BEFORE accepting bytes (507 Insufficient Storage); ENOSPC mid-stream
+  aborts through atomic ingest (temp discarded, nothing corrupt).
 - Later: one ZFS dataset per user → quotas + per-user snapshots for free
   (this is exactly when the EXDEV fallback starts being exercised).
 
@@ -218,13 +235,20 @@ Linux convention (`/Users` is macOS-ism; same idea, right home):
 
 ### File identifiers (contract note)
 
-The client's `FileRepository` speaks node **IDs**, and storage is
-path-based with no files table — resolved without breaking either: the ID
-is an **opaque handle** that v1 defines as base64url of the user-relative
-path. The server decodes it, runs SafeJoin, serves the file. No schema,
-client contract untouched, and when a real file index arrives later (sync
-journal), IDs change *meaning* without changing API *shape*. Clients must
-never parse IDs.
+The client's `FileRepository` speaks node **IDs**; IDs are opaque and
+clients must never parse or derive meaning from them. Two eras:
+
+- **Phases 2–4 (streaming/job outputs only):** the ID is base64url of the
+  user-relative path — stateless, no schema. These handles are
+  NON-PERSISTABLE (documented in the client contract): renaming a parent
+  changes every descendant's handle, which is fine for ephemeral browse/
+  stream references and nothing else.
+- **Files service (Phase 5) onward:** a minimal `nodes` table
+  (uuid, user_id, rel_path, is_dir) gives rename-stable identity. This is
+  not schema creep — pin-offline, trash restore, and sync all REQUIRE
+  identity that survives a parent rename; path-derived IDs would break
+  every offline cache the moment someone renames a folder. The API shape
+  is unchanged; only the ID's meaning upgrades.
 
 ### vaultd (Go, the gateway — you build this)
 
@@ -309,8 +333,13 @@ Worker rules (from review):
   ENTIRE database** — jobs, photos, devices, grants, everything — with
   reads on a separate pool. Scoping the single-writer to just the jobs
   engine would re-import "database is locked" the first time a photo sync
-  and a device refresh collide. In Go: a `*sql.DB` with
-  `SetMaxOpenConns(1)` for writes, a second handle for reads.
+  and a device refresh collide.
+- **Enforced by types, not discipline:** the store layer exposes two Go
+  types — `ReadStore` (read pool) and `WriteStore` (the single write
+  connection). Any flow that MIGHT write runs entirely on `WriteStore`
+  with `BEGIN IMMEDIATE` (write lock taken up front — `database/sql`
+  cannot upgrade a read transaction into a write one mid-flight). Handing
+  a handler the wrong store is a compile error, not a runtime lock panic.
 - Progress ticks update an in-memory job snapshot and flush to disk
   periodically; only state *transitions* write synchronously.
 - **SSE fanout with backpressure:** each subscriber owns a buffered
@@ -318,6 +347,17 @@ Worker rules (from review):
   intermediates). A phone with a saturated buffer can never block the
   fanout loop — it just gets the freshest state when it drains. Snapshots
   are per-user filtered: you watch your jobs, admins may watch all.
+- **SSE survival through proxies:** vaultd flushes per event, Caddy's SSE
+  route sets `flush_interval -1`, and the stream sends heartbeat comments
+  (~25s) so idle timeouts along serve→Caddy never reap it silently.
+  Streams are capped at ~30 min: the access token is validated at open,
+  and the cap bounds how long a revoked device can keep listening. The
+  client reconnects with a fresh token; reconnects are inherently safe
+  because every connection starts with a full snapshot.
+- **qBittorrent API sessions:** the WebAPI wants cookie auth, and the
+  compose network is NOT localhost (its localhost-bypass doesn't apply).
+  Credentials live in `.env`; the adapter wraps calls with
+  re-login-on-403.
 
 ### Photo backup (Go, the flagship)
 
@@ -325,8 +365,10 @@ Content-addressed and dumb on purpose:
 
 1. Client hashes originals (SHA-256) → `POST /v1/backup/check` in
    **batches of ≤500 hashes** (a 10k-hash single payload over a mobile
-   tailnet is a guaranteed timeout) → server returns which are missing
-   (dedupe across re-installs and shared albums for free).
+   tailnet is a guaranteed timeout) → server returns which are missing.
+   Dedupe is **per-user only** (re-installs, multiple devices); cross-user
+   dedupe is deliberately rejected — privacy and deletion semantics over
+   disk savings.
 2. Client uploads each missing file. Photos: single streaming PUT. Large
    videos: **resumable offsets** — `HEAD /v1/backup/{hash}` returns bytes
    received, `PUT` with `Upload-Offset` appends; a dropped connection
@@ -457,6 +499,20 @@ nightly SQLite backup over Litestream.
 Rejected: "dual session sync overhead" (there is no ongoing IdP sync —
 token exchange at enrollment only); "streaming blows up gateway RAM"
 (http.ServeContent streams; nothing buffers whole files).
+
+Round 3 (v2.2): one-port-per-web-app made a hard rule (qBittorrent had
+the same subpath asset breakage Pocket ID was saved from); "atomic
+ingest" generalized — every library write streams to `.incoming/` on the
+destination filesystem, verifies, then locally renames (crash/mid-read
+safety), with quota/ENOSPC checks up front; file IDs split into two eras
+(non-persistable path handles for phases 2–4, a minimal `nodes` table
+WITH the files service because pin/trash/sync require rename-stable
+identity); SQLite read/write separation enforced by distinct
+ReadStore/WriteStore types with BEGIN IMMEDIATE (no read→write upgrade
+exists in database/sql). Self-review additions: SSE proxy flushing +
+heartbeats + 30-min capped streams tied to token lifetime; qBittorrent
+cookie-auth wrapper (compose network isn't localhost); per-user-only
+backup dedupe made explicit.
 
 Round 2 (v2.1): unified uid:gid across vaultd + workers with setgid
 staging and UMASK=002 (removes the cross-uid handoff failure class);
