@@ -1,7 +1,8 @@
 # Vault Backend Design
 
-Status: v2 design, July 2026 (v1 revised after review — see "Review
-decisions" at the bottom). The client's `VaultClient` interface
+Status: v2.1 design, July 15 2026 — survived two adversarial review
+rounds (see "Review decisions" at the bottom); ready to build against.
+Next step: Phase 0 (Tailscale on the server), then the vaultd skeleton. The client's `VaultClient` interface
 (`lib/core/client/vault_client.dart`) is the API contract this server
 implements — keep them in lockstep.
 
@@ -57,22 +58,34 @@ sudo tailscale up --ssh --hostname vault-server
   `vault-server.<tailnet>.ts.net` — the client speaks normal HTTPS with no
   certificate hacks.
 
-### Routing: Caddy behind tailscale serve, two ports
+### Routing: Caddy behind tailscale serve, one port per audience
 
-`tailscale serve` fronts **Caddy**, and Caddy routes internally. Two entry
-ports with different ACL audiences:
+`tailscale serve` fronts **Caddy**, one HTTPS port per surface. Subpath
+routing for the IdP is deliberately avoided: identity providers expect to
+own their root (`/.well-known/openid-configuration`, absolute asset
+paths), and subpath rewrites break them in ways that surface as mystery
+404s.
 
 ```
-tailscale serve --bg --https 443  http://127.0.0.1:8080   # member surface
-tailscale serve --bg --https 8443 http://127.0.0.1:8081   # admin surface
+tailscale serve --bg --https 443  http://127.0.0.1:8080   # vaultd API (members)
+tailscale serve --bg --https 9443 http://127.0.0.1:8081   # Pocket ID at ROOT (members: login/OIDC)
+tailscale serve --bg --https 8443 http://127.0.0.1:8082   # admin surface (qBittorrent UI, ops)
 ```
 
-- **443 (members):** `/*` → vaultd; `/id/*` → Pocket ID's *login + OIDC*
-  endpoints (authorize, token, JWKS, passkey ceremony). Members MUST reach
-  these or OIDC login is impossible. Caddy denies `/id/admin*` on this port.
-- **8443 (admins only, enforced by the Tailscale ACL above):** qBittorrent
-  WebUI, Pocket ID admin panel, anything operational. Admin-from-phone with
-  no SSH tunnels; family devices can't even open a TCP connection to it.
+ACLs: members → 443 + 9443; admins → everything. Pocket ID's own admin
+panel lives behind its admin passkey (and only tailnet devices can reach
+the port at all). OIDC issuer URL: `https://vault-server.<tailnet>.ts.net:9443`.
+
+Caddyfile sketch — keep routing dumb and explicit so the proxy and the
+ACLs can be verified against each other at a glance:
+
+```
+:8080 { reverse_proxy vaultd:8080 }        # member API
+:8081 { reverse_proxy pocket-id:80 }        # IdP, root path, untouched
+:8082 {                                     # admin surface
+  handle_path /qbit/* { reverse_proxy qbittorrent:8090 }
+}
+```
 
 Every container still binds 127.0.0.1 only; Caddy is the only thing the
 serve layer touches.
@@ -183,10 +196,35 @@ Linux convention (`/Users` is macOS-ism; same idea, right home):
   containers); vaultd moves completed artifacts into the owner's library.
   A compromised worker container can see in-flight downloads, never
   anyone's library.
-- vaultd runs as its own uid; user dirs owned by it (mode 0700). Later:
-  one ZFS dataset per user → quotas + per-user snapshots for free.
+### Ownership & the staging→library handoff
+
+- **One system user for the whole stack:** vaultd and every worker
+  container (qBittorrent PUID/PGID, yt-dlp) run as the same `vault`
+  uid:gid. Staging dirs are setgid with `UMASK=002`. This removes the
+  entire cross-uid failure class (unreadable payloads, unlink EACCES at
+  the completion step) instead of managing it.
+- Library dirs stay `0700`, owned by that uid. Isolation between workers
+  and libraries comes from **mounts** (workers only see `staging/`), not
+  from uid juggling.
+- **MoveFile utility:** completion moves try `os.Rename` first; on
+  `EXDEV` (staging and the user library on different filesystems — which
+  becomes the NORM once per-user ZFS datasets exist) fall back to
+  streaming copy → fsync → verify length/hash → unlink source. Never
+  assume rename works across the staging boundary.
+- Later: one ZFS dataset per user → quotas + per-user snapshots for free
+  (this is exactly when the EXDEV fallback starts being exercised).
 
 ## Services
+
+### File identifiers (contract note)
+
+The client's `FileRepository` speaks node **IDs**, and storage is
+path-based with no files table — resolved without breaking either: the ID
+is an **opaque handle** that v1 defines as base64url of the user-relative
+path. The server decodes it, runs SafeJoin, serves the file. No schema,
+client contract untouched, and when a real file index arrives later (sync
+journal), IDs change *meaning* without changing API *shape*. Clients must
+never parse IDs.
 
 ### vaultd (Go, the gateway — you build this)
 
@@ -219,6 +257,7 @@ SQLite in WAL mode. No ORM needed. Structured logs (slog) to stdout →
 | `jobs.clearFinished()` | `POST /v1/jobs/clear-finished`               |
 | `jobs.watch()`         | `GET  /v1/jobs/watch` (SSE stream)           |
 | `files.*`              | `GET/POST/PATCH/DELETE /v1/files...`         |
+| streaming              | `GET /v1/files/{id}/content` (Range support) |
 | backup (new)           | `POST /v1/backup/check` (hashes) → missing;  |
 |                        | `PUT  /v1/backup/{hash}` (body = file)       |
 | auth                   | `POST /v1/devices/register`, `/v1/token`     |
@@ -266,10 +305,14 @@ Worker rules (from review):
 
 ### Job store + live updates
 
-- SQLite: WAL, `busy_timeout=5000`, and **all writes through one writer
-  goroutine**. Progress ticks update an in-memory job snapshot and flush
-  to disk periodically; only state *transitions* write synchronously.
-  ("database is locked" is a design smell, not a fact of SQLite life.)
+- SQLite: WAL, `busy_timeout=5000`, and **one write connection for the
+  ENTIRE database** — jobs, photos, devices, grants, everything — with
+  reads on a separate pool. Scoping the single-writer to just the jobs
+  engine would re-import "database is locked" the first time a photo sync
+  and a device refresh collide. In Go: a `*sql.DB` with
+  `SetMaxOpenConns(1)` for writes, a second handle for reads.
+- Progress ticks update an in-memory job snapshot and flush to disk
+  periodically; only state *transitions* write synchronously.
 - **SSE fanout with backpressure:** each subscriber owns a buffered
   channel holding only the LATEST snapshot (coalescing writes, dropping
   intermediates). A phone with a saturated buffer can never block the
@@ -309,9 +352,10 @@ what makes scrubbing a movie on the phone work.
 
 ```yaml
 services:
+  # Only caddy binds host ports; everything else is reachable solely over
+  # the compose network, by service name.
   vaultd:
     build: ./vaultd
-    ports: ["127.0.0.1:8080:8080"]
     volumes:
       - /srv/vault:/srv/vault
     env_file: .env
@@ -320,14 +364,14 @@ services:
 
   pocket-id:
     image: ghcr.io/pocket-id/pocket-id
-    ports: ["127.0.0.1:8081:80"]
     volumes: [pocket-id-data:/app/data]
     restart: unless-stopped
 
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent
-    environment: [PUID=1001, PGID=1001, WEBUI_PORT=8090]
-    ports: ["127.0.0.1:8090:8090"]
+    # SAME uid:gid as vaultd (the `vault` system user) + group-writable
+    # output — see "Ownership & the staging→library handoff".
+    environment: [PUID=990, PGID=990, UMASK=002, WEBUI_PORT=8090]
     volumes:
       - qbit-config:/config
       # Staging ONLY — worker containers never see user libraries.
@@ -336,13 +380,17 @@ services:
 
   caddy:
     image: caddy:2
-    ports: ["127.0.0.1:8080:8080", "127.0.0.1:8081:8081"]
+    ports:
+      - "127.0.0.1:8080:8080"   # member API surface
+      - "127.0.0.1:8081:8081"   # Pocket ID (root)
+      - "127.0.0.1:8082:8082"   # admin surface
     volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro"]
     restart: unless-stopped
 ```
 
-Tailscale serve maps 443 → caddy:8080 (member surface) and 8443 →
-caddy:8081 (admin surface). Nothing listens on LAN/WAN interfaces.
+Tailscale serve maps 443 → caddy:8080 (member API), 9443 → caddy:8081
+(Pocket ID), 8443 → caddy:8082 (admin surface). Nothing listens on
+LAN/WAN interfaces.
 
 ## Admin experience
 
@@ -409,6 +457,17 @@ nightly SQLite backup over Litestream.
 Rejected: "dual session sync overhead" (there is no ongoing IdP sync —
 token exchange at enrollment only); "streaming blows up gateway RAM"
 (http.ServeContent streams; nothing buffers whole files).
+
+Round 2 (v2.1): unified uid:gid across vaultd + workers with setgid
+staging and UMASK=002 (removes the cross-uid handoff failure class);
+MoveFile with EXDEV streaming-copy fallback (mandatory once per-user ZFS
+datasets exist); Pocket ID moved from a /id subpath to its own HTTPS port
+(9443) because IdPs expect to own their root — this also deleted the
+/id/admin 403 special-casing; SQLite single-writer scoped to the WHOLE
+database, not just jobs; explicit Caddyfile documented. Modified rather
+than accepted: file IDs stay IDs (the client contract already speaks
+them) but are defined as opaque base64url-encoded relative paths — no
+file_entries table, boring storage preserved.
 
 ## Phased rollout
 
