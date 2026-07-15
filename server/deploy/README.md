@@ -20,8 +20,17 @@ cd ~/vault-deploy
 sudo bash bootstrap.sh
 ```
 
-Creates the `vault` system user (990:990) and `/srv/vault` per DESIGN.md
-(setgid staging, tight system dirs). Idempotent — safe to re-run.
+Creates the `vault` system user and `/srv/vault` per DESIGN.md (setgid
+staging, tight system dirs). Idempotent — safe to re-run. It prefers
+uid:gid 990 but auto-assigns a free system id if 990 is taken, printing
+the actual values at the end.
+
+> **This deployment's `vault` user is `988:988`** (990 was taken by
+> `messagebus`/D-Bus on this box). `.env` carries these as VAULT_UID /
+> VAULT_GID, and every component that runs as the vault user — qBittorrent
+> now, vaultd's container/systemd unit in M2 — MUST use 988:988 so the
+> staging→library handoff keeps working. If you ever rebuild the host,
+> re-run bootstrap.sh and use whatever uid it prints.
 
 ## 3. Configure
 
