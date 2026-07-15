@@ -1,0 +1,53 @@
+# Vault server stack (M1) — see docs/backend/DESIGN.md.
+# Only caddy binds host ports (127.0.0.1 only; tailscale serve fronts them).
+# Everything else is reachable solely over the compose network by name.
+
+services:
+  caddy:
+    image: caddy:2
+    container_name: vault-caddy
+    ports:
+      - "127.0.0.1:8080:8080" # member API surface  (tailscale serve 443)
+      - "127.0.0.1:8081:8081" # Pocket ID, root     (tailscale serve 9443)
+      - "127.0.0.1:8082:8082" # admin surface       (tailscale serve 8443)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:v2
+    container_name: vault-pocket-id
+    environment:
+      # Members reach Pocket ID at its own HTTPS port — root path, never a
+      # subpath (IdPs own their root; see DESIGN.md "Routing").
+      - APP_URL=https://${TS_HOSTNAME}:9443
+      - TRUST_PROXY=true
+      - ENCRYPTION_KEY=${POCKET_ID_ENCRYPTION_KEY}
+    volumes:
+      - pocket-id-data:/app/data
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: vault-qbittorrent
+    environment:
+      # SAME uid:gid as vaultd (`vault` system user) + group-writable output —
+      # DESIGN.md "Ownership & the staging→library handoff".
+      - PUID=${VAULT_UID}
+      - PGID=${VAULT_GID}
+      - UMASK=002
+      - TZ=${TZ}
+      - WEBUI_PORT=8090
+    volumes:
+      - qbit-config:/config
+      # Staging ONLY — worker containers never see user libraries.
+      - /srv/vault/staging/torrents:/srv/vault/staging/torrents
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
+  pocket-id-data:
+  qbit-config:

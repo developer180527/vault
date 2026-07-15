@@ -1,0 +1,27 @@
+# Vault internal router. TLS terminates at tailscale serve; Caddy speaks
+# plain HTTP on localhost. One port per audience, every app at its own root
+# (never subpaths — see DESIGN.md "Routing").
+{
+	auto_https off
+}
+
+# ---- member API surface (tailscale serve 443) -------------------------
+:8080 {
+	respond /healthz "ok: caddy up, vaultd pending (M2)" 200
+	# M2: replace the respond below with:
+	#   reverse_proxy vaultd:8080
+	# and for SSE add:
+	#   @sse path /v1/jobs/watch
+	#   reverse_proxy @sse vaultd:8080 { flush_interval -1 }
+	respond "vaultd is not deployed yet (arrives in M2)" 503
+}
+
+# ---- Pocket ID at root (tailscale serve 9443) -------------------------
+:8081 {
+	reverse_proxy pocket-id:1411
+}
+
+# ---- admin surface (tailscale serve 8443, admin-only by Tailscale ACL) -
+:8082 {
+	reverse_proxy qbittorrent:8090
+}
