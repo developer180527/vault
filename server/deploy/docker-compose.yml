@@ -30,10 +30,15 @@ services:
       # server/vaultd/README + deploy README).
       - VAULTD_OIDC_ISSUER=https://${TS_HOSTNAME}:9443
       - VAULTD_OIDC_CLIENT_ID=${VAULTD_OIDC_CLIENT_ID}
+      # Jobs: vaultd drives qBittorrent's Web API over the compose network.
+      - VAULTD_QBIT_URL=http://qbittorrent:8090
+      - VAULTD_QBIT_USER=admin
+      - VAULTD_QBIT_PASSWORD=${QBIT_PASSWORD}
     volumes:
       - /srv/vault:/srv/vault
     depends_on:
       - pocket-id
+      - qbittorrent
     restart: unless-stopped
 
   pocket-id:

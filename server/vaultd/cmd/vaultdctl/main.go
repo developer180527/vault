@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/developer180527/vault/vaultd/internal/library"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -106,8 +107,18 @@ func userCmd(ctx context.Context, st *store.Store, args []string) error {
 		if email == "" {
 			return fmt.Errorf("--email is required (it binds the account on first login)")
 		}
+		if !library.ValidUsername(username) {
+			return fmt.Errorf("invalid username %q (lowercase letters, digits, . _ -)", username)
+		}
 		u, err := st.Write().CreateUser(ctx, username, email, "", role, "", "")
 		if err != nil {
+			return err
+		}
+		root := os.Getenv("VAULT_DATA_ROOT")
+		if root == "" {
+			root = "/srv/vault"
+		}
+		if err := library.Ensure(root, username); err != nil {
 			return err
 		}
 		fmt.Printf("created %s (%s, %s) — binds on first Pocket ID login with %s\n",

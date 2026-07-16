@@ -204,6 +204,66 @@ Linux convention (`/Users` is macOS-ism; same idea, right home):
   containers); vaultd moves completed artifacts into the owner's library.
   A compromised worker container can see in-flight downloads, never
   anyone's library.
+### Data placement: convention over configuration
+
+Users do NOT configure save locations. The library root is always derived
+server-side from the authenticated token, and each service writes to a
+FIXED subdirectory of the owner's library:
+
+| service            | landing zone            |
+|--------------------|-------------------------|
+| photo backup       | `photos/`               |
+| torrent + yt-dlp   | `downloads/`            |
+| My Files uploads   | `files/`                |
+| music library      | `music/`                |
+
+- Landing zones are separate from the organized library on purpose: a
+  torrent LANDS in `downloads/`; filing it into a collection is a *move*
+  through the Files service (or a future automation), never a save-path
+  setting. Fixed roots keep the traversal surface at zero.
+- The only user-controllable placement is a RELATIVE subfolder beneath the
+  fixed zone (e.g. `downloads/movies/`), suggested by the client and passed
+  through SafeJoin like every other path. The root is never client-writable.
+- Per-service server-pushed settings (quotas, default subfolder, flags)
+  travel in the manifest's `Capability.config` map — the server dictates,
+  the client renders.
+
+### The library directory vs the Files service
+
+Two different things, deliberately decoupled:
+
+- **The library directory** (`users/<username>/`) is physical — created at
+  enrollment for every non-guest user. It exists whether or not any tab
+  shows it.
+- **The My Files tab** is a *grant* (`files` in the manifest) — permission
+  to browse that directory.
+
+Policy (admin-controlled convention, not an architectural constant):
+
+- Anyone holding a data-GENERATING service (torrent, backup, uploads) also
+  gets `files:read` so they can reach what they produce. Grant tooling and
+  the future admin UI should nudge this pairing.
+- File actions are split, not one flag: `read` (browse own library),
+  `write` (folders/upload/rename), `delete` (trash), `sync` (the heavy
+  backup/sync engine — a phone auto-backing-up needs it; a view-only user
+  doesn't).
+- A stream-only member (watch media, store nothing) is legitimate: grants
+  like `media:read,stream` with NO files grant and an empty, unused
+  library. Nothing generates data for them, so nothing is orphaned.
+
+### Redundancy tiers (a mirror is not a backup)
+
+- **ZFS mirror** = availability + integrity (disk death, bit-rot,
+  snapshots for oops/ransomware). One house, one PSU — not a backup.
+- **Offsite encrypted backup** (restic/borg to a storage box or a drive at
+  a relative's over the tailnet) = disaster recovery. M6.
+- Tier by replaceability: irreplaceable data (photos, `files/`, git) gets
+  mirror + offsite; re-acquirable data (`downloads/`, media rips) gets the
+  mirror only. Never pay to back up what can be re-downloaded.
+- Photo backup composes to three failure domains by itself: phone original
+  → server (mirrored) → offsite copy. Content-addressing (per-user) makes
+  re-uploads free without cross-user privacy coupling.
+
 ### Ownership & the staging→library handoff
 
 - **One system user for the whole stack:** vaultd and every worker

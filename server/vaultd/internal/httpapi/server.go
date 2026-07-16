@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/developer180527/vault/vaultd/internal/auth"
+	"github.com/developer180527/vault/vaultd/internal/jobs"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -32,6 +33,13 @@ type Options struct {
 	// the app discovers how to log in without hardcoding either.
 	OIDCIssuer   string
 	OIDCClientID string
+
+	// DataRoot is /srv/vault — per-user libraries are ensured under it at
+	// enrollment.
+	DataRoot string
+
+	// Jobs is the background-work engine (nil disables the jobs API).
+	Jobs *jobs.Engine
 }
 
 // Server holds the dependencies shared by handlers.
@@ -43,6 +51,8 @@ type Server struct {
 	setupMu      sync.Mutex
 	oidcIssuer   string
 	oidcClientID string
+	dataRoot     string
+	jobs         *jobs.Engine
 }
 
 // New builds the router.
@@ -54,6 +64,8 @@ func New(o Options) http.Handler {
 		setupCode:    o.SetupCode,
 		oidcIssuer:   o.OIDCIssuer,
 		oidcClientID: o.OIDCClientID,
+		dataRoot:     o.DataRoot,
+		jobs:         o.Jobs,
 	}
 
 	r := chi.NewRouter()
@@ -73,7 +85,21 @@ func New(o Options) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.RequireAuth)
 			r.Get("/manifest", s.handleManifest)
-			// Jobs (M3), files/backup (M4-M5) land here.
+
+			// Jobs — gated on the torrent service. read to watch/list,
+			// write to submit/cancel/retry/clear.
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("torrent", "read"))
+				r.Get("/jobs/watch", s.handleWatchJobs)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("torrent", "write"))
+				r.Post("/jobs", s.handleSubmitJob)
+				r.Post("/jobs/{id}/cancel", s.handleCancelJob)
+				r.Post("/jobs/{id}/retry", s.handleRetryJob)
+				r.Post("/jobs/clear-finished", s.handleClearFinished)
+			})
+			// files/backup (M4-M5) land here.
 		})
 	})
 

@@ -61,9 +61,23 @@ vaultdctl grant <name> <service> <action,...> | grant-remove | grants <name>
 vaultdctl device list [name] | device revoke <device-id>
 ```
 
+## Jobs (M3)
+
+`internal/jobs`: a unified scheduler (concurrency cap + per-user fairness)
+running two Runners — `TorrentRunner` (qBittorrent Web API, category-per-
+user, per-job poll) and `YtdlpRunner` (yt-dlp subprocess, process-group
+kill, progress parse). Completed artifacts are moved into the owner's
+`downloads/` via `library.MoveInto` (atomic ingest + EXDEV fallback). Live
+updates stream over SSE (`GET /v1/jobs/watch`) from a coalescing hub with
+heartbeats and a 30-min cap; crashed `running` jobs are reconciled at boot.
+All endpoints gated on `torrent:{read,write}`.
+
+Extra config (env): `VAULTD_QBIT_URL/USER/PASSWORD`, `VAULTD_YTDLP_BIN`,
+`VAULTD_MAX_JOBS`. The Docker image bakes yt-dlp + ffmpeg (rebuild to
+refresh yt-dlp).
+
 ## Status
 
-M2: skeleton + OIDC verify + bootstrap + device tokens (rotation grace,
-theft revocation) + manifest + vaultdctl — all covered by integration tests
-(`go test ./...`). Next: client HttpVaultClient + login flow, then deploy
-to the server stack and swap Caddy's :8080 placeholder for the proxy.
+M2 (auth/identity/manifest) + M3 (jobs: torrent + yt-dlp) built and
+integration-tested (`go test ./...`). Next: deploy M3 to the stack (set
+QBIT_PASSWORD, rebuild), then M4 (photo backup).

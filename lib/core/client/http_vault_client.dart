@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../auth/session.dart';
 import '../capability/capability.dart';
 import '../logging/vault_log.dart';
+import 'http_jobs_api.dart';
 import 'mock_vault_client.dart';
 import 'vault_client.dart';
 
@@ -18,18 +19,21 @@ final _log = VaultLog.tag('client.http');
 /// their server endpoints land (M3/M5) — the seam makes that swap invisible
 /// to every feature.
 class HttpVaultClient implements VaultClient {
-  HttpVaultClient(this._ref) : _fallback = MockVaultClient(serviceIds: () => const []);
+  HttpVaultClient(this._ref)
+      : _fallback = MockVaultClient(serviceIds: () => const []),
+        _jobs = HttpJobsApi(_ref);
 
   final Ref _ref;
 
   /// Local stand-ins for the not-yet-server-backed domains.
   final MockVaultClient _fallback;
+  final HttpJobsApi _jobs;
 
   @override
   FileRepository get files => _fallback.files; // TODO(M5): server files
 
   @override
-  VaultJobsApi get jobs => _fallback.jobs; // TODO(M3): server jobs
+  VaultJobsApi get jobs => _jobs;
 
   @override
   Future<CapabilityManifest> fetchManifest() async {

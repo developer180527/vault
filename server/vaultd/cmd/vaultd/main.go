@@ -12,12 +12,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/developer180527/vault/vaultd/internal/auth"
 	"github.com/developer180527/vault/vaultd/internal/config"
 	"github.com/developer180527/vault/vaultd/internal/httpapi"
+	"github.com/developer180527/vault/vaultd/internal/jobs"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -55,6 +57,23 @@ func main() {
 		log.Warn("VAULTD_OIDC_ISSUER not set — auth disabled")
 	}
 
+	// Background-work engine: torrent (qBittorrent) + URL (yt-dlp) runners,
+	// unified scheduler, SSE hub. Staging dirs live under DataRoot.
+	staging := filepath.Join(cfg.DataRoot, "staging")
+	engine := jobs.New(log, st, cfg.DataRoot, cfg.MaxJobs, map[string]jobs.Runner{
+		store.JobKindTorrent: &jobs.TorrentRunner{
+			Client:   jobs.NewQbitClient(cfg.QbitURL, cfg.QbitUser, cfg.QbitPassword),
+			SavePath: filepath.Join(staging, "torrents"),
+		},
+		store.JobKindDownload: &jobs.YtdlpRunner{
+			Binary:      cfg.YtdlpBinary,
+			StagingRoot: filepath.Join(staging, "ytdlp"),
+		},
+	})
+	engine.Start()
+	defer engine.Stop()
+	log.Info("jobs engine started", "maxConcurrent", cfg.MaxJobs)
+
 	// One-time bootstrap: while no users exist, print a setup code the first
 	// admin presents alongside their Pocket ID login.
 	setupCode := ""
@@ -75,6 +94,8 @@ func main() {
 			SetupCode:    setupCode,
 			OIDCIssuer:   cfg.OIDCIssuer,
 			OIDCClientID: cfg.OIDCClientID,
+			DataRoot:     cfg.DataRoot,
+			Jobs:         engine,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

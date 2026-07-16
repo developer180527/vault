@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -83,9 +84,10 @@ func (f *fakeIDP) mint(t *testing.T, sub, email, username string) string {
 }
 
 type testEnv struct {
-	handler http.Handler
-	store   *store.Store
-	idp     *fakeIDP
+	handler  http.Handler
+	store    *store.Store
+	idp      *fakeIDP
+	dataRoot string
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -102,13 +104,15 @@ func newTestEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("verifier: %v", err)
 	}
+	dataRoot := t.TempDir()
 	h := New(Options{
 		Log:       slog.New(slog.DiscardHandler),
 		Store:     st,
 		Verifier:  verifier,
 		SetupCode: "cafe1234",
+		DataRoot:  dataRoot,
 	})
-	return &testEnv{handler: h, store: st, idp: idp}
+	return &testEnv{handler: h, store: st, idp: idp, dataRoot: dataRoot}
 }
 
 // call is a tiny JSON request helper.
@@ -152,6 +156,13 @@ func TestAuthLifecycle(t *testing.T) {
 		t.Fatalf("setup = %d %v", code, grant)
 	}
 	access := grant["access_token"].(string)
+
+	// Enrollment created the admin's library with all fixed zones.
+	for _, zone := range []string{"photos", "downloads", "files", "music"} {
+		if _, err := os.Stat(filepath.Join(e.dataRoot, "users", "venu", zone)); err != nil {
+			t.Fatalf("library zone %s missing after setup: %v", zone, err)
+		}
+	}
 
 	// Setup is single-shot.
 	if code, _ := e.call(t, "POST", "/v1/setup", "", map[string]any{

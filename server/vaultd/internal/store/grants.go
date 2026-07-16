@@ -10,7 +10,10 @@ import (
 // the CLI/API edge so typos don't silently grant nothing.
 var (
 	KnownServices = []string{"media", "files", "music", "torrent", "chat"}
-	KnownActions  = []string{"read", "write", "delete", "stream", "share", "admin"}
+	// Keep in lockstep with the client's CapabilityAction enum.
+	// `sync` gates the heavy backup/sync engine, distinct from plain write
+	// (see DESIGN.md "The library directory vs the Files service").
+	KnownActions = []string{"read", "write", "delete", "stream", "share", "sync", "admin"}
 )
 
 // SetGrant upserts one user's actions for a service.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/developer180527/vault/vaultd/internal/auth"
+	"github.com/developer180527/vault/vaultd/internal/library"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -43,6 +44,39 @@ func (s *Server) RequireAuth(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(
 			context.WithValue(r.Context(), principalKey, p)))
 	})
+}
+
+// RequireGrant gates a route on a (service, action) grant. Admins pass
+// everything; members must hold the action. Fail-closed 403, matching the
+// client's manifest gating — but this is the real enforcement (the client's
+// is only for what to render).
+func (s *Server) RequireGrant(service, action string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := PrincipalFrom(r.Context())
+			if p == nil {
+				writeErr(w, http.StatusUnauthorized, "not authenticated")
+				return
+			}
+			if p.Role == "admin" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			grants, err := s.store.Read().GrantsForUser(r.Context(), p.UserID)
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			for _, a := range grants[service] {
+				if a == action {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			writeErr(w, http.StatusForbidden,
+				"missing grant: "+service+":"+action)
+		})
+	}
 }
 
 // handleAuthConfig tells clients how to log in: the OIDC issuer to run the
@@ -110,10 +144,15 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := firstNonEmpty(req.Username, id.Username, emailLocal(id.Email), "admin")
+	username := library.Sanitize(
+		firstNonEmpty(req.Username, id.Username, emailLocal(id.Email)), "admin")
 	u, err := s.store.Write().CreateUser(r.Context(), username, id.Email,
 		id.Name, "admin", id.Issuer, id.Subject)
 	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := library.Ensure(s.dataRoot, u.Username); err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -170,6 +209,13 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if u.Status != "active" {
 		writeErr(w, http.StatusForbidden, "account disabled")
+		return
+	}
+
+	// Enrollment guarantees the library exists (idempotent) — every
+	// data-generating service depends on these fixed zones.
+	if err := library.Ensure(s.dataRoot, u.Username); err != nil {
+		s.fail(w, r, err)
 		return
 	}
 

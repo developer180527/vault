@@ -5,7 +5,11 @@ import 'package:flutter/foundation.dart';
 /// *within* it. The server is authoritative — the client only mirrors grants
 /// to decide what to render and must never treat this as a security boundary
 /// (the server re-checks every request).
-enum CapabilityAction { read, write, delete, stream, share, admin }
+///
+/// Keep in lockstep with vaultd's KnownActions. `sync` gates the heavy
+/// backup/sync engine, distinct from plain `write` — a view-only member may
+/// browse without ever running sync.
+enum CapabilityAction { read, write, delete, stream, share, sync, admin }
 
 /// A single service grant for the current profile on the current device.
 @immutable

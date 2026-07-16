@@ -35,7 +35,15 @@ unreachable (connection refused by ACL, not 403).
 ##   NOTE: the `venu` OIDC client in Pocket ID is set to "allow all users"
 ##   (unrestricted). Per-client allow-lists are how you'd scope access later.
 
-## M3 — Jobs pipeline (1–2 weeks)  ← NEXT
+## M3 — Jobs pipeline  ← SERVER + CLIENT BUILT (Jul 16 2026), pending deploy
+##   Engine: unified scheduler (concurrency cap + per-user fairness),
+##   TorrentRunner (qBittorrent cookie API, category-per-user, per-job poll),
+##   YtdlpRunner (subprocess, process-group kill, --newline progress),
+##   MoveInto (atomic ingest + EXDEV fallback), SSE hub (coalescing +
+##   heartbeat + 30-min cap), startup reconciliation. HTTP: /v1/jobs(+cancel/
+##   retry/clear/watch) gated on torrent:read/write. Client: HttpJobsApi with
+##   SSE reconnect wired into the Torrent tab. All integration-tested.
+##   DEPLOY TODO: set QBIT_PASSWORD in .env, rebuild image (bakes yt-dlp+ffmpeg).
 
 Server (`server/vaultd/`): Go module; store layer (ReadStore/WriteStore
 types, migrations, global single-writer); OIDC verification against

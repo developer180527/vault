@@ -66,6 +66,13 @@ func (s *statusWriter) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
+// Flush passes through so SSE streaming works behind the logging wrapper.
+func (s *statusWriter) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func newID() string {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)

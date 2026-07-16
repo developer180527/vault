@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 // Config is the fully-resolved runtime configuration.
@@ -31,6 +32,13 @@ type Config struct {
 	// TokenSecret signs vaultd's own access tokens (device sessions). Must be
 	// stable across restarts or every device is logged out.
 	TokenSecret string
+
+	// Jobs: qBittorrent Web API + worker settings.
+	QbitURL      string
+	QbitUser     string
+	QbitPassword string
+	YtdlpBinary  string
+	MaxJobs      int
 }
 
 // Load reads configuration from the environment, applying defaults and
@@ -42,6 +50,16 @@ func Load() (*Config, error) {
 		OIDCIssuer:   os.Getenv("VAULTD_OIDC_ISSUER"),
 		OIDCClientID: os.Getenv("VAULTD_OIDC_CLIENT_ID"),
 		TokenSecret:  os.Getenv("VAULTD_TOKEN_SECRET"),
+		QbitURL:      getenv("VAULTD_QBIT_URL", "http://qbittorrent:8090"),
+		QbitUser:     getenv("VAULTD_QBIT_USER", "admin"),
+		QbitPassword: os.Getenv("VAULTD_QBIT_PASSWORD"),
+		YtdlpBinary:  getenv("VAULTD_YTDLP_BIN", "yt-dlp"),
+		MaxJobs:      2,
+	}
+	if v := os.Getenv("VAULTD_MAX_JOBS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.MaxJobs = n
+		}
 	}
 	if c.DBPath == "" {
 		c.DBPath = filepath.Join(c.DataRoot, "system", "db", "vault.db")
