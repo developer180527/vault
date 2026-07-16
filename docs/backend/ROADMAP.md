@@ -28,11 +28,14 @@ unreachable (connection refused by ACL, not 403).
 
 ## M0 — DONE (Jul 15 2026). M1 — DONE (Jul 16 2026): Tailscale + Caddy 3-port split + Pocket ID login + qBittorrent handoff into staging (vault:vault, setgid verified) all working.
 
-## M2 — vaultd skeleton + identity (1–2 weeks)  ← IN PROGRESS
-##   Server side DONE + DEPLOYED (Jul 16 2026): vaultd live behind Caddy at
-##   https://vault-server.taild29644.ts.net/ (healthz OK, OIDC ready against
-##   Pocket ID, store+migrations, device tokens, manifest, vaultdctl — all
-##   tested). Remaining: client HttpVaultClient + passkey login (task below).
+## M2 — DONE (Jul 16 2026). Full loop verified on iPhone: passkey login via
+##   Pocket ID → device enrolled → admin bootstrapped → real manifest drives
+##   navigation (AI Chat now visible as admin, proving server not mock).
+##   vaultd live behind Caddy; opaque device tokens in keychain.
+##   NOTE: the `venu` OIDC client in Pocket ID is set to "allow all users"
+##   (unrestricted). Per-client allow-lists are how you'd scope access later.
+
+## M3 — Jobs pipeline (1–2 weeks)  ← NEXT
 
 Server (`server/vaultd/`): Go module; store layer (ReadStore/WriteStore
 types, migrations, global single-writer); OIDC verification against
