@@ -1,13 +1,20 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart'
+    show AppLifecycleListener, AppLifecycleState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:video_player/video_player.dart';
 
 import '../logging/vault_log.dart';
+import '../platform/media_codec.dart';
+import '../platform/platform_services.dart';
 import 'playable.dart';
+import 'playback_position.dart';
+import 'player_registry.dart';
 
 final _log = VaultLog.tag('playback');
 
@@ -66,9 +73,20 @@ class PlaybackController extends Notifier<PlaybackState> {
   VideoPlayerController? _video;
   VideoPlayerController? get videoController => _video;
 
+  /// Registry instance id of the live video controller (leak accounting).
+  int? _videoInstance;
+
   @override
   PlaybackState build() {
+    // Pause VIDEO when the app leaves the foreground; audio deliberately keeps
+    // playing (that's what background playback is for).
+    final lifecycle = AppLifecycleListener(
+      onStateChange: (s) {
+        if (s != AppLifecycleState.resumed) _video?.pause();
+      },
+    );
     ref.onDispose(() {
+      lifecycle.dispose();
       _player.dispose();
       _video?.dispose();
     });
@@ -146,9 +164,11 @@ class PlaybackController extends Notifier<PlaybackState> {
   // ---- video ----
 
   /// Open a video session: pauses audio (focus), creates and initializes the
-  /// engine, and returns the ready controller. The UI renders it; this
-  /// controller owns it. Any previous video session is closed first.
-  Future<VideoPlayerController> openVideo(Playable item) async {
+  /// engine, resumes from the last watched position, and returns the ready
+  /// controller. The UI renders it; this controller owns it. Any previous
+  /// video session is closed first (so swiping video→video is safe).
+  Future<VideoPlayerController> openVideo(Playable item,
+      {bool autoPlay = true}) async {
     assert(item.kind == PlayableKind.video);
     await closeVideo();
     if (_player.playing) await _player.pause();
@@ -157,27 +177,74 @@ class PlaybackController extends Notifier<PlaybackState> {
         ? VideoPlayerController.networkUrl(item.uri,
             httpHeaders: item.headers)
         : VideoPlayerController.file(File(item.uri.toFilePath()));
+    // Claim ownership BEFORE the awaits: if a close races the init, closeVideo
+    // still finds and tears this controller down (no orphaned audio).
+    _video = c;
+    _videoInstance = PlayerRegistry.open(item.id);
+    state = state.copyWith(video: () => item);
+    unawaited(_logPlan(item));
     try {
       await c.initialize();
+      if (_video != c) throw StateError('video session superseded');
+
+      final resume = await ref.read(playbackPositionStoreProvider).get(item.id);
+      if (resume != null && resume < c.value.duration) {
+        await c.seekTo(resume);
+        _log.debug('video resumed',
+            fields: {'id': item.id, 'at': resume.inSeconds});
+      }
+      if (autoPlay && _video == c) await c.play();
     } catch (e) {
-      await c.dispose();
+      if (_video == c) await closeVideo();
       rethrow;
     }
-    _video = c;
-    state = state.copyWith(video: () => item);
-    await c.play();
     _log.info('video session opened', fields: {'title': item.title});
     return c;
   }
 
-  /// Close the active video session (called when the video page pops).
-  Future<void> closeVideo() async {
+  /// Close the active video session. With [onlyIf], closes only when that item
+  /// is still the active one — so a gallery page leaving the tree can't kill a
+  /// session a newer page already owns.
+  ///
+  /// Saves the watch position, then silences → pauses → disposes (on iOS,
+  /// dispose alone can leave audio running — learned the hard way).
+  Future<void> closeVideo({String? onlyIf}) async {
+    if (onlyIf != null && state.video?.id != onlyIf) return;
     final c = _video;
+    final id = state.video?.id;
+    final instance = _videoInstance;
     _video = null;
+    _videoInstance = null;
     if (state.video != null) {
       state = state.copyWith(video: () => null);
     }
-    await c?.dispose();
+    if (c == null) return;
+    if (id != null && c.value.isInitialized) {
+      await ref
+          .read(playbackPositionStoreProvider)
+          .save(id, c.value.position, c.value.duration);
+    }
+    try {
+      await c.setVolume(0);
+      await c.pause();
+    } catch (_) {}
+    try {
+      await c.dispose();
+    } catch (e) {
+      _log.error('video dispose failed', error: e);
+    }
+    if (instance != null && id != null) PlayerRegistry.close(instance, id);
+  }
+
+  Future<void> _logPlan(Playable item) async {
+    final support = await ref.read(mediaSupportProvider.future);
+    final ext = item.uri.path.split('.').last.toLowerCase();
+    final plan = planPlayback(MediaTrack(container: ext), support);
+    _log.info('playback plan', fields: {
+      'id': item.id,
+      'plan': plan is DirectPlay ? 'direct' : 'transcode',
+      'hwDecode': support.hardwareDecode,
+    });
   }
 }
 

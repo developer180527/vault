@@ -42,23 +42,37 @@ Future<void> showContextMenu({
 
     return Stack(
       children: [
-        // Dismiss barrier.
+        // Dismiss barrier. GestureDetector for the extra secondary-tap close;
+        // ModalBarrier inside for proper a11y (screen readers get a labeled,
+        // dismissible surface instead of an invisible tap-trap).
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: close,
             onSecondaryTap: close,
+            child: ModalBarrier(
+              onDismiss: close,
+              semanticsLabel: 'Dismiss menu',
+              barrierSemanticsDismissible: true,
+              color: Colors.transparent,
+            ),
           ),
         ),
         Positioned(
           left: left,
           top: top,
-          child: _ContextMenuBody(
-            actions: available,
-            onSelected: (a) {
-              close();
-              a.onInvoke(context, ref);
-            },
+          // Route semantics: announce as a menu and scope a11y focus into it.
+          child: Semantics(
+            scopesRoute: true,
+            namesRoute: true,
+            label: 'Options menu',
+            explicitChildNodes: true,
+            child: _ContextMenuBody(
+              actions: available,
+              onSelected: (a) {
+                close();
+                a.onInvoke(context, ref);
+              },
+            ),
           ),
         ),
       ],
@@ -90,27 +104,35 @@ class _ContextMenuBody extends StatelessWidget {
           children: [
             const SizedBox(height: 4),
             for (final a in actions)
-              InkWell(
-                onTap: () => onSelected(a),
-                child: SizedBox(
-                  height: _rowHeight,
-                  child: Row(
-                    children: [
-                      const SizedBox(width: 12),
-                      AdaptiveIcon(a.icon,
-                          size: 18,
-                          color: a.isDestructive ? scheme.error : null),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          a.label,
-                          style: a.isDestructive
-                              ? TextStyle(color: scheme.error)
-                              : null,
-                        ),
+              // One merged, labeled button per row (icon is decorative).
+              MergeSemantics(
+                child: Semantics(
+                  button: true,
+                  child: InkWell(
+                    onTap: () => onSelected(a),
+                    child: SizedBox(
+                      height: _rowHeight,
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 12),
+                          ExcludeSemantics(
+                            child: AdaptiveIcon(a.icon,
+                                size: 18,
+                                color: a.isDestructive ? scheme.error : null),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              a.label,
+                              style: a.isDestructive
+                                  ? TextStyle(color: scheme.error)
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                    ],
+                    ),
                   ),
                 ),
               ),

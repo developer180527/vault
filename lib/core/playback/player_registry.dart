@@ -1,4 +1,4 @@
-import '../../../core/logging/vault_log.dart';
+import '../logging/vault_log.dart';
 
 final _log = VaultLog.tag('player.reg');
 

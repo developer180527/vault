@@ -55,7 +55,14 @@ abstract interface class LocalMediaLibrary {
   /// iOS "limited" mode: lets the user add more photos to the selection.
   Future<void> presentLimitedPicker();
 
-  Future<List<MediaItem>> load({required MediaFilter filter, int limit = 200});
+  /// One page of the library, newest-first. The grid accumulates pages as the
+  /// user scrolls (no fixed cap — a 20k-photo library is reachable). A short
+  /// page (< [pageSize]) means the end.
+  Future<List<MediaItem>> loadPage({
+    required MediaFilter filter,
+    required int page,
+    int pageSize = 120,
+  });
 
   Future<Uint8List?> thumbnail(MediaItem item, {int size = 300});
 
@@ -97,9 +104,10 @@ class PhotoManagerLibrary implements LocalMediaLibrary {
   Future<void> presentLimitedPicker() => PhotoManager.presentLimited();
 
   @override
-  Future<List<MediaItem>> load({
+  Future<List<MediaItem>> loadPage({
     required MediaFilter filter,
-    int limit = 200,
+    required int page,
+    int pageSize = 120,
   }) async {
     final type = switch (filter) {
       MediaFilter.all => RequestType.common,
@@ -112,7 +120,7 @@ class PhotoManagerLibrary implements LocalMediaLibrary {
     );
     if (albums.isEmpty) return const [];
     final assets =
-        await albums.first.getAssetListPaged(page: 0, size: limit);
+        await albums.first.getAssetListPaged(page: page, size: pageSize);
     return [
       for (final a in assets)
         MediaItem(
@@ -156,9 +164,10 @@ class UnsupportedMediaLibrary implements LocalMediaLibrary {
   Future<void> presentLimitedPicker() async {}
 
   @override
-  Future<List<MediaItem>> load({
+  Future<List<MediaItem>> loadPage({
     required MediaFilter filter,
-    int limit = 200,
+    required int page,
+    int pageSize = 120,
   }) async =>
       const [];
 

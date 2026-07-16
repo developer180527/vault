@@ -132,7 +132,11 @@ List<VaultAction> _commonActions(FileNode node) => [
           icon: node.pinned
               ? VaultIcons.offlineRemove
               : VaultIcons.offlineAdd,
-          isEnabled: _canWrite,
+          // Hidden entirely when the backend can't honor pinning (the HTTP
+          // client until sync lands) — never show a control that no-ops.
+          isEnabled: (ref) =>
+              ref.read(fileRepositoryProvider).supportsPinning &&
+              _canWrite(ref),
           onInvoke: (context, ref) async {
             await ref
                 .read(fileRepositoryProvider)

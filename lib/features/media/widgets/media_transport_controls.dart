@@ -41,6 +41,8 @@ class _MediaTransportControlsState extends State<MediaTransportControls> {
         final shown = (_dragMs ?? position.inMilliseconds.toDouble())
             .clamp(0.0, max);
 
+        final shownLabel = _fmt(Duration(milliseconds: shown.round()));
+        final totalLabel = _fmt(total);
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -49,6 +51,7 @@ class _MediaTransportControlsState extends State<MediaTransportControls> {
                 IconButton(
                   iconSize: 36,
                   color: Colors.white,
+                  tooltip: value.isPlaying ? 'Pause' : 'Play',
                   icon: Icon(value.isPlaying
                       ? Icons.pause_circle
                       : Icons.play_circle),
@@ -56,21 +59,29 @@ class _MediaTransportControlsState extends State<MediaTransportControls> {
                       value.isPlaying ? controller.pause() : controller.play(),
                 ),
                 Expanded(
-                  child: Slider(
-                    value: shown,
-                    max: max,
-                    onChangeStart: (v) => setState(() => _dragMs = v),
-                    onChanged: (v) => setState(() => _dragMs = v),
-                    onChangeEnd: (v) {
-                      controller.seekTo(Duration(milliseconds: v.round()));
-                      // _dragMs holds until position reflects the seek.
-                    },
+                  child: Semantics(
+                    label: 'Seek',
+                    value: '$shownLabel of $totalLabel',
+                    child: Slider(
+                      value: shown,
+                      max: max,
+                      onChangeStart: (v) => setState(() => _dragMs = v),
+                      onChanged: (v) => setState(() => _dragMs = v),
+                      onChangeEnd: (v) {
+                        controller.seekTo(Duration(milliseconds: v.round()));
+                        // _dragMs holds until position reflects the seek.
+                      },
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  '${_fmt(Duration(milliseconds: shown.round()))} / ${_fmt(total)}',
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                // The slider's semantics value already announces position;
+                // the raw "0:07 / 3:42" text would just be noise.
+                ExcludeSemantics(
+                  child: Text(
+                    '$shownLabel / $totalLabel',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
                 ),
                 const SizedBox(width: 12),
               ],

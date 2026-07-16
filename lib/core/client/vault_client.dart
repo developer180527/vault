@@ -56,6 +56,10 @@ abstract interface class FileRepository {
 
   Future<void> rename(String id, String newName);
 
+  /// Whether this backend can honor offline pinning. When false the UI hides
+  /// the pin action entirely (never show a control that silently no-ops).
+  bool get supportsPinning;
+
   Future<void> setPinned(String id, bool pinned);
 
   /// Soft-delete → trash (never destroys).

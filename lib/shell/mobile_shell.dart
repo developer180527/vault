@@ -310,24 +310,36 @@ class _DockItem extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final color = selected ? scheme.primary : scheme.onSurfaceVariant;
     // GestureDetector, not InkWell: native tab bars have no ripple/highlight.
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AdaptiveIcon(service.icon, selected: selected, size: 22, color: color),
-          const SizedBox(height: 2),
-          Text(
-            service.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: color,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                ),
-          ),
-        ],
+    // The raw detector has NO semantics of its own, so declare the tab role
+    // explicitly — otherwise the whole dock is invisible to screen readers.
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${service.label} tab',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ExcludeSemantics(
+              child: AdaptiveIcon(service.icon,
+                  selected: selected, size: 22, color: color),
+            ),
+            const SizedBox(height: 2),
+            ExcludeSemantics(
+              child: Text(
+                service.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: color,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -358,13 +370,22 @@ class _MiniPlayerPill extends ConsumerWidget {
           child: Row(
             children: [
               const SizedBox(width: 16),
-              AdaptiveIcon(VaultIcons.music, size: 18, color: scheme.primary),
+              ExcludeSemantics(
+                child: AdaptiveIcon(VaultIcons.music,
+                    size: 18, color: scheme.primary),
+              ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(track.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall),
+                child: Semantics(
+                  label: 'Now playing: ${track.title}. Opens the player.',
+                  button: true,
+                  child: ExcludeSemantics(
+                    child: Text(track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ),
+                ),
               ),
               StreamBuilder<PlayerState>(
                 stream: controller.player.playerStateStream,
@@ -372,6 +393,7 @@ class _MiniPlayerPill extends ConsumerWidget {
                   final playing = snapshot.data?.playing ?? false;
                   return IconButton(
                     visualDensity: VisualDensity.compact,
+                    tooltip: playing ? 'Pause' : 'Play',
                     icon: AdaptiveIcon(
                         playing ? VaultIcons.pause : VaultIcons.play,
                         size: 20),
@@ -381,6 +403,7 @@ class _MiniPlayerPill extends ConsumerWidget {
               ),
               IconButton(
                 visualDensity: VisualDensity.compact,
+                tooltip: 'Next track',
                 icon: const AdaptiveIcon(VaultIcons.skipNext, size: 20),
                 onPressed: controller.next,
               ),

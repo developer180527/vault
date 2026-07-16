@@ -4,7 +4,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../core/playback/playable.dart';
 import '../../core/playback/playback_controller.dart';
-import 'widgets/media_transport_controls.dart';
+import 'widgets/video_surface.dart';
 
 /// The single fullscreen video surface for the whole app — server files,
 /// movies (later), any [Playable] of kind video. It does NOT own the player:
@@ -22,14 +22,18 @@ class VideoPlaybackPage extends ConsumerStatefulWidget {
 }
 
 class _VideoPlaybackPageState extends ConsumerState<VideoPlaybackPage> {
+  // Captured once: `ref` is unusable in dispose() — it throws and aborts the
+  // teardown, leaking the session (the audio-persistence bug class).
+  late final PlaybackController _playback =
+      ref.read(playbackProvider.notifier);
   late final Future<VideoPlayerController> _future =
-      ref.read(playbackProvider.notifier).openVideo(widget.item);
+      _playback.openVideo(widget.item);
 
   @override
   void dispose() {
-    // Leaving the page ends the session. When PiP lands, this becomes
-    // conditional: keep the session alive and hand it to the PiP surface.
-    ref.read(playbackProvider.notifier).closeVideo();
+    // Leaving the page ends the session — unless a newer session superseded
+    // it. When PiP lands, this becomes conditional: hand off instead of close.
+    _playback.closeVideo(onlyIf: widget.item.id);
     super.dispose();
   }
 
@@ -43,29 +47,21 @@ class _VideoPlaybackPageState extends ConsumerState<VideoPlaybackPage> {
         title: Text(widget.item.title,
             maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
-      body: Center(
-        child: FutureBuilder<VideoPlayerController>(
-          future: _future,
-          builder: (context, snap) {
-            if (snap.hasError) {
-              return const Text('Playback failed',
-                  style: TextStyle(color: Colors.white70));
-            }
-            final c = snap.data;
-            if (c == null) return const CircularProgressIndicator();
-            return Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AspectRatio(
-                  aspectRatio:
-                      c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio,
-                  child: VideoPlayer(c),
-                ),
-                MediaTransportControls(controller: c),
-              ],
+      body: FutureBuilder<VideoPlayerController>(
+        future: _future,
+        builder: (context, snap) {
+          if (snap.hasError) {
+            return const Center(
+              child: Text('Playback failed',
+                  style: TextStyle(color: Colors.white70)),
             );
-          },
-        ),
+          }
+          final c = snap.data;
+          if (c == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          return VideoSurface(controller: c, title: widget.item.title);
+        },
       ),
     );
   }

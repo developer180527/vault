@@ -79,17 +79,26 @@ class _MediaGrid extends ConsumerWidget {
                       crossAxisSpacing: 6,
                     ),
                     itemCount: items.length,
-                    itemBuilder: (context, i) => GestureDetector(
-                      // Stable key keeps element/image identity across rebuilds
-                      // so cached thumbnails aren't dropped and reloaded. No
-                      // Hero here: per-cell heroes cause scroll flicker.
-                      key: ValueKey(items[i].id),
-                      // Root navigator so the viewer covers the whole shell
-                      // (app bar + bottom nav), not just the tab's body.
-                      onTap: () => Navigator.of(context, rootNavigator: true)
-                          .push(_viewerRoute(items, i)),
-                      child: MediaThumbnail(item: items[i]),
-                    ),
+                    itemBuilder: (context, i) {
+                      // Infinite scroll: approaching the tail requests the
+                      // next page (post-frame — provider mutation is illegal
+                      // during build). Re-entrancy is guarded in the notifier.
+                      if (i >= items.length - 40) {
+                        Future.microtask(() =>
+                            ref.read(mediaItemsProvider.notifier).loadMore());
+                      }
+                      return GestureDetector(
+                        // Stable key keeps element/image identity across
+                        // rebuilds so cached thumbnails aren't dropped and
+                        // reloaded. No Hero: per-cell heroes cause flicker.
+                        key: ValueKey(items[i].id),
+                        // Root navigator so the viewer covers the whole shell
+                        // (app bar + bottom nav), not just the tab's body.
+                        onTap: () => Navigator.of(context, rootNavigator: true)
+                            .push(_viewerRoute(items, i)),
+                        child: MediaThumbnail(item: items[i]),
+                      );
+                    },
                   ),
           ),
         ),

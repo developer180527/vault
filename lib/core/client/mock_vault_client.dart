@@ -375,6 +375,9 @@ class MockFileRepository implements FileRepository {
   }
 
   @override
+  bool get supportsPinning => true;
+
+  @override
   Future<void> setPinned(String id, bool pinned) async {
     final n = _byId[id];
     if (n == null) return;

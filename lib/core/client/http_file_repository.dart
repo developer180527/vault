@@ -114,8 +114,11 @@ class HttpFileRepository implements FileRepository {
   }
 
   @override
+  bool get supportsPinning => false; // sync/mirror lands M-later
+
+  @override
   Future<void> setPinned(String id, bool pinned) async {
-    // Offline pinning is client sync state (M-later); no server op yet.
+    // Unreachable while supportsPinning is false (the UI hides the action).
   }
 
   @override

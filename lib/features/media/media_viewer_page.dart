@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/platform/design/adaptive_icons.dart';
+import '../../core/playback/playable.dart';
+import '../../core/playback/playback_controller.dart';
 import 'data/local_media_library.dart';
 import 'data/media_providers.dart';
-import 'widgets/vault_media_player.dart';
+import 'widgets/video_surface.dart';
 import 'widgets/viewer_top_bar.dart';
 
 /// Media viewer: swipe between items, pinch-zoom / double-tap photos, and
@@ -171,11 +174,13 @@ class _PhotoContentState extends State<_PhotoContent> {
   }
 }
 
-/// Resolves the video's playable path exactly once, then hands it to a single
-/// [VaultMediaPlayer]. Resolving in `build` (as a fresh Future each time) churned
-/// the player — recreating controllers on every rebuild, which caused the echo
-/// and left audio playing after close.
-class _VideoPage extends StatefulWidget {
+/// A video page in the gallery, playing through the CENTRAL
+/// [PlaybackController] — no widget owns a player anymore. Only the ACTIVE
+/// page holds the (single) video session: becoming active opens it (resuming
+/// from the saved position), becoming inactive or leaving the tree closes it.
+/// `closeVideo(onlyIf:)` guards the handoff when swiping video→video, since
+/// the newer page's `openVideo` already superseded the session.
+class _VideoPage extends ConsumerStatefulWidget {
   const _VideoPage(
       {required this.item, required this.library, required this.active});
 
@@ -184,47 +189,79 @@ class _VideoPage extends StatefulWidget {
   final bool active;
 
   @override
-  State<_VideoPage> createState() => _VideoPageState();
+  ConsumerState<_VideoPage> createState() => _VideoPageState();
 }
 
-class _VideoPageState extends State<_VideoPage> {
-  String? _path;
-  bool _resolved = false;
+class _VideoPageState extends ConsumerState<_VideoPage> {
+  // Captured once: `ref` is unusable in dispose() (throws and aborts teardown
+  // — the root cause of the old audio-persistence bug).
+  late final PlaybackController _playback =
+      ref.read(playbackProvider.notifier);
+
+  VideoPlayerController? _videoController;
+  bool _failed = false;
 
   @override
   void initState() {
     super.initState();
-    _resolve();
+    if (widget.active) _open();
   }
 
-  Future<void> _resolve() async {
-    final path = await widget.library.videoPath(widget.item);
-    if (mounted) {
-      setState(() {
-        _path = path;
-        _resolved = true;
-      });
+  @override
+  void didUpdateWidget(_VideoPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _open();
+    } else if (!widget.active && oldWidget.active) {
+      _close();
+      setState(() => _videoController = null);
     }
+  }
+
+  Future<void> _open() async {
+    try {
+      final path = await widget.library.videoPath(widget.item);
+      if (!mounted || !widget.active) return;
+      if (path == null) {
+        setState(() => _failed = true);
+        return;
+      }
+      final controller = await _playback.openVideo(Playable(
+        id: widget.item.id,
+        kind: PlayableKind.video,
+        uri: Uri.file(path),
+        title: widget.item.asset.title ?? 'Video',
+      ));
+      if (!mounted) return; // session stays; dispose() will close it
+      setState(() => _videoController = controller);
+    } catch (e) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  void _close() => _playback.closeVideo(onlyIf: widget.item.id);
+
+  @override
+  void dispose() {
+    _close();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_resolved) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_path == null) {
+    if (_failed) {
       return const Center(
         child: Text('Video unavailable',
             style: TextStyle(color: Colors.white70)),
       );
     }
-    // Stable key: the player's State persists across viewer rebuilds → one
-    // controller, created and disposed exactly once.
-    return VaultMediaPlayer(
-      key: ValueKey('player-${widget.item.id}'),
-      source: _path!,
-      mediaId: widget.item.id,
-      active: widget.active,
+    final controller = _videoController;
+    if (controller == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return VideoSurface(
+      controller: controller,
+      title: widget.item.asset.title,
     );
   }
 }

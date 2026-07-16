@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/actions/vault_action.dart';
@@ -53,18 +54,30 @@ class ContextMenuRegion extends ConsumerWidget {
           globalPosition: position,
           actions: actions,
         );
-    return GestureDetector(
-      behavior: behavior,
-      // -Up, not -Down: tap-down callbacks fire speculatively on EVERY
-      // recognizer still competing in the gesture arena, so a right-click on
-      // an item opened both the item menu and the enclosing empty-space menu.
-      // Up callbacks only fire for the arena winner (the innermost region).
-      onSecondaryTapUp: (d) => open(d.globalPosition),
-      onLongPressStart: (d) {
-        VaultHaptics.impact();
-        open(d.globalPosition);
+    // Screen readers can't long-press/right-click: expose the menu as an
+    // explicit custom action ("Show options" in the VoiceOver/TalkBack rotor),
+    // anchored to the region's center.
+    return Semantics(
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'Show options'): () {
+          final box = context.findRenderObject() as RenderBox?;
+          if (box == null || !box.attached) return;
+          open(box.localToGlobal(box.size.center(Offset.zero)));
+        },
       },
-      child: child,
+      child: GestureDetector(
+        behavior: behavior,
+        // -Up, not -Down: tap-down callbacks fire speculatively on EVERY
+        // recognizer still competing in the gesture arena, so a right-click on
+        // an item opened both the item menu and the enclosing empty-space menu.
+        // Up callbacks only fire for the arena winner (the innermost region).
+        onSecondaryTapUp: (d) => open(d.globalPosition),
+        onLongPressStart: (d) {
+          VaultHaptics.impact();
+          open(d.globalPosition);
+        },
+        child: child,
+      ),
     );
   }
 }

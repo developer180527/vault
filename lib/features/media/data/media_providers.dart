@@ -47,13 +47,68 @@ class MediaFilterNotifier extends Notifier<MediaFilter> {
   void set(MediaFilter filter) => state = filter;
 }
 
-/// The media grid contents for the current filter. Only loads once access is
-/// granted; re-runs when the filter changes.
-final mediaItemsProvider = FutureProvider<List<MediaItem>>((ref) async {
-  final access = ref.watch(mediaAccessProvider).asData?.value;
-  if (access != MediaAccess.authorized && access != MediaAccess.limited) {
-    return const [];
+/// The media grid contents for the current filter, loaded in pages so a large
+/// library isn't capped (the old one-shot load truncated at 200 items).
+/// Rebuilds from page 0 when access or the filter changes; the grid calls
+/// [MediaItemsNotifier.loadMore] as the user approaches the end.
+class MediaItemsNotifier extends AsyncNotifier<List<MediaItem>> {
+  static const _pageSize = 120;
+
+  int _nextPage = 0;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+
+  @override
+  Future<List<MediaItem>> build() async {
+    // Watching resets paging whenever access or filter changes.
+    final access = ref.watch(mediaAccessProvider).asData?.value;
+    final filter = ref.watch(mediaFilterProvider);
+    _nextPage = 0;
+    _hasMore = true;
+    _loadingMore = false;
+    if (access != MediaAccess.authorized && access != MediaAccess.limited) {
+      return const [];
+    }
+    final first = await ref
+        .watch(localMediaLibraryProvider)
+        .loadPage(filter: filter, page: 0, pageSize: _pageSize);
+    _nextPage = 1;
+    _hasMore = first.length == _pageSize;
+    return first;
   }
-  final filter = ref.watch(mediaFilterProvider);
-  return ref.watch(localMediaLibraryProvider).load(filter: filter);
-});
+
+  /// Append the next page. Safe to call repeatedly (re-entrancy guarded);
+  /// no-op once the end is reached.
+  Future<void> loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    final current = state.asData?.value;
+    if (current == null) return; // initial load still running
+    _loadingMore = true;
+    try {
+      final filter = ref.read(mediaFilterProvider);
+      final next = await ref
+          .read(localMediaLibraryProvider)
+          .loadPage(filter: filter, page: _nextPage, pageSize: _pageSize);
+      _nextPage++;
+      _hasMore = next.length == _pageSize;
+      if (next.isNotEmpty) {
+        state = AsyncData([...current, ...next]);
+      }
+      _log.debug('media page appended', fields: {
+        'page': _nextPage - 1,
+        'added': next.length,
+        'total': (state.asData?.value.length ?? 0),
+        'hasMore': _hasMore,
+      });
+    } catch (e, s) {
+      _log.error('media loadMore failed', error: e, stackTrace: s);
+      // Keep what we have; a later scroll retries.
+    } finally {
+      _loadingMore = false;
+    }
+  }
+}
+
+final mediaItemsProvider =
+    AsyncNotifierProvider<MediaItemsNotifier, List<MediaItem>>(
+        MediaItemsNotifier.new);
