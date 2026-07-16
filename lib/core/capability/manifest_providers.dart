@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../auth/session.dart';
 import '../client/vault_client.dart';
 import '../logging/vault_log.dart';
 import '../services/service_registry.dart';
@@ -7,15 +8,6 @@ import 'capability.dart';
 import 'manifest_source.dart';
 
 final _log = VaultLog.tag('capability');
-
-/// Whether to drive gating from the editable in-app mock manifest instead of
-/// the (not-yet-built) server.
-///
-/// TODO(backend): set this back to `kDebugMode` — or remove the mock path —
-/// once `vaultd` + auth exist. Until then it stays `true` in every build so
-/// sideloaded release builds are usable without a server (otherwise the app
-/// correctly fails closed to the "couldn't reach your Vault server" screen).
-const _useMockManifest = true;
 
 /// The editable dev manifest (debug only). The Settings dev panel mutates this
 /// to simulate the server changing grants; [manifestProvider] mirrors it.
@@ -60,18 +52,20 @@ final mockManifestProvider =
 class ManifestController extends AsyncNotifier<CapabilityManifest> {
   @override
   Future<CapabilityManifest> build() async {
-    if (_useMockManifest) {
-      // Reactive to live edits from the dev panel.
+    // Connected to a real server → its manifest is the only authority.
+    // Not connected → the editable mock keeps the app usable standalone
+    // (and drives all tests). Watching the session makes login/logout flip
+    // the whole app's navigation automatically.
+    final session = ref.watch(sessionProvider).asData?.value;
+    if (session == null) {
       final manifest = ref.watch(mockManifestProvider);
-      _log.debug('Using mock manifest', fields: {
+      _log.debug('Using mock manifest (no server session)', fields: {
         'services': manifest.capabilities.length,
       });
       return manifest;
     }
     try {
-      // Through the VaultClient seam — the mock client serves a full grant;
-      // HttpVaultClient will serve the server's real manifest.
-      final manifest = await ref.read(vaultClientProvider).fetchManifest();
+      final manifest = await ref.watch(vaultClientProvider).fetchManifest();
       _log.info('Capability manifest loaded', fields: {
         'profile': manifest.profileId,
         'services': manifest.capabilities.length,

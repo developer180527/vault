@@ -1,9 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../auth/session.dart';
 import '../capability/capability.dart';
 import '../jobs/job.dart';
 import '../models/file_node.dart';
 import '../services/service_registry.dart';
+import 'http_vault_client.dart';
 import 'mock_vault_client.dart';
 
 /// THE seam between the client app and a Vault server. Every feature talks to
@@ -79,15 +81,20 @@ abstract interface class VaultJobsApi {
   Stream<List<VaultJob>> watch();
 }
 
-/// The active client for this session. Swapping in HttpVaultClient here is
-/// the single switch that takes the app from mock to real.
+/// The active client. THE mock→real switch: a connected device session means
+/// the real server (HttpVaultClient); no session means the in-process mock —
+/// so the app is fully usable before a server is configured, and tests never
+/// touch the network.
 final vaultClientProvider = Provider<VaultClient>((ref) {
-  final client = MockVaultClient(
-    // Deferred: only fetchManifest needs the registry, and reading it lazily
-    // keeps bare test containers (which never fetch) working.
-    serviceIds: () =>
-        ref.read(serviceRegistryProvider).map((s) => s.id).toList(),
-  );
+  final session = ref.watch(sessionProvider).asData?.value;
+  final VaultClient client = session != null
+      ? HttpVaultClient(ref)
+      : MockVaultClient(
+          // Deferred: only fetchManifest needs the registry, and reading it
+          // lazily keeps bare test containers (which never fetch) working.
+          serviceIds: () =>
+              ref.read(serviceRegistryProvider).map((s) => s.id).toList(),
+        );
   ref.onDispose(client.dispose);
   return client;
 });

@@ -69,10 +69,12 @@ func main() {
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(httpapi.Options{
-			Log:       log,
-			Store:     st,
-			Verifier:  verifier,
-			SetupCode: setupCode,
+			Log:          log,
+			Store:        st,
+			Verifier:     verifier,
+			SetupCode:    setupCode,
+			OIDCIssuer:   cfg.OIDCIssuer,
+			OIDCClientID: cfg.OIDCClientID,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

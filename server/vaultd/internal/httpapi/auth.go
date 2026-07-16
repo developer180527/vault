@@ -45,6 +45,22 @@ func (s *Server) RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// handleAuthConfig tells clients how to log in: the OIDC issuer to run the
+// PKCE flow against and the client id to use. Public by design — it contains
+// nothing secret, and the app can't hardcode either value.
+//
+// GET /v1/auth/config
+func (s *Server) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	if s.oidcIssuer == "" || s.oidcClientID == "" {
+		writeErr(w, http.StatusServiceUnavailable, "OIDC not configured on server")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"issuer":    s.oidcIssuer,
+		"client_id": s.oidcClientID,
+	})
+}
+
 // deviceGrant is the auth payload returned by setup/register/token.
 type deviceGrant struct {
 	DeviceID     string `json:"device_id"`

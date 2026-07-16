@@ -27,24 +27,33 @@ type Options struct {
 	// SetupCode enables the one-time bootstrap endpoint. Empty = disabled
 	// (users already exist).
 	SetupCode string
+
+	// OIDCIssuer/OIDCClientID are served to clients via /v1/auth/config so
+	// the app discovers how to log in without hardcoding either.
+	OIDCIssuer   string
+	OIDCClientID string
 }
 
 // Server holds the dependencies shared by handlers.
 type Server struct {
-	log       *slog.Logger
-	store     *store.Store
-	verifier  auth.Verifier
-	setupCode string
-	setupMu   sync.Mutex
+	log          *slog.Logger
+	store        *store.Store
+	verifier     auth.Verifier
+	setupCode    string
+	setupMu      sync.Mutex
+	oidcIssuer   string
+	oidcClientID string
 }
 
 // New builds the router.
 func New(o Options) http.Handler {
 	s := &Server{
-		log:       o.Log,
-		store:     o.Store,
-		verifier:  o.Verifier,
-		setupCode: o.SetupCode,
+		log:          o.Log,
+		store:        o.Store,
+		verifier:     o.Verifier,
+		setupCode:    o.SetupCode,
+		oidcIssuer:   o.OIDCIssuer,
+		oidcClientID: o.OIDCClientID,
 	}
 
 	r := chi.NewRouter()
@@ -54,7 +63,8 @@ func New(o Options) http.Handler {
 	r.Get("/healthz", s.health)
 
 	r.Route("/v1", func(r chi.Router) {
-		// Unauthenticated: enrollment + token lifecycle.
+		// Unauthenticated: login discovery, enrollment, token lifecycle.
+		r.Get("/auth/config", s.handleAuthConfig)
 		r.Post("/setup", s.handleSetup)
 		r.Post("/devices/register", s.handleRegister)
 		r.Post("/token", s.handleToken)

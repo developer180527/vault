@@ -23,6 +23,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // flutter_appauth: the OAuth redirect scheme (com.venug.vault://oauth).
+        manifestPlaceholders["appAuthRedirectScheme"] = "com.venug.vault"
     }
 
     buildTypes {

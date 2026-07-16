@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/actions/vault_action.dart';
+import '../../core/auth/session.dart';
 import '../../core/capability/manifest_providers.dart';
 import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/platform/haptics.dart';
@@ -11,6 +12,7 @@ import '../../shell/adaptive_shell.dart';
 import '../../shell/service_page.dart';
 import '../../shell/widgets/action_bar.dart';
 import '../settings/settings_page.dart';
+import 'connect_flow.dart';
 
 /// Services that never appear on the You page's shelf: You itself, and
 /// Settings (reached via the gear in the top-right instead).
@@ -76,38 +78,72 @@ class UserPage extends ConsumerWidget {
   }
 }
 
-class _ProfileHeader extends StatelessWidget {
+class _ProfileHeader extends ConsumerWidget {
   const _ProfileHeader();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    return Row(
+    final session = ref.watch(sessionProvider).asData?.value;
+    final connected = session != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        CircleAvatar(
-          radius: 32,
-          backgroundColor: scheme.secondaryContainer,
-          child: Icon(Icons.person_outline,
-              size: 36, color: scheme.onSecondaryContainer),
+        Row(
+          children: [
+            CircleAvatar(
+              radius: 32,
+              backgroundColor: connected
+                  ? scheme.primaryContainer
+                  : scheme.secondaryContainer,
+              child: Icon(connected ? Icons.person : Icons.person_outline,
+                  size: 36,
+                  color: connected
+                      ? scheme.onPrimaryContainer
+                      : scheme.onSecondaryContainer),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                      connected
+                          ? (session.username.isEmpty
+                              ? 'Connected'
+                              : session.username)
+                          : 'This device',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 2),
+                  Text(
+                      connected
+                          ? session.serverHost
+                          : 'Not connected to a Vault server yet',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('This device',
-                  style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 2),
-              // TODO(backend): show the signed-in identity, device name, and
-              // grants once vaultd auth exists.
-              Text('Not connected to a Vault server yet',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant)),
-            ],
+        const SizedBox(height: 12),
+        if (!connected)
+          FilledButton.icon(
+            icon: const Icon(Icons.link),
+            label: const Text('Connect to server'),
+            onPressed: () => startConnectFlow(context, ref),
+          )
+        else
+          OutlinedButton.icon(
+            icon: const Icon(Icons.link_off),
+            label: const Text('Disconnect this device'),
+            onPressed: () => startDisconnectFlow(context, ref),
           ),
-        ),
       ],
     );
   }
