@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/developer180527/vault/vaultd/internal/auth"
+	"github.com/developer180527/vault/vaultd/internal/files"
 	"github.com/developer180527/vault/vaultd/internal/jobs"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
@@ -53,6 +54,7 @@ type Server struct {
 	oidcClientID string
 	dataRoot     string
 	jobs         *jobs.Engine
+	files        *files.Service
 }
 
 // New builds the router.
@@ -66,6 +68,7 @@ func New(o Options) http.Handler {
 		oidcClientID: o.OIDCClientID,
 		dataRoot:     o.DataRoot,
 		jobs:         o.Jobs,
+		files:        &files.Service{DataRoot: o.DataRoot},
 	}
 
 	r := chi.NewRouter()
@@ -99,7 +102,25 @@ func New(o Options) http.Handler {
 				r.Post("/jobs/{id}/retry", s.handleRetryJob)
 				r.Post("/jobs/clear-finished", s.handleClearFinished)
 			})
-			// files/backup (M4-M5) land here.
+
+			// Files — browse/stream on files:read, mutate on write/delete.
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("files", "read"))
+				r.Get("/files", s.handleListFiles)
+				r.Get("/files/path", s.handleFilePath)
+				r.Get("/files/{id}/content", s.handleFileContent)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("files", "write"))
+				r.Post("/files/folder", s.handleMkdir)
+				r.Post("/files/rename", s.handleRenameFile)
+				r.Post("/files/upload", s.handleUpload)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("files", "delete"))
+				r.Post("/files/trash", s.handleTrashFile)
+			})
+			// backup (M4) lands here.
 		})
 	})
 

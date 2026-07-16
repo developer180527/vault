@@ -6,8 +6,8 @@ import 'package:http/http.dart' as http;
 import '../auth/session.dart';
 import '../capability/capability.dart';
 import '../logging/vault_log.dart';
+import 'http_file_repository.dart';
 import 'http_jobs_api.dart';
-import 'mock_vault_client.dart';
 import 'vault_client.dart';
 
 final _log = VaultLog.tag('client.http');
@@ -20,17 +20,15 @@ final _log = VaultLog.tag('client.http');
 /// to every feature.
 class HttpVaultClient implements VaultClient {
   HttpVaultClient(this._ref)
-      : _fallback = MockVaultClient(serviceIds: () => const []),
-        _jobs = HttpJobsApi(_ref);
+      : _jobs = HttpJobsApi(_ref),
+        _files = HttpFileRepository(_ref);
 
   final Ref _ref;
-
-  /// Local stand-ins for the not-yet-server-backed domains.
-  final MockVaultClient _fallback;
   final HttpJobsApi _jobs;
+  final HttpFileRepository _files;
 
   @override
-  FileRepository get files => _fallback.files; // TODO(M5): server files
+  FileRepository get files => _files;
 
   @override
   VaultJobsApi get jobs => _jobs;
@@ -80,7 +78,7 @@ class HttpVaultClient implements VaultClient {
       {'Authorization': 'Bearer ${s.accessToken}'};
 
   @override
-  void dispose() => _fallback.dispose();
+  void dispose() {}
 }
 
 /// Parses vaultd's /v1/manifest JSON into the client model. Kept as a free

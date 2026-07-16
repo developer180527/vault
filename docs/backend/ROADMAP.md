@@ -93,7 +93,17 @@ UI, backup status in Media.
 transfers zero file bytes (hash-check only); pulling a photo's EXIF date
 from the server index matches reality, not the client's claim.
 
-## M5 — Files service + streaming (2 weeks)
+## M5 — Files service + streaming  ← BUILT (Jul 16 2026), pending deploy
+##   Server internal/files: SafeJoin (fuzz-tested: rejects .., symlink escape,
+##   hidden internals), whole-library view (Downloads/Photos/Music/Files zones
+##   at root), list/path/mkdir/rename/trash(.trash)/upload(atomic ingest),
+##   GET /v1/files/{id}/content with Range (http.ServeContent). Node ids =
+##   base64url of user-rel path (non-persistable, per DESIGN). Gated
+##   files:read/write/delete. Client HttpFileRepository swapped in; tapping a
+##   server media file streams a preview (image/video with auth headers).
+##   DEPLOY: git pull + up -d --build; grant members files:read to browse.
+
+## M5 (original) — Files service + streaming (2 weeks)
 
 Server: `nodes` table (rename-stable UUIDs), SafeJoin + fuzz corpus in
 CI, list/create/rename/trash (30-day purge), upload via atomic ingest,

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/client/http_file_repository.dart';
 import '../../shell/adaptive_shell.dart';
 import '../../shell/widgets/item_context_menu.dart';
+import 'server_file_preview.dart';
 import 'data/file_browser_controller.dart';
 import '../../core/models/file_node.dart';
 import 'data/files_view.dart';
@@ -90,12 +92,27 @@ class FilesPage extends ConsumerWidget {
     );
   }
 
-  void _onTap(BuildContext context, WidgetRef ref, FileNode node) {
+  Future<void> _onTap(
+      BuildContext context, WidgetRef ref, FileNode node) async {
     if (node.isFolder) {
       ref.read(fileBrowserControllerProvider.notifier).openFolder(node.id);
+      return;
+    }
+    // Server files stream a preview; the mock (standalone) can't.
+    final repo = ref.read(fileRepositoryProvider);
+    if (repo is HttpFileRepository && node.isMedia) {
+      final headers = await repo.authHeader();
+      if (!context.mounted) return;
+      Navigator.of(context, rootNavigator: true).push(MaterialPageRoute<void>(
+        builder: (_) => ServerFilePreview(
+          node: node,
+          contentUri: repo.contentUri(node.id),
+          headers: headers,
+        ),
+      ));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Open "${node.name}" — player next')),
+        SnackBar(content: Text('Open "${node.name}" — preview not available')),
       );
     }
   }
