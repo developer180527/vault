@@ -26,7 +26,9 @@ convention, repo `server/deploy/` holds compose + Caddyfile.
 torrent into `staging/torrents/`; from a family member's device :8443 is
 unreachable (connection refused by ACL, not 403).
 
-## M2 — vaultd skeleton + identity (1–2 weeks)
+## M0 — DONE (Jul 15 2026). M1 — DONE (Jul 16 2026): Tailscale + Caddy 3-port split + Pocket ID login + qBittorrent handoff into staging (vault:vault, setgid verified) all working.
+
+## M2 — vaultd skeleton + identity (1–2 weeks)  ← IN PROGRESS
 
 Server (`server/vaultd/`): Go module; store layer (ReadStore/WriteStore
 types, migrations, global single-writer); OIDC verification against

@@ -16,6 +16,26 @@ services:
       - caddy-config:/config
     restart: unless-stopped
 
+  vaultd:
+    build: ../vaultd
+    container_name: vault-vaultd
+    # SAME uid:gid as the workers so files it writes into /srv/vault match
+    # their output (the staging→library handoff).
+    user: "${VAULT_UID}:${VAULT_GID}"
+    environment:
+      - VAULTD_ADDR=:8080
+      - VAULT_DATA_ROOT=/srv/vault
+      # OIDC: Pocket ID at its own port. Issuer must match what the client
+      # sees. Client id comes from registering vaultd in Pocket ID (see
+      # server/vaultd/README + deploy README).
+      - VAULTD_OIDC_ISSUER=https://${TS_HOSTNAME}:9443
+      - VAULTD_OIDC_CLIENT_ID=${VAULTD_OIDC_CLIENT_ID}
+    volumes:
+      - /srv/vault:/srv/vault
+    depends_on:
+      - pocket-id
+    restart: unless-stopped
+
   pocket-id:
     image: ghcr.io/pocket-id/pocket-id:v2
     container_name: vault-pocket-id
