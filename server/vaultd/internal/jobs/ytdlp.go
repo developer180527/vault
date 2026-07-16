@@ -44,6 +44,12 @@ func (y *YtdlpRunner) Run(ctx context.Context, job store.Job, report func(float6
 	report(0, "starting")
 	cmd := exec.CommandContext(ctx, bin,
 		"--newline", "--no-playlist", "--restrict-filenames",
+		// iOS (AVPlayer) can't decode VP9/WebM — yt-dlp's default for
+		// YouTube. Prefer H.264 video + m4a audio in an mp4 container so the
+		// result plays on every platform. When only VP9 exists, this still
+		// falls back to best; forced transcoding is a future option.
+		"-S", "vcodec:h264,res,acodec:m4a,ext:mp4:m4a",
+		"--merge-output-format", "mp4",
 		"-o", filepath.Join(jobDir, "%(title)s.%(ext)s"),
 		job.Source,
 	)

@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../../core/capability/capability.dart';
+import '../../core/version/build_info.dart';
 import '../../core/capability/manifest_providers.dart';
 import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/prefs/theme_prefs.dart';
@@ -11,9 +13,6 @@ import '../../core/services/service_registry.dart';
 import '../../core/tasks/background_tasks.dart';
 import '../logs/log_viewer_page.dart';
 
-/// App version shown in the About section. TODO(release): read from
-/// package_info_plus once versioning is wired to CI.
-const _appVersion = '0.1.0 (dev)';
 
 /// Settings. In debug it doubles as the **mock manifest editor** — a stand-in
 /// for the server's authoritative grants, so the capability-driven UI can be
@@ -57,12 +56,7 @@ class SettingsPage extends ConsumerWidget {
         ),
         const Divider(height: 32),
         const _SectionHeader('About'),
-        const ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(Icons.info_outline),
-          title: Text('Vault'),
-          subtitle: Text('Version $_appVersion'),
-        ),
+        const _AboutTile(),
         if (kDebugMode) ...[
           const Divider(height: 32),
           const _SectionHeader('Developer'),
@@ -75,6 +69,69 @@ class SettingsPage extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// About tile: shows the app version + build; tapping opens the commit this
+/// build was made from (baked in by tool/gen_build_info.sh).
+class _AboutTile extends StatelessWidget {
+  const _AboutTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.info_outline),
+      title: const Text('Vault'),
+      subtitle: Text(BuildInfo.label),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Vault'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _row(context, 'Version', BuildInfo.label),
+              _row(context, 'Commit', BuildInfo.commit),
+              _row(context, 'Built', BuildInfo.date),
+              const SizedBox(height: 12),
+              Text(BuildInfo.commitSubject,
+                  style: Theme.of(context).textTheme.bodyMedium),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(
+                    text:
+                        '${BuildInfo.label} · ${BuildInfo.commit}\n${BuildInfo.commitSubject}'));
+                Navigator.of(context).pop();
+              },
+              child: const Text('Copy'),
+            ),
+            FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            SizedBox(
+                width: 72,
+                child: Text(label,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant))),
+            Expanded(child: Text(value)),
+          ],
+        ),
+      );
 }
 
 class _SectionHeader extends StatelessWidget {
