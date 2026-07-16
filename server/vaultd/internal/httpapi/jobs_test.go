@@ -120,3 +120,57 @@ func TestJobsHTTPFlow(t *testing.T) {
 		t.Fatalf("expected 1 delivered file, got %d", len(entries))
 	}
 }
+
+// A member granted ONLY downloads can submit URLs but not magnets, and the
+// reverse for a torrent-only member — the per-kind grant split.
+func TestJobKindGrantSplit(t *testing.T) {
+	idp := newFakeIDP(t)
+	dataRoot := t.TempDir()
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "v.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	engine := jobs.New(slog.New(slog.DiscardHandler), st, dataRoot, 2,
+		map[string]jobs.Runner{
+			store.JobKindDownload: instantRunner{mkStaging(t, dataRoot)},
+		})
+	engine.Start()
+	t.Cleanup(engine.Stop)
+	verifier, _ := auth.NewOIDCVerifier(context.Background(), idp.issuer, "vault-app")
+	h := New(Options{Log: slog.New(slog.DiscardHandler), Store: st,
+		Verifier: verifier, SetupCode: "cafe1234", DataRoot: dataRoot, Jobs: engine})
+	e := &testEnv{handler: h, store: st, idp: idp, dataRoot: dataRoot}
+
+	// Bootstrap an admin first (setup requires an empty table).
+	e.call(t, "POST", "/v1/setup", "", map[string]any{
+		"code": "cafe1234", "id_token": idp.mint(t, "a", "a@x.test", "admin")})
+
+	// Downloads-only member.
+	dl, _ := st.Write().CreateUser(context.Background(), "dluser", "dl@x.test", "", "member", "", "")
+	_ = library.Ensure(dataRoot, "dluser")
+	_ = st.Write().SetGrant(context.Background(), dl.ID, "downloads", []string{"read", "write"})
+	_, g := e.call(t, "POST", "/v1/devices/register", "",
+		map[string]any{"id_token": idp.mint(t, "dl", "dl@x.test", "dluser")})
+	tok := g["access_token"].(string)
+
+	// URL download: allowed.
+	if code, _ := e.call(t, "POST", "/v1/jobs", tok,
+		map[string]any{"source": "https://x.test/a"}); code != 200 {
+		t.Fatalf("downloads-only URL submit = %d, want 200", code)
+	}
+	// Magnet: forbidden (no torrent:write).
+	if code, _ := e.call(t, "POST", "/v1/jobs", tok,
+		map[string]any{"source": "magnet:?xt=urn:btih:abc"}); code != 403 {
+		t.Fatalf("downloads-only magnet submit = %d, want 403", code)
+	}
+}
+
+func mkStaging(t *testing.T, dataRoot string) string {
+	t.Helper()
+	p := filepath.Join(dataRoot, "staging")
+	if err := os.MkdirAll(p, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}

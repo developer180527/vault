@@ -88,6 +88,13 @@ abstract final class VaultIcons {
     sfSymbol: 'globe',
   );
 
+  static const downloads = AdaptiveIconData(
+    material: Icons.download_outlined,
+    materialSelected: Icons.download,
+    sfSymbol: 'arrow.down.circle',
+    sfSymbolSelected: 'arrow.down.circle.fill',
+  );
+
   static const chat = AdaptiveIconData(
     material: Icons.chat_bubble_outline,
     materialSelected: Icons.chat_bubble,

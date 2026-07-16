@@ -8,25 +8,26 @@ import '../../core/client/vault_client.dart';
 import '../../core/jobs/job.dart';
 import '../../core/platform/design/adaptive_icons.dart';
 
-/// Live job list from the client seam. StreamProvider so every view (tab,
-/// future status chip) shares one subscription.
+/// Live job list from the client seam. StreamProvider so every view (both
+/// tabs, future status chip) shares ONE subscription; each view filters by
+/// kind.
 final jobsProvider = StreamProvider<List<VaultJob>>(
     (ref) => ref.watch(vaultClientProvider).jobs.watch());
 
-bool _canSubmit(WidgetRef ref) => ref
-    .read(canProvider((serviceId: 'torrent', action: CapabilityAction.write)));
+bool _can(WidgetRef ref, String service) =>
+    ref.read(canProvider((serviceId: service, action: CapabilityAction.write)));
 
-/// Toolbar/palette actions for the Torrent service.
+/// Actions for the Torrent service (magnets only).
 final torrentServiceActions = <VaultAction>[
   VaultAction(
-    id: 'jobs.add',
-    label: 'Add download',
+    id: 'torrent.add',
+    label: 'Add torrent',
     icon: VaultIcons.addLink,
-    isEnabled: _canSubmit,
-    onInvoke: (context, ref) => promptAddDownload(context, ref),
+    isEnabled: (ref) => _can(ref, 'torrent'),
+    onInvoke: (context, ref) => promptAdd(context, ref, JobKind.torrent),
   ),
   VaultAction(
-    id: 'jobs.clear-finished',
+    id: 'torrent.clear',
     label: 'Clear finished',
     icon: VaultIcons.clearFinished,
     onInvoke: (context, ref) =>
@@ -34,21 +35,42 @@ final torrentServiceActions = <VaultAction>[
   ),
 ];
 
-/// Paste-a-link flow: magnet links start a torrent job, anything else is
-/// fetched server-side (yt-dlp style). The job system schedules it from there.
-Future<void> promptAddDownload(BuildContext context, WidgetRef ref) async {
+/// Actions for the Downloads (yt-dlp) service (URLs only).
+final downloadsServiceActions = <VaultAction>[
+  VaultAction(
+    id: 'downloads.add',
+    label: 'Add download',
+    icon: VaultIcons.addLink,
+    isEnabled: (ref) => _can(ref, 'downloads'),
+    onInvoke: (context, ref) => promptAdd(context, ref, JobKind.download),
+  ),
+  VaultAction(
+    id: 'downloads.clear',
+    label: 'Clear finished',
+    icon: VaultIcons.clearFinished,
+    onInvoke: (context, ref) =>
+        ref.read(vaultClientProvider).jobs.clearFinished(),
+  ),
+];
+
+/// Paste-a-link flow, specialized per kind: torrents take a magnet, downloads
+/// take a video/media URL fetched with yt-dlp on the server.
+Future<void> promptAdd(
+    BuildContext context, WidgetRef ref, JobKind kind) async {
+  final isTorrent = kind == JobKind.torrent;
   final controller = TextEditingController();
   final source = await showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Add download'),
+      title: Text(isTorrent ? 'Add torrent' : 'Add download'),
       content: TextField(
         controller: controller,
         autofocus: true,
-        decoration: const InputDecoration(
-          hintText: 'Magnet link or URL',
-          helperText: 'Magnet links download as torrents; any other URL is\n'
-              'fetched with yt-dlp on your server.',
+        decoration: InputDecoration(
+          hintText: isTorrent ? 'Magnet link' : 'Video or media URL',
+          helperText: isTorrent
+              ? 'Paste a magnet link; qBittorrent downloads it to your library.'
+              : 'Paste a URL; yt-dlp fetches it to your library.',
           helperMaxLines: 2,
         ),
         onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
@@ -58,10 +80,8 @@ Future<void> promptAddDownload(BuildContext context, WidgetRef ref) async {
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel')),
         FilledButton(
-          onPressed: () {
-            final v = controller.text.trim();
-            Navigator.of(context).pop(v.isEmpty ? null : v);
-          },
+          onPressed: () =>
+              Navigator.of(context).pop(controller.text.trim()),
           child: const Text('Add'),
         ),
       ],
@@ -69,8 +89,14 @@ Future<void> promptAddDownload(BuildContext context, WidgetRef ref) async {
   );
   if (source == null || source.isEmpty) return;
 
-  final kind =
-      source.startsWith('magnet:') ? JobKind.torrent : JobKind.download;
+  // Guard against pasting the wrong thing into the wrong tab.
+  if (isTorrent && !source.startsWith('magnet:')) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('That doesn\'t look like a magnet link')));
+    }
+    return;
+  }
   final job = await ref
       .read(vaultClientProvider)
       .jobs
@@ -81,10 +107,13 @@ Future<void> promptAddDownload(BuildContext context, WidgetRef ref) async {
   }
 }
 
-/// The Downloads tab: every background job with live progress. The scheduler
-/// runs jobs automatically — this view only submits and observes.
+/// One job list, filtered to a single [kind] so Torrent and Downloads are
+/// distinct tabs over the shared pipeline. The scheduler runs jobs
+/// automatically — this view only submits and observes.
 class JobsPage extends ConsumerWidget {
-  const JobsPage({super.key});
+  const JobsPage({super.key, required this.kind});
+
+  final JobKind kind;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -92,47 +121,54 @@ class JobsPage extends ConsumerWidget {
     return jobsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Jobs unavailable: $e')),
-      data: (jobs) => jobs.isEmpty
-          ? const _EmptyJobs()
-          : ListView.builder(
-              // Bottom inset so the last job scrolls clear of the floating
-              // dock (the tab bar above already consumed the top inset).
-              padding: EdgeInsets.only(
-                  top: 4, bottom: 12 + MediaQuery.paddingOf(context).bottom),
-              itemCount: jobs.length,
-              itemBuilder: (context, i) => _JobTile(job: jobs[i]),
-            ),
+      data: (all) {
+        final jobs = [for (final j in all) if (j.kind == kind) j];
+        if (jobs.isEmpty) return _EmptyJobs(kind: kind);
+        return ListView.builder(
+          // Bottom inset so the last job scrolls clear of the floating dock
+          // (the tab bar above already consumed the top inset).
+          padding: EdgeInsets.only(
+              top: 4, bottom: 12 + MediaQuery.paddingOf(context).bottom),
+          itemCount: jobs.length,
+          itemBuilder: (context, i) => _JobTile(job: jobs[i]),
+        );
+      },
     );
   }
 }
 
 class _EmptyJobs extends ConsumerWidget {
-  const _EmptyJobs();
+  const _EmptyJobs({required this.kind});
+
+  final JobKind kind;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final isTorrent = kind == JobKind.torrent;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.download_outlined, size: 56, color: scheme.primary),
+            AdaptiveIcon(kind.icon, size: 56, color: scheme.primary),
             const SizedBox(height: 16),
-            Text('No downloads yet',
+            Text(isTorrent ? 'No torrents yet' : 'No downloads yet',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              'Paste a magnet link or URL and your server does the rest.',
+              isTorrent
+                  ? 'Paste a magnet link and your server downloads it.'
+                  : 'Paste a video or media URL and your server fetches it.',
               textAlign: TextAlign.center,
               style: TextStyle(color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 20),
             FilledButton.icon(
               icon: const Icon(Icons.add_link),
-              label: const Text('Add download'),
-              onPressed: () => promptAddDownload(context, ref),
+              label: Text(isTorrent ? 'Add torrent' : 'Add download'),
+              onPressed: () => promptAdd(context, ref, kind),
             ),
           ],
         ),

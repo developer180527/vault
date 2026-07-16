@@ -67,6 +67,11 @@ func (s *Server) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unsupported job kind")
 		return
 	}
+	if !s.hasGrant(r, p, serviceForKind(kind), "write") {
+		writeErr(w, http.StatusForbidden,
+			"missing grant: "+serviceForKind(kind)+":write")
+		return
+	}
 	title := req.Title
 	if title == "" {
 		title = titleFor(req.Source)
@@ -81,6 +86,9 @@ func (s *Server) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	p := PrincipalFrom(r.Context())
+	if !s.canMutateJob(w, r, p, chi.URLParam(r, "id")) {
+		return
+	}
 	if err := s.jobs.Cancel(p.UserID, chi.URLParam(r, "id")); err != nil {
 		s.fail(w, r, err)
 		return
@@ -90,6 +98,9 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRetryJob(w http.ResponseWriter, r *http.Request) {
 	p := PrincipalFrom(r.Context())
+	if !s.canMutateJob(w, r, p, chi.URLParam(r, "id")) {
+		return
+	}
 	if err := s.jobs.Retry(p.UserID, chi.URLParam(r, "id")); err != nil {
 		s.fail(w, r, err)
 		return
@@ -97,8 +108,31 @@ func (s *Server) handleRetryJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// canMutateJob checks the write grant matching the job's kind (and ownership).
+func (s *Server) canMutateJob(w http.ResponseWriter, r *http.Request, p *store.Principal, jobID string) bool {
+	job, err := s.store.Read().JobByID(r.Context(), jobID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "job not found")
+		return false
+	}
+	if job.UserID != p.UserID {
+		writeErr(w, http.StatusForbidden, "not your job")
+		return false
+	}
+	if !s.hasGrant(r, p, serviceForKind(job.Kind), "write") {
+		writeErr(w, http.StatusForbidden, "missing grant")
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleClearFinished(w http.ResponseWriter, r *http.Request) {
 	p := PrincipalFrom(r.Context())
+	// Clearing the whole finished list needs write on at least one job service.
+	if !s.hasGrant(r, p, "torrent", "write") && !s.hasGrant(r, p, "downloads", "write") {
+		writeErr(w, http.StatusForbidden, "missing grant")
+		return
+	}
 	if err := s.jobs.ClearFinished(p.UserID); err != nil {
 		s.fail(w, r, err)
 		return
@@ -113,6 +147,12 @@ func (s *Server) handleClearFinished(w http.ResponseWriter, r *http.Request) {
 // GET /v1/jobs/watch
 func (s *Server) handleWatchJobs(w http.ResponseWriter, r *http.Request) {
 	p := PrincipalFrom(r.Context())
+	// Watching needs read on at least one job service; the client's two tabs
+	// filter the shared stream by kind.
+	if !s.hasGrant(r, p, "torrent", "read") && !s.hasGrant(r, p, "downloads", "read") {
+		writeErr(w, http.StatusForbidden, "missing grant")
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeErr(w, http.StatusInternalServerError, "streaming unsupported")

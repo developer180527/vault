@@ -9,7 +9,7 @@ import '../core/platform/design/adaptive_icons.dart';
 import '../core/platform/design/native_glass.dart';
 import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
-import '../features/media/data/music_player_controller.dart';
+import '../core/playback/playback_controller.dart';
 import '../features/media/music_player_page.dart';
 import 'widgets/action_bar.dart';
 import 'widgets/glass_app_bar.dart';
@@ -108,7 +108,7 @@ class _BottomBarArea extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hasTrack = ref.watch(musicPlayerProvider).current != null;
+    final hasTrack = ref.watch(playbackProvider).currentAudio != null;
     final onUserPage = _currentId == 'user';
     // Sit a little lower than the OS-suggested inset (gesture bars reserve
     // more than the chrome needs), but never flush against the screen edge.
@@ -340,9 +340,8 @@ class _MiniPlayerPill extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(musicPlayerProvider);
-    final controller = ref.read(musicPlayerProvider.notifier);
-    final track = state.current;
+    final controller = ref.read(playbackProvider.notifier);
+    final track = ref.watch(playbackProvider).currentAudio;
     if (track == null) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
 

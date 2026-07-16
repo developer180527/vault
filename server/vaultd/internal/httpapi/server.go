@@ -89,19 +89,15 @@ func New(o Options) http.Handler {
 			r.Use(s.RequireAuth)
 			r.Get("/manifest", s.handleManifest)
 
-			// Jobs — gated on the torrent service. read to watch/list,
-			// write to submit/cancel/retry/clear.
-			r.Group(func(r chi.Router) {
-				r.Use(s.RequireGrant("torrent", "read"))
-				r.Get("/jobs/watch", s.handleWatchJobs)
-			})
-			r.Group(func(r chi.Router) {
-				r.Use(s.RequireGrant("torrent", "write"))
-				r.Post("/jobs", s.handleSubmitJob)
-				r.Post("/jobs/{id}/cancel", s.handleCancelJob)
-				r.Post("/jobs/{id}/retry", s.handleRetryJob)
-				r.Post("/jobs/clear-finished", s.handleClearFinished)
-			})
+			// Jobs — torrent and downloads are separate services sharing one
+			// pipeline. Grants are checked per-request by job KIND inside the
+			// handlers (torrent:write for magnets, downloads:write for URLs),
+			// not at the route, so one endpoint serves both.
+			r.Get("/jobs/watch", s.handleWatchJobs)
+			r.Post("/jobs", s.handleSubmitJob)
+			r.Post("/jobs/{id}/cancel", s.handleCancelJob)
+			r.Post("/jobs/{id}/retry", s.handleRetryJob)
+			r.Post("/jobs/clear-finished", s.handleClearFinished)
 
 			// Files — browse/stream on files:read, mutate on write/delete.
 			r.Group(func(r chi.Router) {

@@ -1,23 +1,78 @@
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/file_node.dart';
-import '../media/widgets/media_transport_controls.dart';
+import '../../core/playback/playable.dart';
+import '../../core/playback/playback_controller.dart';
+import '../media/video_playback_page.dart';
 
-/// Streams a server file for preview: images inline, video/audio with a
-/// player, everything over the tailnet with the session's bearer header.
-/// Range requests (server-side) make video seeking work without downloading
-/// the whole file.
-class ServerFilePreview extends StatelessWidget {
-  const ServerFilePreview({
-    super.key,
-    required this.node,
-    required this.contentUri,
-    required this.headers,
-  });
+/// Opens the right preview for a tapped server file, routing through the
+/// centralized playback machinery:
+///
+/// - **audio** → the shared audio queue (gets the mini-player + background
+///   playback + lock-screen for free), then the fullscreen music player;
+/// - **video** → the shared [VideoPlaybackPage];
+/// - **image** → an inline zoomable viewer;
+/// - anything else → a short info page.
+///
+/// Everything streams over the tailnet with the session's bearer header.
+Future<void> openServerFile(
+  BuildContext context,
+  WidgetRef ref, {
+  required FileNode node,
+  required Uri contentUri,
+  required Map<String, String> headers,
+}) async {
+  switch (node.mediaKind) {
+    case FileMediaKind.audio:
+      await ref.read(playbackProvider.notifier).playAudioQueue([
+        Playable(
+          id: node.id,
+          kind: PlayableKind.audio,
+          uri: contentUri,
+          title: node.name,
+          headers: headers,
+        ),
+      ], 0);
+      // Audio backgrounds; the mini-player appears. No page push needed.
+      return;
+    case FileMediaKind.video:
+      if (!context.mounted) return;
+      await openVideoPlayback(
+        context,
+        Playable(
+          id: node.id,
+          kind: PlayableKind.video,
+          uri: contentUri,
+          title: node.name,
+          headers: headers,
+        ),
+      );
+      return;
+    case FileMediaKind.image:
+      if (!context.mounted) return;
+      await Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => _ImagePreview(
+              name: node.name, uri: contentUri, headers: headers),
+        ),
+      );
+      return;
+    case FileMediaKind.document:
+    case FileMediaKind.none:
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No preview for "${node.name}" yet')),
+      );
+  }
+}
 
-  final FileNode node;
-  final Uri contentUri;
+class _ImagePreview extends StatelessWidget {
+  const _ImagePreview(
+      {required this.name, required this.uri, required this.headers});
+
+  final String name;
+  final Uri uri;
   final Map<String, String> headers;
 
   @override
@@ -27,115 +82,21 @@ class ServerFilePreview extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: Text(node.name,
-            maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
-      body: Center(child: _body(context)),
-    );
-  }
-
-  Widget _body(BuildContext context) {
-    switch (node.mediaKind) {
-      case FileMediaKind.image:
-        return InteractiveViewer(
+      body: Center(
+        child: InteractiveViewer(
           child: Image.network(
-            contentUri.toString(),
+            uri.toString(),
             headers: headers,
             fit: BoxFit.contain,
-            loadingBuilder: (c, child, p) => p == null
-                ? child
-                : const CircularProgressIndicator(),
-            errorBuilder: (c, e, _) =>
-                _message(context, 'Could not load image'),
+            loadingBuilder: (c, child, p) =>
+                p == null ? child : const CircularProgressIndicator(),
+            errorBuilder: (c, e, _) => const Text('Could not load image',
+                style: TextStyle(color: Colors.white70)),
           ),
-        );
-      case FileMediaKind.video:
-      case FileMediaKind.audio:
-        return _NetworkPlayer(uri: contentUri, headers: headers);
-      default:
-        return _message(context,
-            'No preview for this file type yet.\n${_prettySize(node.size)}');
-    }
-  }
-
-  Widget _message(BuildContext context, String text) => Padding(
-        padding: const EdgeInsets.all(32),
-        child: Text(text,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white70)),
-      );
-
-  static String _prettySize(int? bytes) {
-    if (bytes == null) return '';
-    if (bytes < 1024) return '$bytes B';
-    const units = ['KB', 'MB', 'GB'];
-    var size = bytes / 1024;
-    var i = 0;
-    while (size >= 1024 && i < units.length - 1) {
-      size /= 1024;
-      i++;
-    }
-    return '${size.toStringAsFixed(1)} ${units[i]}';
-  }
-}
-
-/// Video/audio streamed from the server with auth headers.
-class _NetworkPlayer extends StatefulWidget {
-  const _NetworkPlayer({required this.uri, required this.headers});
-
-  final Uri uri;
-  final Map<String, String> headers;
-
-  @override
-  State<_NetworkPlayer> createState() => _NetworkPlayerState();
-}
-
-class _NetworkPlayerState extends State<_NetworkPlayer> {
-  VideoPlayerController? _controller;
-  Object? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _init();
-  }
-
-  Future<void> _init() async {
-    final c = VideoPlayerController.networkUrl(widget.uri,
-        httpHeaders: widget.headers);
-    try {
-      await c.initialize();
-      await c.play();
-      if (mounted) setState(() => _controller = c);
-    } catch (e) {
-      await c.dispose();
-      if (mounted) setState(() => _error = e);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_error != null) {
-      return const Text('Playback failed',
-          style: TextStyle(color: Colors.white70));
-    }
-    final c = _controller;
-    if (c == null) return const CircularProgressIndicator();
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        AspectRatio(
-          aspectRatio: c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio,
-          child: VideoPlayer(c),
         ),
-        MediaTransportControls(controller: c),
-      ],
+      ),
     );
   }
 }

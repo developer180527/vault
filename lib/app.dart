@@ -9,6 +9,7 @@ import 'core/services/service_registry.dart';
 import 'features/files/file_actions.dart';
 import 'features/files/files_page.dart';
 import 'features/files/widgets/files_toolbar_leading.dart';
+import 'core/jobs/job.dart';
 import 'features/jobs/jobs_page.dart';
 import 'features/media/media_library_page.dart';
 import 'features/media/widgets/media_filter_dropdown.dart';
@@ -56,21 +57,15 @@ final vaultServices = <ServiceDefinition>[
     icon: VaultIcons.torrent,
     category: ServiceCategory.tools,
     actions: torrentServiceActions,
-    subTabs: [
-      SubTab(
-        id: 'downloads',
-        label: 'Downloads',
-        icon: VaultIcons.jobDownload,
-        builder: (_) => const JobsPage(),
-      ),
-      SubTab(
-        id: 'search',
-        label: 'Search',
-        icon: VaultIcons.search,
-        builder: (_) =>
-            const PlaceholderPage(title: 'Search', icon: Icons.search),
-      ),
-    ],
+    builder: (_) => const JobsPage(kind: JobKind.torrent),
+  ),
+  ServiceDefinition(
+    id: 'downloads',
+    label: 'Downloads',
+    icon: VaultIcons.downloads,
+    category: ServiceCategory.tools,
+    actions: downloadsServiceActions,
+    builder: (_) => const JobsPage(kind: JobKind.download),
   ),
   ServiceDefinition(
     id: 'chat',

@@ -98,18 +98,19 @@ class FilesPage extends ConsumerWidget {
       ref.read(fileBrowserControllerProvider.notifier).openFolder(node.id);
       return;
     }
-    // Server files stream a preview; the mock (standalone) can't.
+    // Server files stream a preview through the central playback machinery;
+    // the mock (standalone) can't.
     final repo = ref.read(fileRepositoryProvider);
-    if (repo is HttpFileRepository && node.isMedia) {
+    if (repo is HttpFileRepository) {
       final headers = await repo.authHeader();
       if (!context.mounted) return;
-      Navigator.of(context, rootNavigator: true).push(MaterialPageRoute<void>(
-        builder: (_) => ServerFilePreview(
-          node: node,
-          contentUri: repo.contentUri(node.id),
-          headers: headers,
-        ),
-      ));
+      await openServerFile(
+        context,
+        ref,
+        node: node,
+        contentUri: repo.contentUri(node.id),
+        headers: headers,
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Open "${node.name}" — preview not available')),

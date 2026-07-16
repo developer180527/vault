@@ -5,11 +5,30 @@ import 'package:just_audio/just_audio.dart';
 import '../../../core/actions/vault_action.dart';
 import '../../../core/platform/design/adaptive_icons.dart';
 import '../../../core/platform/platform_info.dart';
+import '../../../core/playback/playable.dart';
+import '../../../core/playback/playback_controller.dart';
 import '../../../shell/adaptive_shell.dart';
 import '../data/music_library.dart';
 import '../data/music_metadata.dart';
-import '../data/music_player_controller.dart';
 import '../music_player_page.dart';
+
+/// Maps the user's tracks (+ read tags) into audio [Playable]s for the
+/// centralized player. Local files; server music will just produce network
+/// Playables with the same shape.
+List<Playable> playablesFor(WidgetRef ref, List<MusicTrack> tracks) => [
+      for (final t in tracks)
+        _playable(metadataFor(ref, t.path), t),
+    ];
+
+Playable _playable(TrackMetadata m, MusicTrack t) => Playable(
+      id: t.path,
+      kind: PlayableKind.audio,
+      uri: Uri.file(t.path),
+      title: m.title ?? t.title,
+      subtitle: m.artist ?? '',
+      album: m.album ?? '',
+      artwork: m.art,
+    );
 
 Future<void> _addMusic(WidgetRef ref) async {
   final added = await ref.read(musicLibraryProvider).addMusic();
@@ -35,7 +54,7 @@ class MusicSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tracksAsync = ref.watch(musicTracksProvider);
-    final playerState = ref.watch(musicPlayerProvider);
+    final hasAudio = ref.watch(playbackProvider).currentAudio != null;
 
     return Column(
       children: [
@@ -50,8 +69,7 @@ class MusicSection extends ConsumerWidget {
         ),
         // On mobile the shell shows a floating mini-player pill above the
         // dock instead; the inline bar is desktop/tablet-only.
-        if (playerState.current != null && FormFactor.isDesktopOf(context))
-          const _MiniPlayer(),
+        if (hasAudio && FormFactor.isDesktopOf(context)) const _MiniPlayer(),
       ],
     );
   }
@@ -104,14 +122,14 @@ class _TrackList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final playerState = ref.watch(musicPlayerProvider);
+    final currentId = ref.watch(playbackProvider).currentAudio?.id;
     final scheme = Theme.of(context).colorScheme;
     return ListView.builder(
       itemCount: tracks.length,
       itemBuilder: (context, i) {
         final track = tracks[i];
         final meta = metadataFor(ref, track.path);
-        final isCurrent = playerState.current?.id == track.id;
+        final isCurrent = currentId == track.path;
         return ListTile(
           leading: ClipRRect(
             borderRadius: BorderRadius.circular(6),
@@ -141,7 +159,9 @@ class _TrackList extends ConsumerWidget {
               ? Icon(Icons.equalizer, size: 20, color: scheme.primary)
               : null,
           onTap: () {
-            ref.read(musicPlayerProvider.notifier).playQueue(tracks, i);
+            ref
+                .read(playbackProvider.notifier)
+                .playAudioQueue(playablesFor(ref, tracks), i);
             _openPlayer(context);
           },
         );
@@ -165,9 +185,8 @@ class _MiniPlayer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(musicPlayerProvider);
-    final controller = ref.read(musicPlayerProvider.notifier);
-    final track = state.current;
+    final controller = ref.read(playbackProvider.notifier);
+    final track = ref.watch(playbackProvider).currentAudio;
     if (track == null) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
 

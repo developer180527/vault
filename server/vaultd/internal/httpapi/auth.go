@@ -46,6 +46,36 @@ func (s *Server) RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// hasGrant reports whether a principal holds (service, action). Admins hold
+// everything. Used inside handlers where the required grant depends on the
+// request (e.g. a job's kind decides torrent vs downloads).
+func (s *Server) hasGrant(r *http.Request, p *store.Principal, service, action string) bool {
+	if p == nil {
+		return false
+	}
+	if p.Role == "admin" {
+		return true
+	}
+	grants, err := s.store.Read().GrantsForUser(r.Context(), p.UserID)
+	if err != nil {
+		return false
+	}
+	for _, a := range grants[service] {
+		if a == action {
+			return true
+		}
+	}
+	return false
+}
+
+// serviceForKind maps a job kind to the service whose grant governs it.
+func serviceForKind(kind string) string {
+	if kind == store.JobKindTorrent {
+		return "torrent"
+	}
+	return "downloads"
+}
+
 // RequireGrant gates a route on a (service, action) grant. Admins pass
 // everything; members must hold the action. Fail-closed 403, matching the
 // client's manifest gating — but this is the real enforcement (the client's

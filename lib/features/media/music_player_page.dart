@@ -4,29 +4,27 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/platform/platform_info.dart';
+import '../../core/playback/playback_controller.dart';
 import 'data/dominant_color.dart';
-import 'data/music_metadata.dart';
-import 'data/music_player_controller.dart';
 
 /// Full-screen now-playing screen, styled after Apple Music: large artwork,
 /// track title/artist, scrubber, transport controls, and a volume/output row.
-/// The background gradient is tinted from the album art's dominant color.
+/// Reads the centralized [PlaybackController], so it shows whatever audio is
+/// playing — local music today, server music later — with no change here.
+/// The background gradient is tinted from the artwork's dominant color.
 class MusicPlayerPage extends ConsumerWidget {
   const MusicPlayerPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(musicPlayerProvider);
-    final controller = ref.read(musicPlayerProvider.notifier);
+    final controller = ref.read(playbackProvider.notifier);
     final player = controller.player;
-    final track = state.current;
+    final track = ref.watch(playbackProvider).currentAudio;
     final scheme = Theme.of(context).colorScheme;
 
-    final meta =
-        track == null ? const TrackMetadata() : metadataFor(ref, track.path);
-    final artColor = track == null
+    final artColor = track?.artwork == null
         ? null
-        : ref.watch(trackArtColorProvider(track.path)).asData?.value;
+        : ref.watch(artColorProvider(track!.id)).asData?.value;
 
     return Scaffold(
       body: AnimatedContainer(
@@ -63,7 +61,7 @@ class MusicPlayerPage extends ConsumerWidget {
                       tooltip: 'Stop',
                       icon: const Icon(Icons.stop_circle_outlined, size: 30),
                       onPressed: () async {
-                        await controller.stop();
+                        await controller.stopAudio();
                         if (context.mounted) {
                           Navigator.of(context).maybePop();
                         }
@@ -72,17 +70,20 @@ class MusicPlayerPage extends ConsumerWidget {
                   ],
                 ),
                 const Spacer(),
-                _Artwork(art: meta.art),
+                _Artwork(art: track?.artwork),
                 const SizedBox(height: 32),
                 Text(
-                  meta.title ?? track?.title ?? 'Nothing playing',
+                  track?.title ?? 'Nothing playing',
                   style: Theme.of(context).textTheme.titleLarge,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 4),
-                Text(meta.artist ?? 'Local music',
+                Text(
+                    (track?.subtitle.isEmpty ?? true)
+                        ? 'Local music'
+                        : track!.subtitle,
                     style: TextStyle(color: scheme.onSurfaceVariant),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
@@ -221,7 +222,7 @@ class _ScrubberState extends State<_Scrubber> {
 
 class _Controls extends StatelessWidget {
   const _Controls({required this.controller, required this.player});
-  final MusicPlayerController controller;
+  final PlaybackController controller;
   final AudioPlayer player;
 
   @override

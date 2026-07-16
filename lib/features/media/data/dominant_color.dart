@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'music_metadata.dart';
+import '../../../core/playback/playback_controller.dart';
 
 /// Dominant color of an image, for tinting the player background from album
 /// art. Decodes a 24×24 preview and picks the most *saturated-weighted*
@@ -47,11 +47,19 @@ Future<Color?> dominantColorOf(Uint8List bytes) async {
   }
 }
 
-/// Dominant art color per track path, cached by family arg. Null when the
-/// track has no art (player falls back to the theme gradient).
-final trackArtColorProvider =
-    FutureProvider.family<Color?, String>((ref, path) async {
-  final art = (await ref.watch(musicMetadataProvider.future))[path]?.art;
+/// Dominant art color for the currently-playing [Playable] (keyed by its id).
+/// Sourced from the playback queue's artwork, so it works for any audio —
+/// local music or a future server stream. Null when there's no art.
+final artColorProvider =
+    FutureProvider.family<Color?, String>((ref, id) async {
+  final queue = ref.watch(playbackProvider).queue;
+  Uint8List? art;
+  for (final p in queue) {
+    if (p.id == id) {
+      art = p.artwork;
+      break;
+    }
+  }
   if (art == null) return null;
   return dominantColorOf(art);
 });

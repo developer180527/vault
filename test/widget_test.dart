@@ -168,15 +168,16 @@ void main() {
     await tester.pumpWidget(_appWith(container));
     await tester.pumpAndSettle();
 
-    // Torrent is pinned by default; Downloads is its first sub-tab.
+    // Torrent is pinned by default and is now a direct page (magnets); URL
+    // downloads live in the separate Downloads service.
     await tester.tap(find.text('Torrent'));
     await tester.pumpAndSettle();
-    expect(find.text('No downloads yet'), findsOneWidget);
+    expect(find.text('No torrents yet'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Add download'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Add torrent'));
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.byType(TextField), 'https://y.test/episode-1.mp4');
+        find.byType(TextField), 'magnet:?xt=urn:btih:abc&dn=My+Movie');
     await tester.tap(find.text('Add'));
     await tester.pump();
 
@@ -184,7 +185,7 @@ void main() {
     // fixed steps: pumpAndSettle would stop between progress ticks (a pending
     // timer schedules no frame until it fires).
     await tester.pumpAndSettle();
-    expect(find.text('episode-1.mp4'), findsOneWidget);
+    expect(find.text('My Movie'), findsOneWidget);
     for (var i = 0;
         i < 100 &&
             tester.widgetList(find.byIcon(Icons.check_circle_outline)).isEmpty;
