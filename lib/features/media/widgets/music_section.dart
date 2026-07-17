@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:just_audio/just_audio.dart';
 
 import '../../../core/actions/vault_action.dart';
 import '../../../core/platform/design/adaptive_icons.dart';
 import '../../../core/platform/platform_info.dart';
 import '../../../core/playback/playable.dart';
 import '../../../core/playback/playback_controller.dart';
-import '../../../shell/adaptive_shell.dart';
 import '../data/music_library.dart';
 import '../data/music_metadata.dart';
 import '../music_player_page.dart';
@@ -54,23 +52,16 @@ class MusicSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tracksAsync = ref.watch(musicTracksProvider);
-    final hasAudio = ref.watch(playbackProvider).currentAudio != null;
 
-    return Column(
-      children: [
-        Expanded(
-          child: tracksAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Music unavailable: $e')),
-            data: (tracks) => tracks.isEmpty
-                ? _AddMusicPrompt(onAdd: () => _addMusic(ref))
-                : _TrackList(tracks: tracks),
-          ),
-        ),
-        // On mobile the shell shows a floating mini-player pill above the
-        // dock instead; the inline bar is desktop/tablet-only.
-        if (hasAudio && FormFactor.isDesktopOf(context)) const _MiniPlayer(),
-      ],
+    // Now-playing controls live in the SHELL (mobile: floating pill; desktop:
+    // sidebar card) so running audio stays visible from every tab — a
+    // tab-local bar here left desktop audio uncontrollable elsewhere.
+    return tracksAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Music unavailable: $e')),
+      data: (tracks) => tracks.isEmpty
+          ? _AddMusicPrompt(onAdd: () => _addMusic(ref))
+          : _TrackList(tracks: tracks),
     );
   }
 }
@@ -177,54 +168,4 @@ void _openPlayer(BuildContext context) {
     fullscreenDialog: true,
     builder: (_) => const MusicPlayerPage(),
   ));
-}
-
-/// Compact now-playing bar that opens the full-screen player on tap.
-class _MiniPlayer extends ConsumerWidget {
-  const _MiniPlayer();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.read(playbackProvider.notifier);
-    final track = ref.watch(playbackProvider).currentAudio;
-    if (track == null) return const SizedBox.shrink();
-    final scheme = Theme.of(context).colorScheme;
-
-    return Material(
-      color: scheme.surfaceContainerHigh,
-      child: InkWell(
-        onTap: () => _openPlayer(context),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                Icon(Icons.music_note, color: scheme.primary),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(track.title,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                ),
-                StreamBuilder<PlayerState>(
-                  stream: controller.player.playerStateStream,
-                  builder: (context, snapshot) {
-                    final playing = snapshot.data?.playing ?? false;
-                    return IconButton(
-                      icon: Icon(playing ? Icons.pause : Icons.play_arrow),
-                      onPressed: controller.togglePlay,
-                    );
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.skip_next),
-                  onPressed: controller.next,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

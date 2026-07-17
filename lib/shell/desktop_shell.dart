@@ -4,25 +4,35 @@ import 'package:go_router/go_router.dart';
 
 import '../core/platform/design/adaptive_icons.dart';
 import '../core/platform/platform_info.dart';
+import '../core/prefs/desktop_prefs.dart';
 import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
 import 'widgets/app_title_bar.dart';
+import 'widgets/now_playing_strip.dart';
 
 /// The sidebar (wide) layout, used by native desktop AND large tablets. The
 /// difference: only native desktop draws the custom in-window title bar (menu
 /// bar + traffic-light spacing + drag), because only there did we hide the OS
 /// title bar. Tablets keep the OS status bar, so they get a slim, safe-area
 /// header instead — no desktop menu chrome colliding with the status bar.
-class DesktopShell extends StatelessWidget {
+class DesktopShell extends ConsumerWidget {
   const DesktopShell({super.key, required this.shell, required this.services});
 
   final StatefulNavigationShell shell;
   final List<ServiceDefinition> services;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final nativeDesktop = isDesktopPlatform;
+    // Desktop power preference: dock the sidebar to either edge.
+    final sidebarRight = ref.watch(sidebarPositionProvider).asData?.value ==
+        SidebarPosition.right;
+
+    final sidebar = _Sidebar(shell: shell, services: services);
+    final divider =
+        VerticalDivider(width: 1, thickness: 1, color: theme.dividerColor);
+    final content = Expanded(child: shell);
 
     final body = Column(
       children: [
@@ -30,12 +40,9 @@ class DesktopShell extends StatelessWidget {
         Expanded(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _Sidebar(shell: shell, services: services),
-              VerticalDivider(
-                  width: 1, thickness: 1, color: theme.dividerColor),
-              Expanded(child: shell),
-            ],
+            children: sidebarRight
+                ? [content, divider, sidebar]
+                : [sidebar, divider, content],
           ),
         ),
       ],
@@ -115,6 +122,13 @@ class _Sidebar extends ConsumerWidget {
         children: [
           const SizedBox(height: 12),
           Expanded(child: _buildGroupedList(context, pinnedIds)),
+          // Tablets have no title bar, so the global now-playing control lives
+          // here; native desktop shows it centered in the title bar instead.
+          if (!isDesktopPlatform)
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: NowPlayingStrip(maxTitleWidth: 96),
+            ),
           Divider(height: 1, color: theme.dividerColor),
           Padding(
             padding: const EdgeInsets.all(8),

@@ -1,10 +1,33 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:vault/core/client/vault_client.dart';
 import 'package:vault/features/files/data/file_browser_controller.dart';
 import 'package:vault/core/models/file_node.dart';
 
 void main() {
+  test('browse location and history reset when the client swaps', () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final sub = container.listen(fileBrowserControllerProvider, (_, _) {});
+    addTearDown(sub.close);
+
+    final nav = container.read(fileBrowserControllerProvider.notifier);
+    nav.openFolder('documents');
+    nav.openFolder('photos');
+    expect(container.read(fileBrowserControllerProvider).currentId, 'photos');
+
+    // Login/logout swaps the VaultClient. Node ids are backend-specific, so a
+    // stale mock id surviving the swap gets sent to the server → HTTP 400.
+    container.invalidate(vaultClientProvider);
+    await Future<void>.delayed(Duration.zero);
+
+    final state = container.read(fileBrowserControllerProvider);
+    expect(state.currentId, isNull, reason: 'must return to root');
+    expect(state.canBack, isFalse, reason: 'history must not survive the swap');
+    expect(state.canForward, isFalse);
+  });
+
   test('root lists folders first, then files, alphabetically', () async {
     final container = ProviderContainer();
     addTearDown(container.dispose);

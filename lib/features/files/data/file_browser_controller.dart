@@ -33,7 +33,13 @@ class BrowseState {
 /// browser/Finder.
 class FileBrowserController extends Notifier<BrowseState> {
   @override
-  BrowseState build() => const BrowseState();
+  BrowseState build() {
+    // Node ids are backend-specific (mock ids vs vaultd's base64url paths), so
+    // a login/logout MUST reset the location and history — otherwise a stale
+    // mock id gets sent to the server and 400s ("files list failed").
+    ref.watch(vaultClientProvider);
+    return const BrowseState();
+  }
 
   /// Navigate to [id] (a folder, or null for root), recording history.
   void navigateTo(String? id) {

@@ -215,19 +215,30 @@ class PlaybackController extends Notifier<PlaybackState> {
     final instance = _videoInstance;
     _video = null;
     _videoInstance = null;
-    if (state.video != null) {
-      state = state.copyWith(video: () => null);
-    }
+
+    // Detach the session from state on the NEXT event-loop turn: closeVideo is
+    // typically called from a page's dispose(), during tree teardown, when
+    // Riverpod forbids notifying listeners. Mutating synchronously here THREW
+    // (debug builds), aborting teardown — the controller lived on and its
+    // audio kept playing. The engine teardown below never needed state.
+    // Guard: skip if a newer session claimed the slot meanwhile.
+    Future(() {
+      if (_video == null && state.video != null) {
+        state = state.copyWith(video: () => null);
+      }
+    });
+
     if (c == null) return;
+    // Silence FIRST — that's the user-audible part; bookkeeping can wait.
+    try {
+      await c.setVolume(0);
+      await c.pause();
+    } catch (_) {}
     if (id != null && c.value.isInitialized) {
       await ref
           .read(playbackPositionStoreProvider)
           .save(id, c.value.position, c.value.duration);
     }
-    try {
-      await c.setVolume(0);
-      await c.pause();
-    } catch (_) {}
     try {
       await c.dispose();
     } catch (e) {

@@ -229,7 +229,11 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
       final controller = await _playback.openVideo(Playable(
         id: widget.item.id,
         kind: PlayableKind.video,
-        uri: Uri.file(path),
+        // Usually a local file; http covers streamed sources (e.g. an
+        // iCloud-offloaded asset materialized as a URL).
+        uri: path.startsWith('http')
+            ? Uri.parse(path)
+            : Uri.file(path),
         title: widget.item.asset.title ?? 'Video',
       ));
       if (!mounted) return; // session stays; dispose() will close it

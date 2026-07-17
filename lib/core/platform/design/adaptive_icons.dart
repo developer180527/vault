@@ -141,6 +141,11 @@ abstract final class VaultIcons {
     sfSymbol: 'forward.fill',
   );
 
+  static const close = AdaptiveIconData(
+    material: Icons.close,
+    sfSymbol: 'xmark',
+  );
+
   // ---- Actions ----
   static const add = AdaptiveIconData(
     material: Icons.add,

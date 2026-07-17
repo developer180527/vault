@@ -8,6 +8,8 @@ import '../../core/capability/capability.dart';
 import '../../core/version/build_info.dart';
 import '../../core/capability/manifest_providers.dart';
 import '../../core/platform/design/adaptive_icons.dart';
+import '../../core/platform/platform_info.dart';
+import '../../core/prefs/desktop_prefs.dart';
 import '../../core/prefs/theme_prefs.dart';
 import '../../core/services/service_registry.dart';
 import '../../core/tasks/background_tasks.dart';
@@ -31,6 +33,14 @@ class SettingsPage extends ConsumerWidget {
       children: [
         const _SectionHeader('Appearance'),
         const _AppearanceSection(),
+        // Desktop-only power options. The platforms diverge on purpose: a
+        // desktop app carries window/layout controls a phone never needs, so
+        // this section simply doesn't exist on mobile builds.
+        if (isDesktopPlatform) ...[
+          const Divider(height: 32),
+          const _SectionHeader('Desktop'),
+          const _DesktopSection(),
+        ],
         const Divider(height: 32),
         const _SectionHeader('Storage'),
         const _StorageSection(),
@@ -67,6 +77,40 @@ class SettingsPage extends ConsumerWidget {
           const _CrashDemo(),
         ],
       ],
+    );
+  }
+}
+
+/// Desktop-only options (window/layout ergonomics that don't exist on mobile).
+class _DesktopSection extends ConsumerWidget {
+  const _DesktopSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position = ref.watch(sidebarPositionProvider).asData?.value ??
+        SidebarPosition.left;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          const Expanded(child: Text('Sidebar position')),
+          SegmentedButton<SidebarPosition>(
+            segments: const [
+              ButtonSegment(
+                  value: SidebarPosition.left,
+                  icon: Icon(Icons.align_horizontal_left),
+                  label: Text('Left')),
+              ButtonSegment(
+                  value: SidebarPosition.right,
+                  icon: Icon(Icons.align_horizontal_right),
+                  label: Text('Right')),
+            ],
+            selected: {position},
+            onSelectionChanged: (s) =>
+                ref.read(sidebarPositionProvider.notifier).set(s.first),
+          ),
+        ],
+      ),
     );
   }
 }
