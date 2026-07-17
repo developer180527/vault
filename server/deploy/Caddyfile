@@ -25,3 +25,8 @@
 :8082 {
 	reverse_proxy qbittorrent:8090
 }
+
+# ---- Vault admin panel (tailscale serve 8444, admin-only by ACL) ------
+:8083 {
+	reverse_proxy vaultd:8081
+}

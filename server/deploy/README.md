@@ -54,8 +54,29 @@ curl -s http://127.0.0.1:8080/healthz    # "ok: caddy up, vaultd pending (M2)"
 sudo tailscale serve --bg --https=443  http://127.0.0.1:8080
 sudo tailscale serve --bg --https=9443 http://127.0.0.1:8081
 sudo tailscale serve --bg --https=8443 http://127.0.0.1:8082
+sudo tailscale serve --bg --https=8444 http://127.0.0.1:8083   # Vault admin panel
 tailscale serve status
 ```
+
+Port 8444 (the admin panel) must be in the ADMIN-ONLY part of the Tailscale
+ACL — with the existing split (members → 443 only, admins → `*`) it already
+is; if you ever enumerate ports explicitly, add:
+
+```jsonc
+{ "action": "accept", "src": ["autogroup:admin"],
+  "dst": ["tag:vault-server:8444"] }
+```
+
+### Admin panel (docs/backend/ADMIN.md)
+
+One-time: in Pocket ID → the vaultd OIDC client → add a second callback URL:
+
+```
+https://<TS_HOSTNAME>:8444/oauth/callback
+```
+
+Then from an admin device open `https://<TS_HOSTNAME>:8444` and sign in with
+your passkey. Only active admins get in; everyone else sees a 403.
 
 ## 6. First-run setup
 

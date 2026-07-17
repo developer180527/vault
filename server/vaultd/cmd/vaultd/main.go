@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/developer180527/vault/vaultd/internal/adminweb"
 	"github.com/developer180527/vault/vaultd/internal/auth"
 	"github.com/developer180527/vault/vaultd/internal/config"
 	"github.com/developer180527/vault/vaultd/internal/httpapi"
@@ -100,6 +101,39 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	// Admin panel: a SEPARATE listener so the member surface can never route
+	// to an admin handler; enabled only when both knobs are set
+	// (docs/backend/ADMIN.md). Off = fail closed.
+	var adminSrv *http.Server
+	if cfg.AdminAddr != "" && cfg.AdminExternalURL != "" {
+		handler, err := adminweb.New(adminweb.Options{
+			Log:         log,
+			Store:       st,
+			ExternalURL: cfg.AdminExternalURL,
+			Flow: adminweb.NewOIDCFlow(cfg.OIDCIssuer, cfg.OIDCClientID,
+				cfg.AdminExternalURL+"/oauth/callback"),
+		})
+		if err != nil {
+			log.Error("admin panel", "err", err)
+			os.Exit(1)
+		}
+		adminSrv = &http.Server{
+			Addr:              cfg.AdminAddr,
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			log.Info("admin panel listening",
+				"addr", cfg.AdminAddr, "external", cfg.AdminExternalURL)
+			if err := adminSrv.ListenAndServe(); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				log.Error("admin serve", "err", err)
+			}
+		}()
+	} else {
+		log.Info("admin panel disabled (set VAULTD_ADMIN_ADDR + VAULTD_ADMIN_EXTERNAL_URL)")
+	}
+
 	// Graceful shutdown on SIGINT/SIGTERM.
 	go func() {
 		sig := make(chan os.Signal, 1)
@@ -108,6 +142,9 @@ func main() {
 		log.Info("shutting down")
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if adminSrv != nil {
+			_ = adminSrv.Shutdown(shutCtx)
+		}
 		_ = srv.Shutdown(shutCtx)
 	}()
 

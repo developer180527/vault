@@ -1,0 +1,38 @@
+{{template "head" .}}
+<header>
+  <span class="brand">Vault Admin</span>
+  <span class="spacer"></span>
+  <span class="who">{{.User.Username}} · admin</span>
+  <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+</header>
+<main>
+  <h1>Overview</h1>
+  <p class="sub">Server at a glance. Sections below arrive phase by phase.</p>
+  <div class="cards">
+    <div class="card">
+      <div class="num">{{.UserCount}}</div>
+      <div class="label">Users</div>
+    </div>
+    <div class="card">
+      <div class="num">{{.CatalogTracks}}</div>
+      <div class="label">Catalog tracks</div>
+    </div>
+    <div class="card soon">
+      <div class="num">—</div>
+      <div class="label">Users &amp; grants (Phase 1)</div>
+    </div>
+    <div class="card soon">
+      <div class="num">—</div>
+      <div class="label">Catalog manager (Phase 1)</div>
+    </div>
+    <div class="card soon">
+      <div class="num">—</div>
+      <div class="label">Activity &amp; audit (Phase 2)</div>
+    </div>
+    <div class="card soon">
+      <div class="num">—</div>
+      <div class="label">System health (Phase 3)</div>
+    </div>
+  </div>
+</main>
+{{template "foot" .}}
