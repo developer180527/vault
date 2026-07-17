@@ -4,10 +4,10 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 23;
-  static const String commit = 'f8e27b7';
-  static const String commitSubject = 'Media tab: Recently Deleted, biometric-gated trash, Apple Photos grid, video-control fixes';
-  static const String date = '2026-07-17';
+  static const int build = 25;
+  static const String commit = 'fdbdef1';
+  static const String commitSubject = '1. The playback rebuild storm: Six widgets watched the entire playbackProvider state, so every playback event, each track advance, every video open/close, rebuilt: the whole bottom chrome including the native glass panel (platform-view re-layout, the most expensive thing in the shell), both music track lists, the desktop title-bar strip, the full-screen player, and the viewer\'s video overlay. All six now use select() to watch only their slice: Bottom bar → rebuilds only when the mini-player appears/disappears Mini-player pill / title-bar strip / player page → only on actual track change Music lists → only when the current track id changes (for the highlight) Video controls overlay → only on video-session change Net effect: skipping tracks while browsing another tab no longer re-lays-out the glass dock at all. 2. Viewer photo decode capped (~biggest memory win). The full-res viewer decoded photos at origin resolution, a 48MP shot becomes a ~190MB bitmap, per page, on every swipe. That\'s textbook swipe-jank + memory-pressure. Decodes are now capped at 2× the screen\'s pixel width (cacheWidth), which keeps 4× pinch-zoom sharp while cutting the bitmap ~10–20× on large photos. Also added gaplessPlayback so the thumbnail→full-res swap doesn\'t flash. 3. RepaintBoundary per grid tile. Scrolling the photo grid now composites cached tile layers instead of repainting every decoded thumbnail in the viewport each frame, this pairs with the stable keys you already had, and matters more now that the pinch-zoom can pack ~10 columns on screen.';
+  static const String date = '2026-07-18';
 
   static String get label =>
       build == 0 ? '$version (dev)' : '$version (build $build)';
