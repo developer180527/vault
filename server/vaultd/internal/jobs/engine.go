@@ -32,6 +32,11 @@ type Engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// wg tracks WORKER goroutines only (the ones that touch the filesystem);
+	// Stop waits on it so shutdown is synchronous — no runner keeps writing
+	// into staging after Stop returns (this raced TempDir cleanup in tests).
+	wg sync.WaitGroup
+
 	mu      sync.Mutex
 	running map[string]context.CancelFunc // jobID → cancel
 }
@@ -63,8 +68,16 @@ func (e *Engine) Start() {
 	e.schedule()
 }
 
-// Stop cancels all running jobs and the engine context.
-func (e *Engine) Stop() { e.cancel() }
+// Stop cancels all running jobs and WAITS for their worker goroutines to
+// finish. The mu barrier after cancel orders things safely: any schedule()
+// already holding the lock completes its wg.Add first; any later schedule()
+// sees the canceled context and starts nothing.
+func (e *Engine) Stop() {
+	e.cancel()
+	e.mu.Lock() // barrier: flush any schedule() that raced the cancel
+	e.mu.Unlock()
+	e.wg.Wait()
+}
 
 // Submit creates a queued job and triggers scheduling.
 func (e *Engine) Submit(userID, kind, source, title string) (*store.Job, error) {
@@ -146,6 +159,9 @@ func (e *Engine) Snapshot(userID string) ([]store.Job, error) {
 func (e *Engine) schedule() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.ctx.Err() != nil {
+		return // shutting down — never start work after Stop begins
+	}
 	for len(e.running) < e.maxConc {
 		job := e.pickFair()
 		if job == nil {
@@ -192,7 +208,9 @@ func (e *Engine) startLocked(job store.Job) {
 	_ = e.store.Write().UpdateJob(e.ctx, job.ID, store.JobRunning, 0, "")
 	go e.publish(job.UserID)
 
+	e.wg.Add(1) // under e.mu with ctx checked — ordered before any Stop.Wait
 	go func() {
+		defer e.wg.Done()
 		report := func(progress float64, message string) {
 			_ = e.store.Write().UpdateJob(e.ctx, job.ID, store.JobRunning, progress, message)
 			e.publish(job.UserID)

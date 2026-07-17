@@ -14,6 +14,7 @@ import (
 	"github.com/developer180527/vault/vaultd/internal/auth"
 	"github.com/developer180527/vault/vaultd/internal/files"
 	"github.com/developer180527/vault/vaultd/internal/jobs"
+	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -55,6 +56,7 @@ type Server struct {
 	dataRoot     string
 	jobs         *jobs.Engine
 	files        *files.Service
+	music        *music.Service
 }
 
 // New builds the router.
@@ -69,6 +71,8 @@ func New(o Options) http.Handler {
 		dataRoot:     o.DataRoot,
 		jobs:         o.Jobs,
 		files:        &files.Service{DataRoot: o.DataRoot},
+		music: &music.Service{
+			DataRoot: o.DataRoot, Store: o.Store, Log: o.Log},
 	}
 
 	r := chi.NewRouter()
@@ -115,6 +119,15 @@ func New(o Options) http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(s.RequireGrant("files", "delete"))
 				r.Post("/files/trash", s.handleTrashFile)
+			})
+
+			// Music — server-owned library, streamed (docs/MUSIC.md).
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("music", "read"))
+				r.Get("/music/tracks", s.handleListTracks)
+				r.Get("/music/search", s.handleSearchTracks)
+				r.Get("/music/tracks/{id}/stream", s.handleStreamTrack)
+				r.Get("/music/tracks/{id}/art", s.handleTrackArt)
 			})
 			// backup (M4) lands here.
 		})

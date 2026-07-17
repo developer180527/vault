@@ -32,6 +32,12 @@ class MockVaultClient implements VaultClient {
   @override
   VaultJobsApi get jobs => _jobs;
 
+  /// Standalone mode plays LOCAL files (a device feature); the server music
+  /// API has no mock — reaching this is a wiring bug, so fail loudly.
+  @override
+  MusicApi get music =>
+      throw UnsupportedError('server music requires a connected session');
+
   @override
   Future<CapabilityManifest> fetchManifest() async =>
       MockManifestSource.fullGrant(serviceIds());

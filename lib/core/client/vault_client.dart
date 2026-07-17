@@ -4,6 +4,7 @@ import '../auth/session.dart';
 import '../capability/capability.dart';
 import '../jobs/job.dart';
 import '../models/file_node.dart';
+import '../models/server_track.dart';
 import '../services/service_registry.dart';
 import 'http_vault_client.dart';
 import 'mock_vault_client.dart';
@@ -28,6 +29,10 @@ abstract interface class VaultClient {
   /// their lifecycle. Execution is scheduled automatically (by the server —
   /// or the mock's in-process scheduler).
   VaultJobsApi get jobs;
+
+  /// The SERVER's music library (list/search/stream — docs/MUSIC.md).
+  /// Standalone mode plays local files instead and never calls this.
+  MusicApi get music;
 
   /// Release any resources (streams, timers, sockets).
   void dispose();
@@ -64,6 +69,22 @@ abstract interface class FileRepository {
 
   /// Soft-delete → trash (never destroys).
   Future<void> trash(String id);
+}
+
+/// Server music library: the index lives on the server; bytes stream with
+/// Range support. Uris are fetched with [authHeaders] by the playback engine.
+abstract interface class MusicApi {
+  /// The whole library (the server rescans incrementally per call).
+  Future<List<ServerTrack>> tracks();
+
+  /// FTS prefix search over title/artist/album.
+  Future<List<ServerTrack>> search(String query);
+
+  Uri streamUri(String id);
+  Uri artUri(String id);
+
+  /// Bearer header for stream/artwork requests (refreshed if expired).
+  Future<Map<String, String>> authHeaders();
 }
 
 /// The jobs pipeline. Submitting hands work to the scheduler; [watch] streams
