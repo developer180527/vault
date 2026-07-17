@@ -20,6 +20,7 @@ class Playable {
     this.subtitle = '',
     this.album = '',
     this.artwork,
+    this.artworkUri,
     this.headers = const {},
   });
 
@@ -39,8 +40,12 @@ class Playable {
 
   final String album;
 
-  /// Embedded artwork bytes, when known.
+  /// Embedded artwork bytes, when known (local files).
   final Uint8List? artwork;
+
+  /// Artwork URL for network sources (fetched with [headers]); the player UI
+  /// and lock-screen metadata use whichever of the two art fields is set.
+  final Uri? artworkUri;
 
   /// Auth headers for network sources (server streams carry the bearer).
   final Map<String, String> headers;

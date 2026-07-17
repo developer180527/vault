@@ -11,6 +11,7 @@ import '../../../core/platform/design/adaptive_icons.dart';
 import '../../../core/platform/platform_info.dart';
 import '../../../core/playback/playable.dart';
 import '../../../core/playback/playback_controller.dart';
+import '../../../shell/widgets/context_menu.dart';
 import '../data/music_library.dart';
 import '../data/music_metadata.dart';
 import '../data/server_music.dart';
@@ -172,6 +173,9 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
     if (!mounted) return;
     final target = await showModalBottomSheet<Playlist>(
       context: context,
+      // Root navigator: the sheet must rise ABOVE the shell chrome (glass
+      // dock + mini player), not underneath it inside the tab's navigator.
+      useRootNavigator: true,
       showDragHandle: true,
       builder: (context) => SafeArea(
         child: Column(
@@ -199,6 +203,26 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
     if (target == null) return;
     await music.addToPlaylist(target.id, t.id);
     ref.invalidate(playlistsProvider);
+  }
+
+  /// Desktop right-click on a catalog/playlist track row.
+  void _trackContextMenu(ServerTrack t, Offset position) {
+    final source = ref.read(musicSourceProvider);
+    showContextMenu(
+      context: context,
+      ref: ref,
+      globalPosition: position,
+      actions: [
+        VaultAction(
+          id: 'music.playlist.toggle',
+          label: source is PlaylistSource
+              ? 'Remove from playlist'
+              : 'Add to playlist…',
+          icon: source is PlaylistSource ? VaultIcons.trash : VaultIcons.add,
+          onInvoke: (_, _) => _trackMenu(t),
+        ),
+      ],
+    );
   }
 
   Future<void> _deletePlaylist(Playlist p) async {
@@ -285,6 +309,19 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
                   const SizedBox(width: 8),
                   GestureDetector(
                     onLongPress: () => _deletePlaylist(p),
+                    onSecondaryTapUp: (d) => showContextMenu(
+                      context: context,
+                      ref: ref,
+                      globalPosition: d.globalPosition,
+                      actions: [
+                        VaultAction(
+                          id: 'music.playlist.delete',
+                          label: 'Delete playlist',
+                          icon: VaultIcons.trash,
+                          onInvoke: (_, _) => _deletePlaylist(p),
+                        ),
+                      ],
+                    ),
                     child: ChoiceChip(
                       label: Text(p.name),
                       avatar: const Icon(Icons.queue_music, size: 16),
@@ -328,7 +365,7 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
                       itemBuilder: (context, i) {
                         final t = tracks[i];
                         final isCurrent = currentId == t.id;
-                        return ListTile(
+                        final tile = ListTile(
                           leading: _ServerArt(
                             uri: !t.hasArt
                                 ? null
@@ -354,9 +391,16 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
                               : null,
                           onTap: () => _play(tracks, i),
                           // Playlists reference catalog UUIDs, so only
-                          // catalog-backed rows get the long-press menu.
+                          // catalog-backed rows get the long-press menu
+                          // (mobile) / right-click menu (desktop).
                           onLongPress:
                               personal ? null : () => _trackMenu(t),
+                        );
+                        if (personal) return tile;
+                        return GestureDetector(
+                          onSecondaryTapUp: (d) =>
+                              _trackContextMenu(t, d.globalPosition),
+                          child: tile,
                         );
                       },
                     ),

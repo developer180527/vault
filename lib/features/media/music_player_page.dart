@@ -70,7 +70,11 @@ class MusicPlayerPage extends ConsumerWidget {
                   ],
                 ),
                 const Spacer(),
-                _Artwork(art: track?.artwork),
+                _Artwork(
+                  art: track?.artwork,
+                  artUri: track?.artworkUri,
+                  headers: track?.headers ?? const {},
+                ),
                 const SizedBox(height: 32),
                 Text(
                   track?.title ?? 'Nothing playing',
@@ -103,14 +107,19 @@ class MusicPlayerPage extends ConsumerWidget {
 }
 
 class _Artwork extends StatelessWidget {
-  const _Artwork({this.art});
+  const _Artwork({this.art, this.artUri, this.headers = const {}});
 
+  /// Embedded bytes (local files) or a bearer-fetched URL (server streams).
   final Uint8List? art;
+  final Uri? artUri;
+  final Map<String, String> headers;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final side = MediaQuery.sizeOf(context).width.clamp(200.0, 360.0) - 56;
+    final fallback =
+        Icon(Icons.music_note, size: side * 0.4, color: scheme.primary);
     return Container(
       width: side,
       height: side,
@@ -127,7 +136,15 @@ class _Artwork extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: art != null
           ? Image.memory(art!, fit: BoxFit.cover, gaplessPlayback: true)
-          : Icon(Icons.music_note, size: side * 0.4, color: scheme.primary),
+          : artUri != null
+              ? Image.network(
+                  artUri.toString(),
+                  headers: headers.isEmpty ? null : headers,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => fallback,
+                )
+              : fallback,
     );
   }
 }

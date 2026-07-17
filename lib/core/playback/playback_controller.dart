@@ -120,6 +120,11 @@ class PlaybackController extends Notifier<PlaybackState> {
                 title: p.title,
                 artist: p.subtitle.isEmpty ? null : p.subtitle,
                 album: p.album.isEmpty ? 'Vault' : p.album,
+                // Lock-screen artwork for server streams (bearer-fetched).
+                artUri: p.artworkUri,
+                artHeaders: p.artworkUri != null && p.headers.isNotEmpty
+                    ? p.headers
+                    : null,
               ),
             ),
         ],

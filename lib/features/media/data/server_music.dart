@@ -51,6 +51,7 @@ Future<List<Playable>> serverPlayables(
         title: t.title,
         subtitle: t.artist,
         album: t.album,
+        artworkUri: t.hasArt ? music.artUri(t.id) : null,
         headers: headers,
       ),
   ];
@@ -143,6 +144,7 @@ Future<List<Playable>> catalogPlayables(
         title: t.title,
         subtitle: t.artist,
         album: t.album,
+        artworkUri: t.hasArt ? music.catalogArtUri(t.id) : null,
         headers: headers,
       ),
   ];
