@@ -131,7 +131,13 @@ func (s *Service) readTags(path string) store.Track {
 // request — artwork is never duplicated into the DB; HTTP caching (ETag)
 // makes repeat fetches free.
 func (s *Service) Artwork(username string, t *store.Track) ([]byte, string, bool) {
-	f, err := os.Open(s.TrackPath(username, t))
+	return artworkFromFile(s.TrackPath(username, t))
+}
+
+// artworkFromFile is the shared extraction used by both the per-user zone
+// and the shared catalog.
+func artworkFromFile(path string) ([]byte, string, bool) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, "", false
 	}

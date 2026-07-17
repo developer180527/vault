@@ -1,11 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:vault/core/client/vault_client.dart';
+import 'package:vault/core/models/playlist.dart';
 import 'package:vault/core/models/server_track.dart';
 import 'package:vault/core/playback/playable.dart';
 import 'package:vault/features/media/data/server_music.dart';
 
 class _FakeMusicApi implements MusicApi {
+  final listens = <(String, String)>[];
+
   @override
   Future<Map<String, String>> authHeaders() async =>
       {'Authorization': 'Bearer tok-1'};
@@ -21,6 +24,42 @@ class _FakeMusicApi implements MusicApi {
 
   @override
   Future<List<ServerTrack>> search(String query) async => const [];
+
+  @override
+  Uri catalogStreamUri(String id) =>
+      Uri.parse('https://vault/v1/music/catalog/$id/stream');
+
+  @override
+  Uri catalogArtUri(String id) =>
+      Uri.parse('https://vault/v1/music/catalog/$id/art');
+
+  @override
+  Future<List<ServerTrack>> catalog({String query = ''}) async => const [];
+
+  @override
+  Future<List<Playlist>> playlists() async => const [];
+
+  @override
+  Future<Playlist> createPlaylist(String name) async =>
+      Playlist(id: 'p1', name: name);
+
+  @override
+  Future<void> deletePlaylist(String id) async {}
+
+  @override
+  Future<List<ServerTrack>> playlistTracks(String id) async => const [];
+
+  @override
+  Future<void> addToPlaylist(String playlistId, String trackId) async {}
+
+  @override
+  Future<void> removeFromPlaylist(String playlistId, String trackId) async {}
+
+  @override
+  Future<void> reportListen(String trackId,
+      {String source = '', int msPlayed = 0}) async {
+    listens.add((trackId, source));
+  }
 }
 
 void main() {
@@ -59,5 +98,31 @@ void main() {
     expect(p.subtitle, 'X');
     expect(p.album, 'Al');
     expect(p.isNetwork, isTrue); // → engine streams, not file-opens
+  });
+
+  test('catalogPlayables streams from the shared catalog endpoints', () async {
+    final playables = await catalogPlayables(_FakeMusicApi(), const [
+      ServerTrack(id: 'c1', title: 'Shared', artist: 'Q'),
+    ]);
+    expect(playables.single.uri.toString(),
+        'https://vault/v1/music/catalog/c1/stream');
+    expect(playables.single.headers['Authorization'], 'Bearer tok-1');
+  });
+
+  test('listenSourceFor tags events for the future recommender', () {
+    expect(listenSourceFor(const CatalogSource(), ''), 'library');
+    expect(listenSourceFor(const CatalogSource(), 'quee'), 'search');
+    expect(
+        listenSourceFor(
+            const PlaylistSource(Playlist(id: 'p9', name: 'Focus')), 'x'),
+        'playlist:p9');
+  });
+
+  test('Playlist.fromJson tolerates missing count', () {
+    final p = Playlist.fromJson(const {'id': 'p1', 'name': 'Focus'});
+    expect(p.trackCount, 0);
+    final full = Playlist.fromJson(
+        const {'id': 'p2', 'name': 'Gym', 'track_count': 7});
+    expect(full.trackCount, 7);
   });
 }

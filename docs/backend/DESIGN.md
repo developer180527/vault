@@ -526,6 +526,25 @@ LAN/WAN interfaces.
       and SafeJoin fuzzing. Phase N+1 does not merge while Phase N's suite
       is red.
 
+## Client compatibility (old app versions keep working)
+
+1. **Additive-only within /v1.** Never rename/remove/repurpose a JSON
+   field; new data is new OPTIONAL fields. Clients parse tolerantly
+   (unknown fields/actions ignored — tested); Go ignores unknown JSON by
+   default. Anything else is a /v2.
+2. **The capability manifest is the feature-flag system.** Old clients
+   intersect the manifest with their own service registry, so services
+   they don't know about are silently unused. Shipping a new service never
+   breaks an old client.
+3. **Breaking semantics → new path** (`/v2/...`) beside a live `/v1` until
+   every family device updates.
+4. **min_build gate** (when needed): `/v1/auth/config` + manifest may carry
+   `min_build`; clients with `BuildInfo.build` below it show an "update
+   required" screen instead of failing mysteriously.
+
+Client versioning: `0.MINOR.PATCH+build` where build = git commit count
+(tool/gen_build_info.sh bakes commit info into the app; About tile shows it).
+
 ## Growth paths (what "scalable" means here)
 
 - **More members:** the global sync poller and fair FIFO make per-user

@@ -74,6 +74,10 @@ func New(o Options) http.Handler {
 		music: &music.Service{
 			DataRoot: o.DataRoot, Store: o.Store, Log: o.Log},
 	}
+	// The shared catalog directory must exist before the admin's first drop.
+	if err := s.music.EnsureCatalog(); err != nil {
+		o.Log.Warn("catalog dir", "err", err)
+	}
 
 	r := chi.NewRouter()
 	r.Use(RequestID)
@@ -121,13 +125,35 @@ func New(o Options) http.Handler {
 				r.Post("/files/trash", s.handleTrashFile)
 			})
 
-			// Music — server-owned library, streamed (docs/MUSIC.md).
+			// Music — per-user zone endpoints (docs/MUSIC.md), untouched for
+			// compatibility, plus the shared admin-curated catalog: members
+			// stream/search on music:read; only music:write (admin) mutates
+			// the catalog. Playlists and listens are per-user data keyed by
+			// catalog UUIDs.
 			r.Group(func(r chi.Router) {
 				r.Use(s.RequireGrant("music", "read"))
 				r.Get("/music/tracks", s.handleListTracks)
 				r.Get("/music/search", s.handleSearchTracks)
 				r.Get("/music/tracks/{id}/stream", s.handleStreamTrack)
 				r.Get("/music/tracks/{id}/art", s.handleTrackArt)
+
+				r.Get("/music/catalog", s.handleCatalog)
+				r.Get("/music/catalog/{id}/stream", s.handleCatalogStream)
+				r.Get("/music/catalog/{id}/art", s.handleCatalogArt)
+
+				r.Get("/music/playlists", s.handleListPlaylists)
+				r.Post("/music/playlists", s.handleCreatePlaylist)
+				r.Delete("/music/playlists/{id}", s.handleDeletePlaylist)
+				r.Get("/music/playlists/{id}/tracks", s.handlePlaylistTracks)
+				r.Post("/music/playlists/{id}/tracks", s.handleAddToPlaylist)
+				r.Delete("/music/playlists/{id}/tracks/{trackId}", s.handleRemoveFromPlaylist)
+
+				r.Post("/music/listens", s.handleReportListen)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("music", "write"))
+				r.Patch("/music/catalog/{id}", s.handleCatalogEdit)
+				r.Post("/music/catalog/scan", s.handleCatalogScan)
 			})
 			// backup (M4) lands here.
 		})

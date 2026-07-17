@@ -13,17 +13,20 @@
 //	vaultdctl grant-remove <username> <service>
 //	vaultdctl device list [username]
 //	vaultdctl device revoke <device-id>
+//	vaultdctl music scan
 package main
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/developer180527/vault/vaultd/internal/library"
+	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -60,6 +63,8 @@ func run(args []string) error {
 		return grantRemoveCmd(ctx, st, args[1:])
 	case "device":
 		return deviceCmd(ctx, st, args[1:])
+	case "music":
+		return musicCmd(ctx, st, root, args[1:])
 	default:
 		return usage()
 	}
@@ -255,6 +260,24 @@ func usage() error {
   vaultdctl grant-remove <username> <service>
   vaultdctl device list [username]
   vaultdctl device revoke <device-id>
+  vaultdctl music scan
 `)
 	return fmt.Errorf("invalid arguments")
+}
+
+// musicCmd: catalog administration. `music scan` indexes files the admin
+// dropped into <root>/catalog/music (also reachable as POST
+// /v1/music/catalog/scan with music:write).
+func musicCmd(ctx context.Context, st *store.Store, root string, args []string) error {
+	if len(args) < 1 || args[0] != "scan" {
+		return usage()
+	}
+	svc := &music.Service{DataRoot: root, Store: st,
+		Log: slog.New(slog.NewTextHandler(os.Stderr, nil))}
+	changed, pruned, err := svc.ScanCatalog(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("catalog scan: %d changed, %d pruned\n", changed, pruned)
+	return nil
 }

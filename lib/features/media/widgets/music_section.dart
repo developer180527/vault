@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/actions/vault_action.dart';
 import '../../../core/client/vault_client.dart';
+import '../../../core/models/playlist.dart';
 import '../../../core/models/server_track.dart';
 import '../../../core/platform/design/adaptive_icons.dart';
 import '../../../core/platform/platform_info.dart';
@@ -76,7 +77,8 @@ class MusicSection extends ConsumerWidget {
   }
 }
 
-/// Server library: debounced search field + streamed track list with artwork.
+/// Connected music: the SHARED catalog by default, with the personal zone and
+/// the user's playlists one chip away. Debounced search + streamed artwork.
 class _ServerMusicList extends ConsumerStatefulWidget {
   const _ServerMusicList();
 
@@ -104,32 +106,148 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
 
   Future<void> _play(List<ServerTrack> tracks, int index) async {
     final music = ref.read(vaultClientProvider).music;
-    final playables = await serverPlayables(music, tracks);
+    final source = ref.read(musicSourceProvider);
+    final personal = source is PersonalSource;
+    final playables = personal
+        ? await serverPlayables(music, tracks)
+        : await catalogPlayables(music, tracks);
     if (!mounted) return;
     await ref.read(playbackProvider.notifier).playAudioQueue(playables, index);
+    if (!personal) {
+      // Raw listen event for the future recommender — fire and forget.
+      unawaited(music.reportListen(tracks[index].id,
+          source: listenSourceFor(
+              source, ref.read(musicSearchQueryProvider))));
+    }
     if (mounted) _openPlayer(context);
+  }
+
+  Future<void> _newPlaylist() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New playlist'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Name'),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: const Text('Create')),
+        ],
+      ),
+    );
+    controller.dispose();
+    final trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty) return;
+    final created = await ref
+        .read(vaultClientProvider)
+        .music
+        .createPlaylist(trimmed);
+    ref.invalidate(playlistsProvider);
+    ref.read(musicSourceProvider.notifier).set(PlaylistSource(created));
+  }
+
+  /// Long-press on a catalog track → add to a playlist; on a playlist track →
+  /// remove (or delete the playlist from its chip's long-press).
+  Future<void> _trackMenu(ServerTrack t) async {
+    final source = ref.read(musicSourceProvider);
+    final music = ref.read(vaultClientProvider).music;
+    if (source is PlaylistSource) {
+      await music.removeFromPlaylist(source.playlist.id, t.id);
+      ref
+        ..invalidate(sourceTracksProvider)
+        ..invalidate(playlistsProvider);
+      return;
+    }
+    final playlists =
+        await ref.read(playlistsProvider.future).catchError((_) => <Playlist>[]);
+    if (!mounted) return;
+    final target = await showModalBottomSheet<Playlist>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text('Add "${t.title}" to playlist',
+                  style: Theme.of(context).textTheme.titleSmall),
+              dense: true,
+            ),
+            for (final p in playlists)
+              ListTile(
+                leading: const Icon(Icons.queue_music),
+                title: Text(p.name),
+                subtitle: Text('${p.trackCount} tracks'),
+                onTap: () => Navigator.pop(context, p),
+              ),
+            if (playlists.isEmpty)
+              const ListTile(
+                  title: Text('No playlists yet — create one first.')),
+          ],
+        ),
+      ),
+    );
+    if (target == null) return;
+    await music.addToPlaylist(target.id, t.id);
+    ref.invalidate(playlistsProvider);
+  }
+
+  Future<void> _deletePlaylist(Playlist p) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete "${p.name}"?'),
+        content: const Text('The music itself stays in the catalog.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(vaultClientProvider).music.deletePlaylist(p.id);
+    ref.read(musicSourceProvider.notifier).set(const CatalogSource());
+    ref.invalidate(playlistsProvider);
   }
 
   @override
   Widget build(BuildContext context) {
-    final tracksAsync = ref.watch(serverTracksProvider);
+    final source = ref.watch(musicSourceProvider);
+    final tracksAsync = ref.watch(sourceTracksProvider);
+    final playlists =
+        ref.watch(playlistsProvider).asData?.value ?? const <Playlist>[];
     final headers =
         ref.watch(musicAuthHeadersProvider).asData?.value ?? const {};
     final currentId = ref.watch(playbackProvider).currentAudio?.id;
     final music = ref.read(vaultClientProvider).music;
     final scheme = Theme.of(context).colorScheme;
+    final personal = source is PersonalSource;
 
     return SafeArea(
       bottom: false,
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: TextField(
               controller: _search,
               onChanged: _onQuery,
               decoration: InputDecoration(
-                hintText: 'Search your music',
+                hintText:
+                    personal ? 'Search your music' : 'Search the catalog',
                 prefixIcon: const Icon(Icons.search, size: 20),
                 isDense: true,
                 filled: true,
@@ -141,6 +259,52 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
               ),
             ),
           ),
+          // Source chips: catalog / personal zone / playlists / new playlist.
+          SizedBox(
+            height: 48,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              children: [
+                ChoiceChip(
+                  label: const Text('Catalog'),
+                  selected: source is CatalogSource,
+                  onSelected: (_) => ref
+                      .read(musicSourceProvider.notifier)
+                      .set(const CatalogSource()),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('My music'),
+                  selected: personal,
+                  onSelected: (_) => ref
+                      .read(musicSourceProvider.notifier)
+                      .set(const PersonalSource()),
+                ),
+                for (final p in playlists) ...[
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onLongPress: () => _deletePlaylist(p),
+                    child: ChoiceChip(
+                      label: Text(p.name),
+                      avatar: const Icon(Icons.queue_music, size: 16),
+                      selected: source is PlaylistSource &&
+                          source.playlist.id == p.id,
+                      onSelected: (_) => ref
+                          .read(musicSourceProvider.notifier)
+                          .set(PlaylistSource(p)),
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 8),
+                ActionChip(
+                  label: const Text('New playlist'),
+                  avatar: const Icon(Icons.add, size: 16),
+                  onPressed: _newPlaylist,
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: tracksAsync.when(
               loading: () =>
@@ -149,12 +313,14 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
                   Center(child: Text('Server music unavailable: $e')),
               data: (tracks) => tracks.isEmpty
                   ? Center(
-                      child: Text(
-                        ref.watch(musicSearchQueryProvider).isEmpty
-                            ? 'No music on the server yet.\nDrop files into your music folder.'
-                            : 'No matches.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: scheme.onSurfaceVariant),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          _emptyText(source,
+                              ref.watch(musicSearchQueryProvider).isEmpty),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: scheme.onSurfaceVariant),
+                        ),
                       ),
                     )
                   : ListView.builder(
@@ -164,7 +330,11 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
                         final isCurrent = currentId == t.id;
                         return ListTile(
                           leading: _ServerArt(
-                            uri: t.hasArt ? music.artUri(t.id) : null,
+                            uri: !t.hasArt
+                                ? null
+                                : personal
+                                    ? music.artUri(t.id)
+                                    : music.catalogArtUri(t.id),
                             headers: headers,
                           ),
                           title: Text(t.title,
@@ -183,6 +353,10 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
                                   size: 20, color: scheme.primary)
                               : null,
                           onTap: () => _play(tracks, i),
+                          // Playlists reference catalog UUIDs, so only
+                          // catalog-backed rows get the long-press menu.
+                          onLongPress:
+                              personal ? null : () => _trackMenu(t),
                         );
                       },
                     ),
@@ -192,6 +366,18 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
       ),
     );
   }
+}
+
+String _emptyText(MusicSource source, bool queryEmpty) {
+  if (!queryEmpty) return 'No matches.';
+  return switch (source) {
+    CatalogSource() =>
+      'The catalog is empty.\nThe admin loads music into it on the server.',
+    PersonalSource() =>
+      'No music in your zone yet.\nDrop files into your music folder.',
+    PlaylistSource() =>
+      'This playlist is empty.\nLong-press a catalog track to add it.',
+  };
 }
 
 class _ServerArt extends StatelessWidget {

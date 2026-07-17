@@ -4,6 +4,7 @@ import '../auth/session.dart';
 import '../capability/capability.dart';
 import '../jobs/job.dart';
 import '../models/file_node.dart';
+import '../models/playlist.dart';
 import '../models/server_track.dart';
 import '../services/service_registry.dart';
 import 'http_vault_client.dart';
@@ -73,15 +74,39 @@ abstract interface class FileRepository {
 
 /// Server music library: the index lives on the server; bytes stream with
 /// Range support. Uris are fetched with [authHeaders] by the playback engine.
+///
+/// Two libraries share this seam: the caller's PERSONAL music zone
+/// (tracks/search/streamUri) and the SHARED admin-curated catalog everyone
+/// streams from (catalog*, playlists, listens — docs/MUSIC.md).
 abstract interface class MusicApi {
-  /// The whole library (the server rescans incrementally per call).
+  /// The whole personal library (the server rescans incrementally per call).
   Future<List<ServerTrack>> tracks();
 
-  /// FTS prefix search over title/artist/album.
+  /// FTS prefix search over the personal library.
   Future<List<ServerTrack>> search(String query);
 
   Uri streamUri(String id);
   Uri artUri(String id);
+
+  /// The shared catalog: full list when [query] is empty, FTS prefix search
+  /// otherwise. Pure server-DB read — the admin curates and scans.
+  Future<List<ServerTrack>> catalog({String query = ''});
+
+  Uri catalogStreamUri(String id);
+  Uri catalogArtUri(String id);
+
+  /// The caller's playlists (catalog track UUIDs + owner UUID, server-side).
+  Future<List<Playlist>> playlists();
+  Future<Playlist> createPlaylist(String name);
+  Future<void> deletePlaylist(String id);
+  Future<List<ServerTrack>> playlistTracks(String id);
+  Future<void> addToPlaylist(String playlistId, String trackId);
+  Future<void> removeFromPlaylist(String playlistId, String trackId);
+
+  /// Report one raw listen event — the food for future recommendations.
+  /// Fire-and-forget: playback must never stall on telemetry.
+  Future<void> reportListen(String trackId,
+      {String source = '', int msPlayed = 0});
 
   /// Bearer header for stream/artwork requests (refreshed if expired).
   Future<Map<String, String>> authHeaders();

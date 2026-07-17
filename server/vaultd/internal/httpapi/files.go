@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/developer180527/vault/vaultd/internal/files"
+	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
 // resolveRel turns a client node id (query ?id=... or "" for root) into a
@@ -37,7 +38,7 @@ func (s *Server) filesErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, files.ErrInvalidPath):
 		writeErr(w, http.StatusBadRequest, "invalid path")
-	case errors.Is(err, files.ErrNotFound):
+	case errors.Is(err, files.ErrNotFound), errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not found")
 	default:
 		s.fail(w, r, err)
