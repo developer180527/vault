@@ -18,7 +18,8 @@ class MediaThumbnail extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
+      // Near-square: with hairline grid gaps, big radii read as chrome.
+      borderRadius: BorderRadius.circular(3),
       child: Stack(
         fit: StackFit.expand,
         children: [

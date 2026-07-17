@@ -31,7 +31,7 @@ final vaultServices = <ServiceDefinition>[
     label: 'Media',
     icon: VaultIcons.media,
     category: ServiceCategory.media,
-    statusBar: (_) => const MediaFilterDropdown(),
+    statusBar: (_) => const MediaToolbarControls(),
     builder: (_) => const MediaLibraryPage(),
   ),
   ServiceDefinition(

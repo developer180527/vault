@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/platform/design/adaptive_icons.dart';
@@ -10,6 +11,7 @@ import '../../core/playback/playable.dart';
 import '../../core/playback/playback_controller.dart';
 import 'data/local_media_library.dart';
 import 'data/media_providers.dart';
+import 'data/media_trash.dart';
 import 'widgets/video_surface.dart';
 import 'widgets/viewer_top_bar.dart';
 
@@ -34,14 +36,76 @@ class MediaViewerPage extends ConsumerStatefulWidget {
 }
 
 class _MediaViewerPageState extends ConsumerState<MediaViewerPage> {
-  late final PageController _controller =
-      PageController(initialPage: widget.initialIndex);
+  late final PageController _controller = PageController(
+    initialPage: widget.initialIndex,
+  );
   late int _index = widget.initialIndex;
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  /// Native share sheet for the current item — works everywhere share_plus
+  /// does (iOS/Android sheets, macOS popover, Windows dialog).
+  Future<void> _share() async {
+    final item = widget.items[_index];
+    // Origin file: full quality, correct filename/UTI for the receiving app.
+    final file = await item.asset.originFile;
+    if (file == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('This item isn’t available to share.')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    // iPad requires an anchor rect for the share popover.
+    final box = context.findRenderObject() as RenderBox?;
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path)],
+        sharePositionOrigin: box == null
+            ? null
+            : box.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
+  }
+
+  /// Move the current item to Vault's trash (30-day recently-deleted) after a
+  /// confirmation — the grid behind drops it once trashed.
+  Future<void> _delete() async {
+    final item = widget.items[_index];
+    final isVideo = item.kind == MediaKind.video;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete this ${isVideo ? 'video' : 'photo'}?'),
+        content: const Text(
+          'It moves to Recently Deleted and is permanently removed after '
+          '30 days.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!mounted) return; // ref is unusable after unmount (throws)
+    await ref.read(mediaTrashProvider.notifier).trash(item.id);
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   @override
@@ -52,48 +116,72 @@ class _MediaViewerPageState extends ConsumerState<MediaViewerPage> {
       // Standardized fullscreen-media chrome; the media is contained between
       // the top bar and the action bar rather than rendered behind them.
       appBar: ViewerTopBar(title: '${_index + 1} of ${widget.items.length}'),
-      bottomNavigationBar: const _ViewerActionBar(),
-      body: PhotoViewGallery.builder(
-        pageController: _controller,
-        itemCount: widget.items.length,
-        onPageChanged: (i) => setState(() => _index = i),
-        backgroundDecoration: const BoxDecoration(color: Colors.black),
-        loadingBuilder: (_, _) =>
-            const Center(child: CircularProgressIndicator()),
-        builder: (context, i) {
-          final item = widget.items[i];
-          if (item.kind == MediaKind.video) {
-            return PhotoViewGalleryPageOptions.customChild(
-              // Videos don't pinch-zoom; keep them fixed and let the player
-              // handle its own gestures. No hero: flying a live video player
-              // duplicates its controller (echo) and breaks teardown.
-              disableGestures: true,
-              child: _VideoPage(
-                  item: item, library: library, active: i == _index),
-            );
-          }
-          return PhotoViewGalleryPageOptions.customChild(
-            minScale: PhotoViewComputedScale.contained,
-            maxScale: PhotoViewComputedScale.covered * 4,
-            child: _PhotoContent(item: item, library: library),
-          );
-        },
+      bottomNavigationBar: _ViewerActionBar(onShare: _share, onDelete: _delete),
+      // The video controls float in this body Stack, ABOVE the gallery, so
+      // they span the whole body — inside PhotoViewGallery a video is sized to
+      // its letterbox strip, which would crush the controls onto the picture.
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: PhotoViewGallery.builder(
+              pageController: _controller,
+              itemCount: widget.items.length,
+              onPageChanged: (i) => setState(() => _index = i),
+              backgroundDecoration: const BoxDecoration(color: Colors.black),
+              loadingBuilder: (_, _) =>
+                  const Center(child: CircularProgressIndicator()),
+              builder: (context, i) {
+                final item = widget.items[i];
+                if (item.kind == MediaKind.video) {
+                  return PhotoViewGalleryPageOptions.customChild(
+                    // Videos don't pinch-zoom; keep them fixed and let the
+                    // player handle its gestures. No hero: flying a live video
+                    // player duplicates its controller (echo) and breaks
+                    // teardown. Controls are floated separately (below), so the
+                    // page renders picture-only.
+                    disableGestures: true,
+                    child: _VideoPage(
+                      item: item,
+                      library: library,
+                      active: i == _index,
+                    ),
+                  );
+                }
+                return PhotoViewGalleryPageOptions.customChild(
+                  minScale: PhotoViewComputedScale.contained,
+                  maxScale: PhotoViewComputedScale.covered * 4,
+                  child: _PhotoContent(item: item, library: library),
+                );
+              },
+            ),
+          ),
+          // Full-body transport overlay for the active video only. Reads the
+          // single video session from the central controller, so it always
+          // targets whatever is actually playing.
+          if (widget.items[_index].kind == MediaKind.video)
+            Positioned.fill(
+              child: _VideoControlsOverlay(item: widget.items[_index]),
+            ),
+        ],
       ),
     );
   }
 }
 
-/// Bottom action bar: the standard media-viewer tools. Share/edit/crop are
-/// placeholders until the editing pipeline exists — the container and layout
-/// are the point (media is sized between the bars, leaving room for chrome).
+/// Bottom action bar: the standard media-viewer tools. Share and Delete are
+/// live (native share sheet; Vault trash). Edit/crop stay placeholders until
+/// the editing pipeline exists.
 class _ViewerActionBar extends StatelessWidget {
-  const _ViewerActionBar();
+  const _ViewerActionBar({required this.onShare, required this.onDelete});
+
+  final VoidCallback onShare;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
-    void comingSoon(String what) =>
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('$what — coming with the media editing tools')));
+    void comingSoon(String what) => ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$what — coming with the media editing tools')),
+    );
 
     return ColoredBox(
       color: Colors.black,
@@ -108,7 +196,7 @@ class _ViewerActionBar extends StatelessWidget {
                 tooltip: 'Share',
                 color: Colors.white,
                 icon: const AdaptiveIcon(VaultIcons.share, size: 22),
-                onPressed: () => comingSoon('Share'),
+                onPressed: onShare,
               ),
               IconButton(
                 tooltip: 'Edit',
@@ -126,7 +214,7 @@ class _ViewerActionBar extends StatelessWidget {
                 tooltip: 'Delete',
                 color: Colors.white,
                 icon: const AdaptiveIcon(VaultIcons.trash, size: 22),
-                onPressed: () => comingSoon('Delete'),
+                onPressed: onDelete,
               ),
             ],
           ),
@@ -152,8 +240,10 @@ class _PhotoContent extends StatefulWidget {
 
 class _PhotoContentState extends State<_PhotoContent> {
   late final Future<Uint8List?> _full = widget.library.fullImage(widget.item);
-  late final Future<Uint8List?> _thumb =
-      widget.library.thumbnail(widget.item, size: 600);
+  late final Future<Uint8List?> _thumb = widget.library.thumbnail(
+    widget.item,
+    size: 600,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -181,8 +271,11 @@ class _PhotoContentState extends State<_PhotoContent> {
 /// `closeVideo(onlyIf:)` guards the handoff when swiping video→video, since
 /// the newer page's `openVideo` already superseded the session.
 class _VideoPage extends ConsumerStatefulWidget {
-  const _VideoPage(
-      {required this.item, required this.library, required this.active});
+  const _VideoPage({
+    required this.item,
+    required this.library,
+    required this.active,
+  });
 
   final MediaItem item;
   final LocalMediaLibrary library;
@@ -195,8 +288,7 @@ class _VideoPage extends ConsumerStatefulWidget {
 class _VideoPageState extends ConsumerState<_VideoPage> {
   // Captured once: `ref` is unusable in dispose() (throws and aborts teardown
   // — the root cause of the old audio-persistence bug).
-  late final PlaybackController _playback =
-      ref.read(playbackProvider.notifier);
+  late final PlaybackController _playback = ref.read(playbackProvider.notifier);
 
   VideoPlayerController? _videoController;
   bool _failed = false;
@@ -226,16 +318,16 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
         setState(() => _failed = true);
         return;
       }
-      final controller = await _playback.openVideo(Playable(
-        id: widget.item.id,
-        kind: PlayableKind.video,
-        // Usually a local file; http covers streamed sources (e.g. an
-        // iCloud-offloaded asset materialized as a URL).
-        uri: path.startsWith('http')
-            ? Uri.parse(path)
-            : Uri.file(path),
-        title: widget.item.asset.title ?? 'Video',
-      ));
+      final controller = await _playback.openVideo(
+        Playable(
+          id: widget.item.id,
+          kind: PlayableKind.video,
+          // Usually a local file; http covers streamed sources (e.g. an
+          // iCloud-offloaded asset materialized as a URL).
+          uri: path.startsWith('http') ? Uri.parse(path) : Uri.file(path),
+          title: widget.item.asset.title ?? 'Video',
+        ),
+      );
       if (!mounted) return; // session stays; dispose() will close it
       setState(() => _videoController = controller);
     } catch (e) {
@@ -255,17 +347,41 @@ class _VideoPageState extends ConsumerState<_VideoPage> {
   Widget build(BuildContext context) {
     if (_failed) {
       return const Center(
-        child: Text('Video unavailable',
-            style: TextStyle(color: Colors.white70)),
+        child: Text(
+          'Video unavailable',
+          style: TextStyle(color: Colors.white70),
+        ),
       );
     }
     final controller = _videoController;
     if (controller == null) {
       return const Center(child: CircularProgressIndicator());
     }
+    // Picture only — the transport chrome is floated at the Scaffold level so
+    // it spans the whole body rather than this letterboxed page.
     return VideoSurface(
       controller: controller,
       title: widget.item.asset.title,
+      showControls: false,
     );
+  }
+}
+
+/// Floats [VideoControls] over the whole viewer body for the active video.
+/// Watches the central playback session so the overlay appears exactly when a
+/// controller is live for [item] and vanishes when it isn't.
+class _VideoControlsOverlay extends ConsumerWidget {
+  const _VideoControlsOverlay({required this.item});
+
+  final MediaItem item;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(playbackProvider).video;
+    final controller = ref.read(playbackProvider.notifier).videoController;
+    if (session?.id != item.id || controller == null) {
+      return const SizedBox.shrink();
+    }
+    return VideoControls(controller: controller, title: item.asset.title);
   }
 }

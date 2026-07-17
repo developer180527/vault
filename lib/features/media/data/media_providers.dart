@@ -47,6 +47,22 @@ class MediaFilterNotifier extends Notifier<MediaFilter> {
   void set(MediaFilter filter) => state = filter;
 }
 
+/// Grid density tiers, Apple-Photos style: pinch out → bigger tiles (fewer
+/// columns), pinch in → more thumbnails. Values are max tile extents fed to
+/// the grid delegate, so every tier adapts to the window width.
+const mediaZoomTiers = <double>[70.0, 105.0, 150.0, 220.0];
+
+class MediaZoomNotifier extends Notifier<int> {
+  @override
+  int build() => 2; // 150pt tiles — the balanced default.
+
+  void zoomIn() => state = (state + 1).clamp(0, mediaZoomTiers.length - 1);
+  void zoomOut() => state = (state - 1).clamp(0, mediaZoomTiers.length - 1);
+}
+
+final mediaZoomProvider =
+    NotifierProvider<MediaZoomNotifier, int>(MediaZoomNotifier.new);
+
 /// The media grid contents for the current filter, loaded in pages so a large
 /// library isn't capped (the old one-shot load truncated at 200 items).
 /// Rebuilds from page 0 when access or the filter changes; the grid calls

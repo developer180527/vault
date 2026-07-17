@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Vault uses Face ID to unlock protected areas like the media trash.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Vault shows your photos and videos so you can browse and back them up to your home server.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
