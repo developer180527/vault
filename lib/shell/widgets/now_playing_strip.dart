@@ -18,7 +18,8 @@ class NowPlayingStrip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final track = ref.watch(playbackProvider).currentAudio;
+    // select: the title-bar strip re-renders per TRACK, not per playback event.
+    final track = ref.watch(playbackProvider.select((s) => s.currentAudio));
     if (track == null) return const SizedBox.shrink();
     final controller = ref.read(playbackProvider.notifier);
     final scheme = Theme.of(context).colorScheme;
@@ -34,19 +35,26 @@ class NowPlayingStrip extends ConsumerWidget {
             button: true,
             label: 'Now playing: ${track.title}. Opens the player.',
             child: InkWell(
-              onTap: () => Navigator.of(context, rootNavigator: true)
-                  .push(MaterialPageRoute<void>(
-                fullscreenDialog: true,
-                builder: (_) => const MusicPlayerPage(),
-              )),
+              onTap: () => Navigator.of(context, rootNavigator: true).push(
+                MaterialPageRoute<void>(
+                  fullscreenDialog: true,
+                  builder: (_) => const MusicPlayerPage(),
+                ),
+              ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     ExcludeSemantics(
-                      child: AdaptiveIcon(VaultIcons.music,
-                          size: 13, color: scheme.primary),
+                      child: AdaptiveIcon(
+                        VaultIcons.music,
+                        size: 13,
+                        color: scheme.primary,
+                      ),
                     ),
                     const SizedBox(width: 6),
                     ConstrainedBox(
@@ -95,8 +103,11 @@ class NowPlayingStrip extends ConsumerWidget {
 
 /// Icon button sized to fit the 40px title bar.
 class _StripButton extends StatelessWidget {
-  const _StripButton(
-      {required this.tooltip, required this.icon, required this.onPressed});
+  const _StripButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
 
   final String tooltip;
   final AdaptiveIconData icon;

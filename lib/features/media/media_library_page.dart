@@ -201,7 +201,12 @@ class _MediaGridState extends ConsumerState<_MediaGrid>
                               context,
                               rootNavigator: true,
                             ).push(_viewerRoute(items, i)),
-                            child: MediaThumbnail(item: items[i]),
+                            // Each tile paints into its own layer: scrolling
+                            // composites cached tiles instead of repainting
+                            // the whole viewport of decoded images per frame.
+                            child: RepaintBoundary(
+                              child: MediaThumbnail(item: items[i]),
+                            ),
                           );
                         },
                       ),

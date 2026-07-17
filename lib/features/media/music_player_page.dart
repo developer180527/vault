@@ -19,7 +19,8 @@ class MusicPlayerPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(playbackProvider.notifier);
     final player = controller.player;
-    final track = ref.watch(playbackProvider).currentAudio;
+    // select: rebuild per track change; other playback events don't matter.
+    final track = ref.watch(playbackProvider.select((s) => s.currentAudio));
     final scheme = Theme.of(context).colorScheme;
 
     final artColor = track?.artwork == null
@@ -85,12 +86,13 @@ class MusicPlayerPage extends ConsumerWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                    (track?.subtitle.isEmpty ?? true)
-                        ? 'Local music'
-                        : track!.subtitle,
-                    style: TextStyle(color: scheme.onSurfaceVariant),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
+                  (track?.subtitle.isEmpty ?? true)
+                      ? 'Local music'
+                      : track!.subtitle,
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 const SizedBox(height: 20),
                 _Scrubber(player: player),
                 const SizedBox(height: 4),
@@ -118,8 +120,11 @@ class _Artwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final side = MediaQuery.sizeOf(context).width.clamp(200.0, 360.0) - 56;
-    final fallback =
-        Icon(Icons.music_note, size: side * 0.4, color: scheme.primary);
+    final fallback = Icon(
+      Icons.music_note,
+      size: side * 0.4,
+      color: scheme.primary,
+    );
     return Container(
       width: side,
       height: side,
@@ -128,23 +133,24 @@ class _Artwork extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: 0.25),
-              blurRadius: 40,
-              offset: const Offset(0, 20)),
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 40,
+            offset: const Offset(0, 20),
+          ),
         ],
       ),
       clipBehavior: Clip.antiAlias,
       child: art != null
           ? Image.memory(art!, fit: BoxFit.cover, gaplessPlayback: true)
           : artUri != null
-              ? Image.network(
-                  artUri.toString(),
-                  headers: headers.isEmpty ? null : headers,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, _, _) => fallback,
-                )
-              : fallback,
+          ? Image.network(
+              artUri.toString(),
+              headers: headers.isEmpty ? null : headers,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, _, _) => fallback,
+            )
+          : fallback,
     );
   }
 }
@@ -190,16 +196,17 @@ class _ScrubberState extends State<_Scrubber> {
             (position.inMilliseconds - _dragMs!).abs() < 1000) {
           _dragMs = null;
         }
-        final shown =
-            (_dragMs ?? position.inMilliseconds.toDouble()).clamp(0.0, max);
+        final shown = (_dragMs ?? position.inMilliseconds.toDouble()).clamp(
+          0.0,
+          max,
+        );
 
         return Column(
           children: [
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 4,
-                thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 6),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
               ),
               child: Slider(
                 value: shown,
@@ -217,10 +224,14 @@ class _ScrubberState extends State<_Scrubber> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(_fmt(Duration(milliseconds: shown.round())),
-                      style: Theme.of(context).textTheme.bodySmall),
-                  Text(_fmt(total),
-                      style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    _fmt(Duration(milliseconds: shown.round())),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  Text(
+                    _fmt(total),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
@@ -269,7 +280,8 @@ class _Controls extends StatelessWidget {
             return IconButton(
               iconSize: 72,
               icon: Icon(
-                  playing ? Icons.pause_circle_filled : Icons.play_circle_fill),
+                playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
+              ),
               color: Theme.of(context).colorScheme.primary,
               onPressed: controller.togglePlay,
             );
@@ -286,7 +298,8 @@ class _Controls extends StatelessWidget {
             final mode = snap.data ?? LoopMode.off;
             return IconButton(
               icon: Icon(
-                  mode == LoopMode.one ? Icons.repeat_one : Icons.repeat),
+                mode == LoopMode.one ? Icons.repeat_one : Icons.repeat,
+              ),
               color: mode != LoopMode.off
                   ? Theme.of(context).colorScheme.primary
                   : null,
@@ -319,13 +332,11 @@ class _VolumeRow extends StatelessWidget {
               return SliderTheme(
                 data: SliderTheme.of(context).copyWith(
                   trackHeight: 3,
-                  thumbShape:
-                      const RoundSliderThumbShape(enabledThumbRadius: 5),
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 5,
+                  ),
                 ),
-                child: Slider(
-                  value: volume,
-                  onChanged: player.setVolume,
-                ),
+                child: Slider(value: volume, onChanged: player.setVolume),
               );
             },
           ),

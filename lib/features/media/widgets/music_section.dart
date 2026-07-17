@@ -21,19 +21,18 @@ import '../music_player_page.dart';
 /// centralized player. Local files; server music will just produce network
 /// Playables with the same shape.
 List<Playable> playablesFor(WidgetRef ref, List<MusicTrack> tracks) => [
-      for (final t in tracks)
-        _playable(metadataFor(ref, t.path), t),
-    ];
+  for (final t in tracks) _playable(metadataFor(ref, t.path), t),
+];
 
 Playable _playable(TrackMetadata m, MusicTrack t) => Playable(
-      id: t.path,
-      kind: PlayableKind.audio,
-      uri: Uri.file(t.path),
-      title: m.title ?? t.title,
-      subtitle: m.artist ?? '',
-      album: m.album ?? '',
-      artwork: m.art,
-    );
+  id: t.path,
+  kind: PlayableKind.audio,
+  uri: Uri.file(t.path),
+  title: m.title ?? t.title,
+  subtitle: m.artist ?? '',
+  album: m.album ?? '',
+  artwork: m.art,
+);
 
 Future<void> _addMusic(WidgetRef ref) async {
   final added = await ref.read(musicLibraryProvider).addMusic();
@@ -116,9 +115,12 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
     await ref.read(playbackProvider.notifier).playAudioQueue(playables, index);
     if (!personal) {
       // Raw listen event for the future recommender — fire and forget.
-      unawaited(music.reportListen(tracks[index].id,
-          source: listenSourceFor(
-              source, ref.read(musicSearchQueryProvider))));
+      unawaited(
+        music.reportListen(
+          tracks[index].id,
+          source: listenSourceFor(source, ref.read(musicSearchQueryProvider)),
+        ),
+      );
     }
     if (mounted) _openPlayer(context);
   }
@@ -137,11 +139,13 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('Create')),
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Create'),
+          ),
         ],
       ),
     );
@@ -168,8 +172,9 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
         ..invalidate(playlistsProvider);
       return;
     }
-    final playlists =
-        await ref.read(playlistsProvider.future).catchError((_) => <Playlist>[]);
+    final playlists = await ref
+        .read(playlistsProvider.future)
+        .catchError((_) => <Playlist>[]);
     if (!mounted) return;
     final target = await showModalBottomSheet<Playlist>(
       context: context,
@@ -182,8 +187,10 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: Text('Add "${t.title}" to playlist',
-                  style: Theme.of(context).textTheme.titleSmall),
+              title: Text(
+                'Add "${t.title}" to playlist',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
               dense: true,
             ),
             for (final p in playlists)
@@ -195,7 +202,8 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
               ),
             if (playlists.isEmpty)
               const ListTile(
-                  title: Text('No playlists yet — create one first.')),
+                title: Text('No playlists yet — create one first.'),
+              ),
           ],
         ),
       ),
@@ -233,11 +241,13 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
         content: const Text('The music itself stays in the catalog.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete')),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -255,7 +265,11 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
         ref.watch(playlistsProvider).asData?.value ?? const <Playlist>[];
     final headers =
         ref.watch(musicAuthHeadersProvider).asData?.value ?? const {};
-    final currentId = ref.watch(playbackProvider).currentAudio?.id;
+    // select: highlight tracking needs only the current track ID — the
+    // whole list must not rebuild on unrelated playback events.
+    final currentId = ref.watch(
+      playbackProvider.select((s) => s.currentAudio?.id),
+    );
     final music = ref.read(vaultClientProvider).music;
     final scheme = Theme.of(context).colorScheme;
     final personal = source is PersonalSource;
@@ -270,8 +284,7 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
               controller: _search,
               onChanged: _onQuery,
               decoration: InputDecoration(
-                hintText:
-                    personal ? 'Search your music' : 'Search the catalog',
+                hintText: personal ? 'Search your music' : 'Search the catalog',
                 prefixIcon: const Icon(Icons.search, size: 20),
                 isDense: true,
                 filled: true,
@@ -325,7 +338,8 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
                     child: ChoiceChip(
                       label: Text(p.name),
                       avatar: const Icon(Icons.queue_music, size: 16),
-                      selected: source is PlaylistSource &&
+                      selected:
+                          source is PlaylistSource &&
                           source.playlist.id == p.id,
                       onSelected: (_) => ref
                           .read(musicSourceProvider.notifier)
@@ -344,8 +358,7 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
           ),
           Expanded(
             child: tracksAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) =>
                   Center(child: Text('Server music unavailable: $e')),
               data: (tracks) => tracks.isEmpty
@@ -353,8 +366,10 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
                       child: Padding(
                         padding: const EdgeInsets.all(24),
                         child: Text(
-                          _emptyText(source,
-                              ref.watch(musicSearchQueryProvider).isEmpty),
+                          _emptyText(
+                            source,
+                            ref.watch(musicSearchQueryProvider).isEmpty,
+                          ),
                           textAlign: TextAlign.center,
                           style: TextStyle(color: scheme.onSurfaceVariant),
                         ),
@@ -370,31 +385,37 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
                             uri: !t.hasArt
                                 ? null
                                 : personal
-                                    ? music.artUri(t.id)
-                                    : music.catalogArtUri(t.id),
+                                ? music.artUri(t.id)
+                                : music.catalogArtUri(t.id),
                             headers: headers,
                           ),
-                          title: Text(t.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: isCurrent
-                                  ? TextStyle(color: scheme.primary)
-                                  : null),
+                          title: Text(
+                            t.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: isCurrent
+                                ? TextStyle(color: scheme.primary)
+                                : null,
+                          ),
                           subtitle: t.artist.isEmpty
                               ? null
-                              : Text(t.artist,
+                              : Text(
+                                  t.artist,
                                   maxLines: 1,
-                                  overflow: TextOverflow.ellipsis),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                           trailing: isCurrent
-                              ? Icon(Icons.equalizer,
-                                  size: 20, color: scheme.primary)
+                              ? Icon(
+                                  Icons.equalizer,
+                                  size: 20,
+                                  color: scheme.primary,
+                                )
                               : null,
                           onTap: () => _play(tracks, i),
                           // Playlists reference catalog UUIDs, so only
                           // catalog-backed rows get the long-press menu
                           // (mobile) / right-click menu (desktop).
-                          onLongPress:
-                              personal ? null : () => _trackMenu(t),
+                          onLongPress: personal ? null : () => _trackMenu(t),
                         );
                         if (personal) return tile;
                         return GestureDetector(
@@ -435,8 +456,7 @@ class _ServerArt extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final placeholder = ColoredBox(
       color: scheme.surfaceContainerHighest,
-      child:
-          Icon(Icons.music_note, size: 20, color: scheme.onSurfaceVariant),
+      child: Icon(Icons.music_note, size: 20, color: scheme.onSurfaceVariant),
     );
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
@@ -473,8 +493,10 @@ class _AddMusicPrompt extends StatelessWidget {
           children: [
             Icon(Icons.library_music_outlined, size: 56, color: scheme.primary),
             const SizedBox(height: 16),
-            Text('Add your music',
-                style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Add your music',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Text(
               isDesktopPlatform
@@ -485,9 +507,11 @@ class _AddMusicPrompt extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             FilledButton.icon(
-              icon: Icon(isDesktopPlatform
-                  ? Icons.folder_open
-                  : Icons.library_add_outlined),
+              icon: Icon(
+                isDesktopPlatform
+                    ? Icons.folder_open
+                    : Icons.library_add_outlined,
+              ),
               label: Text(isDesktopPlatform ? 'Choose folder' : 'Add music'),
               onPressed: onAdd,
             ),
@@ -505,7 +529,11 @@ class _TrackList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentId = ref.watch(playbackProvider).currentAudio?.id;
+    // select: highlight tracking needs only the current track ID — the
+    // whole list must not rebuild on unrelated playback events.
+    final currentId = ref.watch(
+      playbackProvider.select((s) => s.currentAudio?.id),
+    );
     final scheme = Theme.of(context).colorScheme;
     return ListView.builder(
       itemCount: tracks.length,
@@ -521,23 +549,35 @@ class _TrackList extends ConsumerWidget {
               height: 44,
               child: meta.art != null
                   // cacheWidth: decode a thumbnail, not the full cover.
-                  ? Image.memory(meta.art!,
-                      fit: BoxFit.cover, cacheWidth: 132, gaplessPlayback: true)
+                  ? Image.memory(
+                      meta.art!,
+                      fit: BoxFit.cover,
+                      cacheWidth: 132,
+                      gaplessPlayback: true,
+                    )
                   : ColoredBox(
                       color: scheme.surfaceContainerHighest,
-                      child: Icon(Icons.music_note,
-                          size: 20, color: scheme.onSurfaceVariant),
+                      child: Icon(
+                        Icons.music_note,
+                        size: 20,
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
             ),
           ),
-          title: Text(meta.title ?? track.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: isCurrent ? TextStyle(color: scheme.primary) : null),
+          title: Text(
+            meta.title ?? track.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: isCurrent ? TextStyle(color: scheme.primary) : null,
+          ),
           subtitle: meta.artist == null
               ? null
-              : Text(meta.artist!,
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              : Text(
+                  meta.artist!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
           trailing: isCurrent
               ? Icon(Icons.equalizer, size: 20, color: scheme.primary)
               : null,
@@ -556,8 +596,10 @@ class _TrackList extends ConsumerWidget {
 void _openPlayer(BuildContext context) {
   // Root navigator so the full-screen player covers the whole shell (app bar +
   // bottom nav), not just the tab's body.
-  Navigator.of(context, rootNavigator: true).push(MaterialPageRoute<void>(
-    fullscreenDialog: true,
-    builder: (_) => const MusicPlayerPage(),
-  ));
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => const MusicPlayerPage(),
+    ),
+  );
 }

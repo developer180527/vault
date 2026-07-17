@@ -247,11 +247,21 @@ class _PhotoContentState extends State<_PhotoContent> {
 
   @override
   Widget build(BuildContext context) {
+    // Decode capped at ~2× the screen's pixel width: keeps 4× pinch-zoom
+    // sharp while bounding the bitmap. Uncapped, a 48MP photo decodes to a
+    // ~190MB full-res bitmap PER PAGE — the swipe-jank and memory spike.
+    final mq = MediaQuery.of(context);
+    final decodeWidth = (mq.size.width * mq.devicePixelRatio * 2).round();
     return FutureBuilder(
       future: _full,
       builder: (context, snapshot) {
         if (snapshot.data case final bytes?) {
-          return Image.memory(bytes, fit: BoxFit.contain);
+          return Image.memory(
+            bytes,
+            fit: BoxFit.contain,
+            cacheWidth: decodeWidth,
+            gaplessPlayback: true,
+          );
         }
         return FutureBuilder(
           future: _thumb,
@@ -377,7 +387,9 @@ class _VideoControlsOverlay extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(playbackProvider).video;
+    // select: only the video-session slice matters here — audio queue churn
+    // must not rebuild (and re-time) the controls overlay.
+    final session = ref.watch(playbackProvider.select((s) => s.video));
     final controller = ref.read(playbackProvider.notifier).videoController;
     if (session?.id != item.id || controller == null) {
       return const SizedBox.shrink();

@@ -67,11 +67,7 @@ class MobileShell extends ConsumerWidget {
       // the chrome holds platform views (hybrid-composition layer splits).
       body: RepaintBoundary(child: shell),
       bottomNavigationBar: RepaintBoundary(
-        child: _BottomBarArea(
-          shell: shell,
-          services: services,
-          dock: dock,
-        ),
+        child: _BottomBarArea(shell: shell, services: services, dock: dock),
       ),
     );
   }
@@ -108,7 +104,12 @@ class _BottomBarArea extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hasTrack = ref.watch(playbackProvider).currentAudio != null;
+    // select: this subtree hosts the native glass PANEL (platform view) — it
+    // must re-layout only when the mini-player appears/disappears, not on
+    // every playback event (track advance, video open/close).
+    final hasTrack = ref.watch(
+      playbackProvider.select((s) => s.currentAudio != null),
+    );
     final onUserPage = _currentId == 'user';
     // Sit a little lower than the OS-suggested inset (gesture bars reserve
     // more than the chrome needs), but never flush against the screen edge.
@@ -117,106 +118,115 @@ class _BottomBarArea extends ConsumerWidget {
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, bottomGap),
-      child: LayoutBuilder(builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        // Chrome geometry, shared by the Flutter layout below and the native
-        // glass panel behind it (one platform view for all surfaces).
-        final dockTop = hasTrack ? _kMiniPlayerHeight + 8.0 : 0.0;
-        final height = dockTop + _kDockHeight;
-        final chrome = Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (hasTrack) ...[
-              const _MiniPlayerPill(),
-              const SizedBox(height: 8),
-            ],
-            Row(
-              children: [
-                Expanded(
-                  child: NativeGlassSurface(
-                    radius: _kDockHeight / 2,
-                    child: SizedBox(
-                      height: _kDockHeight,
-                      // Inner padding keeps the end slots clear of the pill's
-                      // curved ends, so the capsule geometry is identical for
-                      // every slot — including the extremes.
-                      child: Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 10),
-                        child: _DockRow(
-                          dock: dock,
-                          selectedIndex: onUserPage
-                              ? -1
-                              : dock.indexWhere((s) => s.id == _currentId),
-                          onTap: (s) => _open(s.id),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // The You slot: a detached circle, Apple Music-style.
-                NativeGlassSurface(
-                  radius: _kDockHeight / 2,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => _open('user'),
-                    child: SizedBox(
-                      width: _kDockHeight,
-                      height: _kDockHeight,
-                      child: Center(
-                        child: CircleAvatar(
-                          radius: 17,
-                          backgroundColor: onUserPage
-                              ? Theme.of(context).colorScheme.primaryContainer
-                              : Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest,
-                          child: AdaptiveIcon(
-                            VaultIcons.user,
-                            selected: onUserPage,
-                            size: 20,
-                            color: onUserPage
-                                ? Theme.of(context)
-                                    .colorScheme
-                                    .onPrimaryContainer
-                                : Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          // Chrome geometry, shared by the Flutter layout below and the native
+          // glass panel behind it (one platform view for all surfaces).
+          final dockTop = hasTrack ? _kMiniPlayerHeight + 8.0 : 0.0;
+          final height = dockTop + _kDockHeight;
+          final chrome = Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (hasTrack) ...[
+                const _MiniPlayerPill(),
+                const SizedBox(height: 8),
+              ],
+              Row(
+                children: [
+                  Expanded(
+                    child: NativeGlassSurface(
+                      radius: _kDockHeight / 2,
+                      child: SizedBox(
+                        height: _kDockHeight,
+                        // Inner padding keeps the end slots clear of the pill's
+                        // curved ends, so the capsule geometry is identical for
+                        // every slot — including the extremes.
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: _DockRow(
+                            dock: dock,
+                            selectedIndex: onUserPage
+                                ? -1
+                                : dock.indexWhere((s) => s.id == _currentId),
+                            onTap: (s) => _open(s.id),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
-        );
-
-        return NativeGlassPanel(
-          size: Size(width, height),
-          regions: [
-            if (hasTrack)
-              GlassRegion(
-                rect: Rect.fromLTWH(0, 0, width, _kMiniPlayerHeight),
-                radius: _kMiniPlayerHeight / 2,
+                  const SizedBox(width: 8),
+                  // The You slot: a detached circle, Apple Music-style.
+                  NativeGlassSurface(
+                    radius: _kDockHeight / 2,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _open('user'),
+                      child: SizedBox(
+                        width: _kDockHeight,
+                        height: _kDockHeight,
+                        child: Center(
+                          child: CircleAvatar(
+                            radius: 17,
+                            backgroundColor: onUserPage
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainerHighest,
+                            child: AdaptiveIcon(
+                              VaultIcons.user,
+                              selected: onUserPage,
+                              size: 20,
+                              color: onUserPage
+                                  ? Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimaryContainer
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            GlassRegion(
-              rect: Rect.fromLTWH(
-                  0, dockTop, width - _kDockHeight - 8, _kDockHeight),
-              radius: _kDockHeight / 2,
-            ),
-            GlassRegion(
-              rect: Rect.fromLTWH(
-                  width - _kDockHeight, dockTop, _kDockHeight, _kDockHeight),
-              radius: _kDockHeight / 2,
-            ),
-          ],
-          child: chrome,
-        );
-      }),
+            ],
+          );
+
+          return NativeGlassPanel(
+            size: Size(width, height),
+            regions: [
+              if (hasTrack)
+                GlassRegion(
+                  rect: Rect.fromLTWH(0, 0, width, _kMiniPlayerHeight),
+                  radius: _kMiniPlayerHeight / 2,
+                ),
+              GlassRegion(
+                rect: Rect.fromLTWH(
+                  0,
+                  dockTop,
+                  width - _kDockHeight - 8,
+                  _kDockHeight,
+                ),
+                radius: _kDockHeight / 2,
+              ),
+              GlassRegion(
+                rect: Rect.fromLTWH(
+                  width - _kDockHeight,
+                  dockTop,
+                  _kDockHeight,
+                  _kDockHeight,
+                ),
+                radius: _kDockHeight / 2,
+              ),
+            ],
+            child: chrome,
+          );
+        },
+      ),
     );
   }
 }
@@ -243,53 +253,56 @@ class _DockRow extends StatelessWidget {
     if (dock.isEmpty) return const SizedBox.shrink();
     final n = dock.length;
 
-    return LayoutBuilder(builder: (context, constraints) {
-      final width = constraints.maxWidth;
-      final slotWidth = width / n;
-      // The dock row sits inside the pill with its own horizontal padding,
-      // so every slot — including the extremes — has identical geometry and
-      // the capsule is simply centered on its slot. No edge clamping: that
-      // asymmetry was what made the end slots look wrong.
-      final capsuleWidth = math.min(slotWidth + 6, width);
-      final i = selectedIndex.clamp(0, n - 1);
-      final left = i * slotWidth + (slotWidth - capsuleWidth) / 2;
-      return Stack(
-        children: [
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 350),
-            curve: Curves.easeOutBack,
-            left: left,
-            top: 7,
-            width: capsuleWidth,
-            height: _kDockHeight - 14,
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 150),
-              opacity: selectedIndex < 0 ? 0 : 1,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: scheme.secondaryContainer.withValues(alpha: 0.85),
-                  borderRadius:
-                      BorderRadius.circular((_kDockHeight - 14) / 2),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final slotWidth = width / n;
+        // The dock row sits inside the pill with its own horizontal padding,
+        // so every slot — including the extremes — has identical geometry and
+        // the capsule is simply centered on its slot. No edge clamping: that
+        // asymmetry was what made the end slots look wrong.
+        final capsuleWidth = math.min(slotWidth + 6, width);
+        final i = selectedIndex.clamp(0, n - 1);
+        final left = i * slotWidth + (slotWidth - capsuleWidth) / 2;
+        return Stack(
+          children: [
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 350),
+              curve: Curves.easeOutBack,
+              left: left,
+              top: 7,
+              width: capsuleWidth,
+              height: _kDockHeight - 14,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 150),
+                opacity: selectedIndex < 0 ? 0 : 1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(
+                      (_kDockHeight - 14) / 2,
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var i = 0; i < n; i++)
-                Expanded(
-                  child: _DockItem(
-                    service: dock[i],
-                    selected: i == selectedIndex,
-                    onTap: () => onTap(dock[i]),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < n; i++)
+                  Expanded(
+                    child: _DockItem(
+                      service: dock[i],
+                      selected: i == selectedIndex,
+                      onTap: () => onTap(dock[i]),
+                    ),
                   ),
-                ),
-            ],
-          ),
-        ],
-      );
-    });
+              ],
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -323,8 +336,12 @@ class _DockItem extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             ExcludeSemantics(
-              child: AdaptiveIcon(service.icon,
-                  selected: selected, size: 22, color: color),
+              child: AdaptiveIcon(
+                service.icon,
+                selected: selected,
+                size: 22,
+                color: color,
+              ),
             ),
             const SizedBox(height: 2),
             ExcludeSemantics(
@@ -333,9 +350,9 @@ class _DockItem extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: color,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                    ),
+                  color: color,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
               ),
             ),
           ],
@@ -353,26 +370,32 @@ class _MiniPlayerPill extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(playbackProvider.notifier);
-    final track = ref.watch(playbackProvider).currentAudio;
+    // select: rebuild on track changes only — video session churn is not this
+    // pill's business.
+    final track = ref.watch(playbackProvider.select((s) => s.currentAudio));
     if (track == null) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
 
     return NativeGlassSurface(
       radius: _kMiniPlayerHeight / 2,
       child: InkWell(
-        onTap: () => Navigator.of(context, rootNavigator: true)
-            .push(MaterialPageRoute<void>(
-          fullscreenDialog: true,
-          builder: (_) => const MusicPlayerPage(),
-        )),
+        onTap: () => Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => const MusicPlayerPage(),
+          ),
+        ),
         child: SizedBox(
           height: _kMiniPlayerHeight,
           child: Row(
             children: [
               const SizedBox(width: 16),
               ExcludeSemantics(
-                child: AdaptiveIcon(VaultIcons.music,
-                    size: 18, color: scheme.primary),
+                child: AdaptiveIcon(
+                  VaultIcons.music,
+                  size: 18,
+                  color: scheme.primary,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -380,10 +403,12 @@ class _MiniPlayerPill extends ConsumerWidget {
                   label: 'Now playing: ${track.title}. Opens the player.',
                   button: true,
                   child: ExcludeSemantics(
-                    child: Text(track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall),
+                    child: Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ),
                 ),
               ),
@@ -395,8 +420,9 @@ class _MiniPlayerPill extends ConsumerWidget {
                     visualDensity: VisualDensity.compact,
                     tooltip: playing ? 'Pause' : 'Play',
                     icon: AdaptiveIcon(
-                        playing ? VaultIcons.pause : VaultIcons.play,
-                        size: 20),
+                      playing ? VaultIcons.pause : VaultIcons.play,
+                      size: 20,
+                    ),
                     onPressed: controller.togglePlay,
                   );
                 },
