@@ -53,15 +53,16 @@ final musicServiceActions = <VaultAction>[
   ),
 ];
 
-/// The Music tab. Connected → the SERVER's library, searched and streamed
-/// (docs/MUSIC.md). Standalone → local files as before.
+/// The Music tab. Connected → the server's music service in three sections
+/// (Home / Search / Library, Instagram-profile style). Standalone → local
+/// files as before.
 class MusicSection extends ConsumerWidget {
   const MusicSection({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (ref.watch(musicServerModeProvider)) {
-      return const _ServerMusicList();
+      return const _ServerMusic();
     }
     final tracksAsync = ref.watch(musicTracksProvider);
 
@@ -77,36 +78,39 @@ class MusicSection extends ConsumerWidget {
   }
 }
 
-/// Connected music: the SHARED catalog by default, with the personal zone and
-/// the user's playlists one chip away. Debounced search + streamed artwork.
-class _ServerMusicList extends ConsumerStatefulWidget {
-  const _ServerMusicList();
+/// Connected music, three swipeable sections under one slim tab strip:
+///
+///  - **Home**: browse the shared catalog (albums / recommendations / pinned
+///    music land here later).
+///  - **Search**: the search field + catalog results — search UI lives ONLY
+///    here, not floating over every view.
+///  - **Library**: the user's playlists (drill-in) and their personal music.
+class _ServerMusic extends ConsumerStatefulWidget {
+  const _ServerMusic();
 
   @override
-  ConsumerState<_ServerMusicList> createState() => _ServerMusicListState();
+  ConsumerState<_ServerMusic> createState() => _ServerMusicState();
 }
 
-class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
-  final _search = TextEditingController();
-  Timer? _debounce;
+class _ServerMusicState extends ConsumerState<_ServerMusic> {
+  /// Library drill-in: non-null while a playlist's tracks are open.
+  Playlist? _openPlaylist;
 
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _search.dispose();
-    super.dispose();
-  }
+  /// Whether the last catalog play started from the Search section — the
+  /// listen event's `library` vs `search` tag.
+  bool _playingFromSearch = false;
 
-  void _onQuery(String q) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 250), () {
-      if (mounted) ref.read(musicSearchQueryProvider.notifier).set(q);
-    });
-  }
+  // ---- playback ----
 
-  Future<void> _play(List<ServerTrack> tracks, int index) async {
+  /// Play [tracks] starting at [index]. Catalog-backed queues report a listen
+  /// event tagged with where playback started (the recommender's raw food);
+  /// the personal zone streams the per-user endpoints and reports nothing.
+  Future<void> _play(
+    List<ServerTrack> tracks,
+    int index, {
+    required MusicSource source,
+  }) async {
     final music = ref.read(vaultClientProvider).music;
-    final source = ref.read(musicSourceProvider);
     final personal = source is PersonalSource;
     final playables = personal
         ? await serverPlayables(music, tracks)
@@ -114,16 +118,20 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
     if (!mounted) return;
     await ref.read(playbackProvider.notifier).playAudioQueue(playables, index);
     if (!personal) {
-      // Raw listen event for the future recommender — fire and forget.
+      final query = source is CatalogSource && _playingFromSearch
+          ? ref.read(musicSearchQueryProvider)
+          : '';
       unawaited(
         music.reportListen(
           tracks[index].id,
-          source: listenSourceFor(source, ref.read(musicSearchQueryProvider)),
+          source: listenSourceFor(source, query),
         ),
       );
     }
     if (mounted) _openPlayer(context);
   }
+
+  // ---- playlist management ----
 
   Future<void> _newPlaylist() async {
     final controller = TextEditingController();
@@ -157,18 +165,43 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
         .music
         .createPlaylist(trimmed);
     ref.invalidate(playlistsProvider);
-    ref.read(musicSourceProvider.notifier).set(PlaylistSource(created));
+    if (mounted) setState(() => _openPlaylist = created);
   }
 
-  /// Long-press on a catalog track → add to a playlist; on a playlist track →
-  /// remove (or delete the playlist from its chip's long-press).
-  Future<void> _trackMenu(ServerTrack t) async {
-    final source = ref.read(musicSourceProvider);
+  Future<void> _deletePlaylist(Playlist p) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete "${p.name}"?'),
+        content: const Text('The music itself stays in the catalog.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ref.read(vaultClientProvider).music.deletePlaylist(p.id);
+    ref.invalidate(playlistsProvider);
+    if (mounted && _openPlaylist?.id == p.id) {
+      setState(() => _openPlaylist = null);
+    }
+  }
+
+  /// Long-press a catalog track → add-to-playlist sheet; inside a playlist →
+  /// remove it from that playlist.
+  Future<void> _trackMenu(ServerTrack t, {Playlist? inPlaylist}) async {
     final music = ref.read(vaultClientProvider).music;
-    if (source is PlaylistSource) {
-      await music.removeFromPlaylist(source.playlist.id, t.id);
+    if (inPlaylist != null) {
+      await music.removeFromPlaylist(inPlaylist.id, t.id);
       ref
-        ..invalidate(sourceTracksProvider)
+        ..invalidate(playlistTracksProvider(inPlaylist.id))
         ..invalidate(playlistsProvider);
       return;
     }
@@ -210,12 +243,17 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
     );
     if (target == null) return;
     await music.addToPlaylist(target.id, t.id);
-    ref.invalidate(playlistsProvider);
+    ref
+      ..invalidate(playlistTracksProvider(target.id))
+      ..invalidate(playlistsProvider);
   }
 
   /// Desktop right-click on a catalog/playlist track row.
-  void _trackContextMenu(ServerTrack t, Offset position) {
-    final source = ref.read(musicSourceProvider);
+  void _trackContextMenu(
+    ServerTrack t,
+    Offset position, {
+    Playlist? inPlaylist,
+  }) {
     showContextMenu(
       context: context,
       ref: ref,
@@ -223,251 +261,455 @@ class _ServerMusicListState extends ConsumerState<_ServerMusicList> {
       actions: [
         VaultAction(
           id: 'music.playlist.toggle',
-          label: source is PlaylistSource
+          label: inPlaylist != null
               ? 'Remove from playlist'
               : 'Add to playlist…',
-          icon: source is PlaylistSource ? VaultIcons.trash : VaultIcons.add,
-          onInvoke: (_, _) => _trackMenu(t),
+          icon: inPlaylist != null ? VaultIcons.trash : VaultIcons.add,
+          onInvoke: (_, _) => _trackMenu(t, inPlaylist: inPlaylist),
         ),
       ],
     );
   }
 
-  Future<void> _deletePlaylist(Playlist p) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete "${p.name}"?'),
-        content: const Text('The music itself stays in the catalog.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
+  // ---- sections ----
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      bottom: false,
+      child: DefaultTabController(
+        length: 3,
+        child: Column(
+          children: [
+            // Slim section strip — the page's inner navigation, browser-tab
+            // style. Swiping between sections works via the TabBarView.
+            TabBar(
+              dividerColor: Colors.transparent,
+              indicatorSize: TabBarIndicatorSize.label,
+              labelColor: scheme.primary,
+              unselectedLabelColor: scheme.onSurfaceVariant,
+              tabs: const [
+                Tab(height: 44, icon: Icon(Icons.home_outlined, size: 20)),
+                Tab(height: 44, icon: Icon(Icons.search, size: 20)),
+                Tab(
+                  height: 44,
+                  icon: Icon(Icons.library_music_outlined, size: 20),
+                ),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildHome(),
+                  _SearchSection(
+                    onPlay: (tracks, i) {
+                      _playingFromSearch = true;
+                      _play(tracks, i, source: const CatalogSource());
+                    },
+                    onTrackMenu: (t) => _trackMenu(t),
+                    onTrackContextMenu: (t, pos) => _trackContextMenu(t, pos),
+                  ),
+                  _buildLibrary(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
-    if (confirmed != true) return;
-    await ref.read(vaultClientProvider).music.deletePlaylist(p.id);
-    ref.read(musicSourceProvider.notifier).set(const CatalogSource());
-    ref.invalidate(playlistsProvider);
+  }
+
+  Widget _buildHome() {
+    final tracksAsync = ref.watch(catalogTracksProvider);
+    return tracksAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Catalog unavailable: $e')),
+      data: (tracks) => tracks.isEmpty
+          ? const _EmptyNote(
+              'The catalog is empty.\nThe admin loads music into it on the server.',
+            )
+          : _ServerTrackList(
+              tracks: tracks,
+              catalogArt: true,
+              onPlay: (t, i) {
+                _playingFromSearch = false;
+                _play(t, i, source: const CatalogSource());
+              },
+              onLongPress: (t) => _trackMenu(t),
+              onSecondaryTap: (t, pos) => _trackContextMenu(t, pos),
+            ),
+    );
+  }
+
+  Widget _buildLibrary() {
+    final open = _openPlaylist;
+    if (open != null) return _buildPlaylistDetail(open);
+
+    final playlists =
+        ref.watch(playlistsProvider).asData?.value ?? const <Playlist>[];
+    final personalAsync = ref.watch(personalTracksProvider);
+    final scheme = Theme.of(context).colorScheme;
+
+    return ListView(
+      children: [
+        _SectionHeader(
+          'Playlists',
+          trailing: TextButton.icon(
+            onPressed: _newPlaylist,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New'),
+          ),
+        ),
+        if (playlists.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+            child: Text(
+              'No playlists yet.',
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
+          ),
+        for (final p in playlists)
+          GestureDetector(
+            onSecondaryTapUp: (d) => showContextMenu(
+              context: context,
+              ref: ref,
+              globalPosition: d.globalPosition,
+              actions: [
+                VaultAction(
+                  id: 'music.playlist.delete',
+                  label: 'Delete playlist',
+                  icon: VaultIcons.trash,
+                  onInvoke: (_, _) => _deletePlaylist(p),
+                ),
+              ],
+            ),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: scheme.surfaceContainerHighest,
+                child: Icon(
+                  Icons.queue_music,
+                  size: 20,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              title: Text(p.name),
+              subtitle: Text('${p.trackCount} tracks'),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+              onTap: () => setState(() => _openPlaylist = p),
+              onLongPress: () => _deletePlaylist(p),
+            ),
+          ),
+        _SectionHeader('My music'),
+        personalAsync.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (e, _) => Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text('My music unavailable: $e'),
+          ),
+          data: (tracks) => tracks.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    'No music in your zone yet.\nDrop files into your music folder.',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                )
+              : _ServerTrackList(
+                  tracks: tracks,
+                  catalogArt: false,
+                  shrinkWrap: true,
+                  onPlay: (t, i) => _play(t, i, source: const PersonalSource()),
+                ),
+        ),
+        const SizedBox(height: 120), // clear the floating dock
+      ],
+    );
+  }
+
+  Widget _buildPlaylistDetail(Playlist p) {
+    final tracksAsync = ref.watch(playlistTracksProvider(p.id));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            IconButton(
+              tooltip: 'Back to Library',
+              icon: const Icon(Icons.arrow_back, size: 20),
+              onPressed: () => setState(() => _openPlaylist = null),
+            ),
+            Expanded(
+              child: Text(
+                p.name,
+                style: Theme.of(context).textTheme.titleMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            IconButton(
+              tooltip: 'Delete playlist',
+              icon: const Icon(Icons.delete_outline, size: 20),
+              onPressed: () => _deletePlaylist(p),
+            ),
+          ],
+        ),
+        Expanded(
+          child: tracksAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Playlist unavailable: $e')),
+            data: (tracks) => tracks.isEmpty
+                ? const _EmptyNote(
+                    'This playlist is empty.\nLong-press a track in Home or Search to add it.',
+                  )
+                : _ServerTrackList(
+                    tracks: tracks,
+                    catalogArt: true,
+                    onPlay: (t, i) => _play(t, i, source: PlaylistSource(p)),
+                    onLongPress: (t) => _trackMenu(t, inPlaylist: p),
+                    onSecondaryTap: (t, pos) =>
+                        _trackContextMenu(t, pos, inPlaylist: p),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The Search section: field + results. Kept stateful and self-contained so
+/// typing only rebuilds THIS section — and the field survives section swipes.
+class _SearchSection extends ConsumerStatefulWidget {
+  const _SearchSection({
+    required this.onPlay,
+    required this.onTrackMenu,
+    required this.onTrackContextMenu,
+  });
+
+  final void Function(List<ServerTrack> tracks, int index) onPlay;
+  final void Function(ServerTrack) onTrackMenu;
+  final void Function(ServerTrack, Offset) onTrackContextMenu;
+
+  @override
+  ConsumerState<_SearchSection> createState() => _SearchSectionState();
+}
+
+class _SearchSectionState extends ConsumerState<_SearchSection> {
+  final _search = TextEditingController();
+  Timer? _debounce;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _onQuery(String q) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) ref.read(musicSearchQueryProvider.notifier).set(q);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final source = ref.watch(musicSourceProvider);
-    final tracksAsync = ref.watch(sourceTracksProvider);
-    final playlists =
-        ref.watch(playlistsProvider).asData?.value ?? const <Playlist>[];
-    final headers =
-        ref.watch(musicAuthHeadersProvider).asData?.value ?? const {};
-    // select: highlight tracking needs only the current track ID — the
-    // whole list must not rebuild on unrelated playback events.
+    final scheme = Theme.of(context).colorScheme;
+    final resultsAsync = ref.watch(catalogSearchProvider);
+    final query = ref.watch(musicSearchQueryProvider).trim();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+          child: TextField(
+            controller: _search,
+            onChanged: _onQuery,
+            decoration: InputDecoration(
+              hintText: 'Search the catalog',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              isDense: true,
+              filled: true,
+              fillColor: scheme.surfaceContainerHigh,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(24),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: query.isEmpty
+              ? const _EmptyNote(
+                  'Search the shared catalog\nby title, artist, or album.',
+                )
+              : resultsAsync.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Center(child: Text('Search failed: $e')),
+                  data: (tracks) => tracks.isEmpty
+                      ? const _EmptyNote('No matches.')
+                      : _ServerTrackList(
+                          tracks: tracks,
+                          catalogArt: true,
+                          onPlay: widget.onPlay,
+                          onLongPress: widget.onTrackMenu,
+                          onSecondaryTap: widget.onTrackContextMenu,
+                        ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Shared server-track list: artwork rows, now-playing highlight, optional
+/// long-press / right-click hooks. Used by all three sections.
+class _ServerTrackList extends ConsumerWidget {
+  const _ServerTrackList({
+    required this.tracks,
+    required this.catalogArt,
+    required this.onPlay,
+    this.onLongPress,
+    this.onSecondaryTap,
+    this.shrinkWrap = false,
+  });
+
+  final List<ServerTrack> tracks;
+
+  /// true → shared catalog art endpoints; false → personal-zone endpoints.
+  final bool catalogArt;
+  final void Function(List<ServerTrack>, int) onPlay;
+  final void Function(ServerTrack)? onLongPress;
+  final void Function(ServerTrack, Offset)? onSecondaryTap;
+  final bool shrinkWrap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // select: highlight tracking needs only the current track ID — the whole
+    // list must not rebuild on unrelated playback events.
     final currentId = ref.watch(
       playbackProvider.select((s) => s.currentAudio?.id),
     );
     final music = ref.read(vaultClientProvider).music;
     final scheme = Theme.of(context).colorScheme;
-    final personal = source is PersonalSource;
 
-    return SafeArea(
-      bottom: false,
-      child: Column(
+    return ListView.builder(
+      shrinkWrap: shrinkWrap,
+      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+      itemCount: tracks.length,
+      itemBuilder: (context, i) {
+        final t = tracks[i];
+        final isCurrent = currentId == t.id;
+        final tile = ListTile(
+          leading: _ServerArt(
+            uri: !t.hasArt
+                ? null
+                : catalogArt
+                ? music.catalogArtUri(t.id)
+                : music.artUri(t.id),
+          ),
+          title: Text(
+            t.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: isCurrent ? TextStyle(color: scheme.primary) : null,
+          ),
+          subtitle: t.artist.isEmpty
+              ? null
+              : Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+          trailing: isCurrent
+              ? Icon(Icons.equalizer, size: 20, color: scheme.primary)
+              : null,
+          onTap: () => onPlay(tracks, i),
+          onLongPress: onLongPress == null ? null : () => onLongPress!(t),
+        );
+        if (onSecondaryTap == null) return tile;
+        return GestureDetector(
+          onSecondaryTapUp: (d) => onSecondaryTap!(t, d.globalPosition),
+          child: tile,
+        );
+      },
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title, {this.trailing});
+
+  final String title;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
+      child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: TextField(
-              controller: _search,
-              onChanged: _onQuery,
-              decoration: InputDecoration(
-                hintText: personal ? 'Search your music' : 'Search the catalog',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                isDense: true,
-                filled: true,
-                fillColor: scheme.surfaceContainerHigh,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-          ),
-          // Source chips: catalog / personal zone / playlists / new playlist.
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              children: [
-                ChoiceChip(
-                  label: const Text('Catalog'),
-                  selected: source is CatalogSource,
-                  onSelected: (_) => ref
-                      .read(musicSourceProvider.notifier)
-                      .set(const CatalogSource()),
-                ),
-                const SizedBox(width: 8),
-                ChoiceChip(
-                  label: const Text('My music'),
-                  selected: personal,
-                  onSelected: (_) => ref
-                      .read(musicSourceProvider.notifier)
-                      .set(const PersonalSource()),
-                ),
-                for (final p in playlists) ...[
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onLongPress: () => _deletePlaylist(p),
-                    onSecondaryTapUp: (d) => showContextMenu(
-                      context: context,
-                      ref: ref,
-                      globalPosition: d.globalPosition,
-                      actions: [
-                        VaultAction(
-                          id: 'music.playlist.delete',
-                          label: 'Delete playlist',
-                          icon: VaultIcons.trash,
-                          onInvoke: (_, _) => _deletePlaylist(p),
-                        ),
-                      ],
-                    ),
-                    child: ChoiceChip(
-                      label: Text(p.name),
-                      avatar: const Icon(Icons.queue_music, size: 16),
-                      selected:
-                          source is PlaylistSource &&
-                          source.playlist.id == p.id,
-                      onSelected: (_) => ref
-                          .read(musicSourceProvider.notifier)
-                          .set(PlaylistSource(p)),
-                    ),
-                  ),
-                ],
-                const SizedBox(width: 8),
-                ActionChip(
-                  label: const Text('New playlist'),
-                  avatar: const Icon(Icons.add, size: 16),
-                  onPressed: _newPlaylist,
-                ),
-              ],
-            ),
-          ),
           Expanded(
-            child: tracksAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) =>
-                  Center(child: Text('Server music unavailable: $e')),
-              data: (tracks) => tracks.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          _emptyText(
-                            source,
-                            ref.watch(musicSearchQueryProvider).isEmpty,
-                          ),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: scheme.onSurfaceVariant),
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: tracks.length,
-                      itemBuilder: (context, i) {
-                        final t = tracks[i];
-                        final isCurrent = currentId == t.id;
-                        final tile = ListTile(
-                          leading: _ServerArt(
-                            uri: !t.hasArt
-                                ? null
-                                : personal
-                                ? music.artUri(t.id)
-                                : music.catalogArtUri(t.id),
-                            headers: headers,
-                          ),
-                          title: Text(
-                            t.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: isCurrent
-                                ? TextStyle(color: scheme.primary)
-                                : null,
-                          ),
-                          subtitle: t.artist.isEmpty
-                              ? null
-                              : Text(
-                                  t.artist,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                          trailing: isCurrent
-                              ? Icon(
-                                  Icons.equalizer,
-                                  size: 20,
-                                  color: scheme.primary,
-                                )
-                              : null,
-                          onTap: () => _play(tracks, i),
-                          // Playlists reference catalog UUIDs, so only
-                          // catalog-backed rows get the long-press menu
-                          // (mobile) / right-click menu (desktop).
-                          onLongPress: personal ? null : () => _trackMenu(t),
-                        );
-                        if (personal) return tile;
-                        return GestureDetector(
-                          onSecondaryTapUp: (d) =>
-                              _trackContextMenu(t, d.globalPosition),
-                          child: tile,
-                        );
-                      },
-                    ),
-            ),
+            child: Text(title, style: Theme.of(context).textTheme.titleMedium),
           ),
+          ?trailing,
         ],
       ),
     );
   }
 }
 
-String _emptyText(MusicSource source, bool queryEmpty) {
-  if (!queryEmpty) return 'No matches.';
-  return switch (source) {
-    CatalogSource() =>
-      'The catalog is empty.\nThe admin loads music into it on the server.',
-    PersonalSource() =>
-      'No music in your zone yet.\nDrop files into your music folder.',
-    PlaylistSource() =>
-      'This playlist is empty.\nLong-press a catalog track to add it.',
-  };
-}
+class _EmptyNote extends StatelessWidget {
+  const _EmptyNote(this.text);
 
-class _ServerArt extends StatelessWidget {
-  const _ServerArt({required this.uri, required this.headers});
-
-  final Uri? uri;
-  final Map<String, String> headers;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerArt extends ConsumerWidget {
+  const _ServerArt({required this.uri});
+
+  final Uri? uri;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final placeholder = ColoredBox(
       color: scheme.surfaceContainerHighest,
       child: Icon(Icons.music_note, size: 20, color: scheme.onSurfaceVariant),
     );
+    // Content cache: disk-hit art paints in the same frame as the row —
+    // scrolling a list you've seen before never shows placeholder pop-in.
+    final bytes = uri == null
+        ? null
+        : ref.watch(artBytesProvider(uri.toString())).asData?.value;
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
       child: SizedBox(
         width: 44,
         height: 44,
-        child: uri == null || headers.isEmpty
+        child: bytes == null
             ? placeholder
-            : Image.network(
-                uri.toString(),
-                headers: headers,
+            : Image.memory(
+                bytes,
                 fit: BoxFit.cover,
                 cacheWidth: 132,
                 gaplessPlayback: true,

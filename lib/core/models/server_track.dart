@@ -23,12 +23,24 @@ class ServerTrack {
   final bool hasArt;
 
   factory ServerTrack.fromJson(Map<String, Object?> j) => ServerTrack(
-        id: j['id'] as String,
-        title: (j['title'] as String?) ?? '',
-        artist: (j['artist'] as String?) ?? '',
-        album: (j['album'] as String?) ?? '',
-        trackNo: (j['track_no'] as num?)?.toInt() ?? 0,
-        year: (j['year'] as num?)?.toInt() ?? 0,
-        hasArt: (j['has_art'] as bool?) ?? false,
-      );
+    id: j['id'] as String,
+    title: (j['title'] as String?) ?? '',
+    artist: (j['artist'] as String?) ?? '',
+    album: (j['album'] as String?) ?? '',
+    trackNo: (j['track_no'] as num?)?.toInt() ?? 0,
+    year: (j['year'] as num?)?.toInt() ?? 0,
+    hasArt: (j['has_art'] as bool?) ?? false,
+  );
+
+  /// Wire-identical to the server's JSON — snapshot caching round-trips
+  /// through the same [ServerTrack.fromJson].
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'title': title,
+    'artist': artist,
+    'album': album,
+    'track_no': trackNo,
+    'year': year,
+    'has_art': hasArt,
+  };
 }

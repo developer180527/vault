@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import '../../core/platform/platform_info.dart';
 import '../../core/playback/playback_controller.dart';
 import 'data/dominant_color.dart';
+import 'data/server_music.dart';
 
 /// Full-screen now-playing screen, styled after Apple Music: large artwork,
 /// track title/artist, scrubber, transport controls, and a volume/output row.
@@ -71,11 +72,7 @@ class MusicPlayerPage extends ConsumerWidget {
                   ],
                 ),
                 const Spacer(),
-                _Artwork(
-                  art: track?.artwork,
-                  artUri: track?.artworkUri,
-                  headers: track?.headers ?? const {},
-                ),
+                _Artwork(art: track?.artwork, artUri: track?.artworkUri),
                 const SizedBox(height: 32),
                 Text(
                   track?.title ?? 'Nothing playing',
@@ -108,16 +105,15 @@ class MusicPlayerPage extends ConsumerWidget {
   }
 }
 
-class _Artwork extends StatelessWidget {
-  const _Artwork({this.art, this.artUri, this.headers = const {}});
+class _Artwork extends ConsumerWidget {
+  const _Artwork({this.art, this.artUri});
 
   /// Embedded bytes (local files) or a bearer-fetched URL (server streams).
   final Uint8List? art;
   final Uri? artUri;
-  final Map<String, String> headers;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final side = MediaQuery.sizeOf(context).width.clamp(200.0, 360.0) - 56;
     final fallback = Icon(
@@ -125,6 +121,13 @@ class _Artwork extends StatelessWidget {
       size: side * 0.4,
       color: scheme.primary,
     );
+    // Server art through the content cache: a track you've seen before shows
+    // its cover the instant the player opens, even while the stream buffers.
+    final bytes =
+        art ??
+        (artUri == null
+            ? null
+            : ref.watch(artBytesProvider(artUri!.toString())).asData?.value);
     return Container(
       width: side,
       height: side,
@@ -140,16 +143,8 @@ class _Artwork extends StatelessWidget {
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: art != null
-          ? Image.memory(art!, fit: BoxFit.cover, gaplessPlayback: true)
-          : artUri != null
-          ? Image.network(
-              artUri.toString(),
-              headers: headers.isEmpty ? null : headers,
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
-              errorBuilder: (_, _, _) => fallback,
-            )
+      child: bytes != null
+          ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
           : fallback,
     );
   }
