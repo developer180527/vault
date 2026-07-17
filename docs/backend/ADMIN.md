@@ -1,9 +1,15 @@
 # Vault Admin Console — Design
 
-Status: design, July 2026. **Not built yet — this is the spec.** Supersedes
-`vaultdctl` as the *everyday* admin tool; the CLI stays as the break-glass
-fallback (§9). Read `DESIGN.md` first — this inherits every principle there
-(tailnet-only, one gateway, fail closed, additive `/v1`).
+Status: design, July 2026 (rev 2 — web panel). **Not built yet — this is the
+spec.** Supersedes `vaultdctl` as the *everyday* admin tool; the CLI stays as
+the break-glass fallback (§9). Read `DESIGN.md` first — this inherits every
+principle there (tailnet-only, one gateway, fail closed, additive `/v1`).
+
+> **Rev 2 note:** §1 originally put the console inside the Flutter client.
+> Decided against: admin is desktop-shaped, sit-at-a-desk work, and a
+> tailnet-only web panel gives zero-install access from any browser with a
+> *simpler* OIDC flow than the app. The security model is unchanged — same
+> Pocket ID, same vaultd authz, same tailnet wall. See §1.
 
 ## 0. Why
 
@@ -18,42 +24,104 @@ activity/audit, and system/hardware health.**
 
 ## 1. Where it lives (the big decision)
 
-**Inside the existing Flutter client, as an admin-only surface — not a
-separate web app.**
+**A tailnet-only web panel, served by vaultd, reachable only from admin
+devices — NOT inside the Flutter client, NOT a public site.**
 
-Rationale:
-- Reuses the whole security stack we already built: Pocket ID passkeys, opaque
-  device tokens, the tailnet wall, the `VaultClient` seam. A separate web app
-  would mean a second auth system and a second attack surface — exactly what
-  "one gateway" (DESIGN.md §2) forbids.
-- Cross-platform for free: a comfortable multi-pane console on macOS/Windows/
-  Linux desktop, a scaled-down version on the phone for quick tasks.
-- The manifest already gates navigation fail-closed. Admin becomes one more
-  capability that simply never appears for non-admins.
+Why the web panel wins for admin specifically:
+- **Admin is desktop-shaped.** Grant matrices, user tables, metadata forms,
+  health dashboards — this is sit-at-a-desk work that wants a big screen and a
+  keyboard, not a phone tab.
+- **Zero install, any device.** Any browser on the tailnet reaches it; no app
+  build to ship to the machine you happen to be at.
+- **The OIDC flow is *simpler* than the app's.** The app does a custom
+  URL-scheme AppAuth dance (`com.venug.vault://oauth`). A browser does the
+  standard Authorization-Code + PKCE redirect that Pocket ID is built for —
+  passkeys included.
+- **The architecture already anticipates it.** DESIGN.md §2 allows "admin UIs
+  reachable only by admin devices via Tailscale ACLs," and the ACL already
+  splits `autogroup:member` (443) from `autogroup:admin` (all ports). Pocket
+  ID (9443) and qBittorrent (8443) are already admin-only web UIs. The panel
+  is one more.
 
-The console is a new feature module (`lib/features/admin/`) surfaced as an
-`admin` service in the capability manifest. It renders only when the manifest
-carries the `admin` capability — and every action behind it is re-checked
-server-side (the client gate is UX, never the security boundary).
+**The security model does not change.** Same Pocket ID identity, same vaultd
+authz (§2), same tailnet wall. It is NOT "a second auth system / second attack
+surface" — that objection only holds if you build a separate login, which we
+explicitly do not. Every `/v1/admin/*` call goes through the same
+authn→authz chokepoint.
 
-## 2. Authorization — scoped, server-authoritative
+### Serving & stack
 
-Today `role == admin` implicitly grants everything. We keep that as the
-default but split admin power into **scopes**, so a future "catalog curator"
-can manage music without touching accounts:
+- **vaultd serves it**, static assets embedded via Go `embed` — nothing new to
+  deploy, ships in the one binary. Bound to an **admin-only port** (e.g. 8444)
+  and locked to `autogroup:admin` in the Tailscale ACL. No public exposure.
+- **Server-rendered HTML + htmx**, no JS build step, no second codebase. Admin
+  is forms/tables/dashboards — htmx's `hx-post`/`hx-get` swapping fragments is
+  the whole interaction model, and it keeps the "boring, reproducible" ethos.
 
-| Scope | Powers |
+### Deploy topology (exact, matching the one-port-per-audience rule)
+
+```
+browser ── tailscale serve :8444 (ACL: autogroup:admin only)
+             └→ caddy :8083 (localhost)
+                  └→ vaultd admin listener :8081 (in-container; the member
+                     API stays on :8080 — two listeners, one process, so the
+                     member surface can NEVER route to an admin handler)
+```
+
+New wiring: one compose port (`127.0.0.1:8083:8083`), one Caddyfile site, one
+`tailscale serve` command, one ACL line. The admin listener only starts when
+`VAULTD_ADMIN_ADDR` + `VAULTD_ADMIN_EXTERNAL_URL` are set — undeployed means
+off, fail closed.
+
+**OIDC client:** reuse the EXISTING Pocket ID public client (PKCE) — the
+admin just adds the web callback URL
+(`https://<host>:8444/oauth/callback`) to its allowed redirect URIs. No
+second client, no new secret; one less thing to rotate.
+
+### The one genuinely new server piece: browser sessions
+
+The app carries an opaque bearer token in secure storage. A browser wants an
+**HttpOnly, Secure, SameSite=Strict cookie** session instead. So vaultd gains
+a small cookie-session path:
+
+- `/login` starts a server-side Authorization-Code + PKCE flow (state, nonce,
+  verifier held in a short-lived HttpOnly cookie); the callback exchanges the
+  code with Pocket ID, verifies the `id_token` (same JWKS discipline as the
+  app path, plus the nonce), and maps identity → user via the same
+  `(issuer, subject)` binding the app uses.
+- Only `role == admin` + `status == active` gets a session; everyone else is
+  a 403 at the door.
+- The session token is random, stored **sha256-hashed** in a new
+  `admin_sessions` table (same discipline as device tokens), 12-hour absolute
+  expiry, revocable by row delete.
+- **CSRF**: `SameSite=Strict` already stops cross-site cookie sends in every
+  current browser; mutations additionally require a same-origin
+  `Sec-Fetch-Site`/`Origin` check. No token machinery — one less state to
+  desync, same protection. (Revisit only if a token-less browser matters,
+  which on a personal tailnet it does not.)
+
+## 2. Authorization — server-authoritative; scopes deferred
+
+**Phase 0–1 gate: `role == admin`, checked at ONE middleware chokepoint** on
+the admin listener. Rationale (a self-correction): the existing `hasGrant`
+already short-circuits `role == admin` → allow-all, and only admins can reach
+the panel at all — so per-scope grants that every possible visitor holds are
+dead configuration. Adding them now is YAGNI.
+
+The **scope split stays in the design** for the day a sub-admin role exists
+(e.g. a "catalog curator" who manages music but not accounts):
+
+| Scope (future) | Powers |
 |---|---|
 | `admin:users` | users, invites, grants, device sessions |
 | `admin:catalog` | music ingest, metadata edits, deletes |
 | `admin:system` | hardware/health, service toggles, config |
 | `admin:audit` | read the audit log |
 
-The current admin role = all four (no behavior change for you). Scopes live in
-the same grants table (`service = "admin"`, `actions = [...]`). Every
-`/v1/admin/*` handler checks its scope in-handler via the existing
-`RequireGrant`/`hasGrant` chokepoint — **the client manifest is never
-trusted**. Non-admins get a 403 and the module never renders.
+Because the check lives in one middleware, moving from "role == admin" to
+"holds scope X" later is a one-function change — the same grants table
+(`service = "admin"`) is ready for it. Either way the browser is never
+trusted: every request re-resolves the session → user → role server-side.
 
 ## 3. Step-up auth ("sudo mode") — the core security control
 
@@ -61,14 +129,17 @@ Reading admin data uses a normal session. But **destructive or sensitive
 mutations require a fresh passkey re-assertion** within the last few minutes.
 This is what stops an unlocked, logged-in phone from nuking accounts.
 
-Flow:
-1. Admin taps a guarded action (delete user, revoke all devices, delete
+Flow (corrected mechanism — vaultd cannot run raw WebAuthn; the passkeys live
+in Pocket ID, so elevation is an OIDC **re-authentication**):
+1. Admin clicks a guarded action (delete user, revoke all devices, delete
    tracks, edit another user's grants, rotate a secret).
-2. Client calls `POST /v1/admin/elevate`, which forces a fresh Pocket ID
-   passkey/biometric assertion (WebAuthn re-auth, not the cached token).
-3. On success the server stamps the device session `elevated_until = now+5m`.
+2. The panel redirects through the OIDC flow again with `max_age=0` /
+   `prompt=login`, which forces Pocket ID to demand a FRESH passkey assertion
+   (the IdP session cookie is not enough).
+3. The callback checks the new `id_token`'s `auth_time` is recent, confirms
+   the same subject, and stamps the session `elevated_until = now+5m`.
 4. Guarded-mutation middleware requires a live `elevated_until`; otherwise
-   403 `elevation_required` and the client re-prompts.
+   the action re-prompts.
 
 Elevation is per-device, short-lived, and rate-limited. Ordinary reads and
 low-risk writes (e.g. editing a music tag) can stay outside it — we tune the
@@ -203,14 +274,21 @@ same store layer, so neither drifts from the other.
 
 ## 10. Rollout (phased — additive, nothing to migrate)
 
-- **Phase 1** *(covers your immediate need)*: `admin` capability + scopes;
-  read-only Overview; Users & grant matrix; Catalog management (upload / scan /
-  edit / delete).
+- **Phase 0 — the shell** *(the plumbing everything else hangs off)*: the
+  admin listener + deploy chain (8444→8083→:8081) + ACL entry; migration for
+  `admin_sessions`; the browser OIDC flow (state/nonce/PKCE) + cookie session
+  + same-origin mutation guard; a login gate landing on a real (small)
+  Overview. **Zero JavaScript in Phase 0** — plain server-rendered pages and
+  form posts; htmx is vendored in Phase 1 when inline table edits actually
+  need it. Proves the whole auth/serve path end-to-end before any feature.
+- **Phase 1** *(covers your immediate need)*: Users list + grant matrix;
+  Catalog management (browse / scan / edit / delete — reusing the existing
+  `music:write` endpoints).
 - **Phase 2**: audit log + `admin_audit` table + Activity feed; step-up
-  elevation for guarded actions.
+  elevation (WebAuthn re-assert) for guarded actions.
 - **Phase 3**: System & Hardware metrics (§8 option 1).
 - **Phase 4**: service toggles, settings/secret-rotation, listen analytics.
 
-Each phase is additive `/v1` + additive migrations; the manifest gate means
-older clients simply don't see the console until they update.
+Each phase is additive `/v1` + additive migrations. Nothing ships to the
+Flutter client — the panel is entirely server-side.
 ```
