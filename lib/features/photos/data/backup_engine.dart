@@ -150,7 +150,15 @@ class BackupEngine extends Notifier<BackupState> {
   }
 
   Future<void> run() async {
-    if (_running || !_available) return;
+    if (_running) return;
+    if (!_available) {
+      // Say WHY nothing happens — a silent no-op here cost a debugging round.
+      _log.info('backup not started', fields: {
+        'connected': ref.read(sessionProvider).asData?.value != null,
+        'supported': ref.read(localMediaLibraryProvider).isSupported,
+      });
+      return;
+    }
     _running = true;
     try {
       await _run();
@@ -163,9 +171,12 @@ class BackupEngine extends Notifier<BackupState> {
   }
 
   Future<void> _run() async {
+    final started = DateTime.now();
+    _log.info('backup run started');
     final lib = ref.read(localMediaLibraryProvider);
     final access = await lib.requestAccess();
     if (access == MediaAccess.denied || access == MediaAccess.unavailable) {
+      _log.warn('backup aborted: no photo access', fields: {'state': '$access'});
       state = state.copyWith(
         phase: BackupPhase.error,
         error: 'Photo library access is not granted.',
@@ -200,6 +211,11 @@ class BackupEngine extends Notifier<BackupState> {
 
     var done = found - todo.length;
     var failed = 0;
+    _log.info('camera roll scanned', fields: {
+      'found': found,
+      'already_backed_up': done,
+      'to_process': todo.length,
+    });
 
     // Chunked: hash a batch, one round-trip for "what's missing", upload the
     // gap. Sequential uploads keep memory flat and the server unhammered.
@@ -231,6 +247,10 @@ class BackupEngine extends Notifier<BackupState> {
       final missing = (await api.checkMissing([
         for (final (_, _, h) in hashed) h,
       ])).toSet();
+      _log.info('server check', fields: {
+        'batch': hashed.length,
+        'missing': missing.length,
+      });
 
       for (final (item, file, hash) in hashed) {
         if (!missing.contains(hash)) {
@@ -244,23 +264,37 @@ class BackupEngine extends Notifier<BackupState> {
         final name = item.asset.title ?? '${item.id}.bin';
         state = state.copyWith(phase: BackupPhase.uploading, current: name);
         try {
-          await api.upload(
+          final ack = await api.upload(
             path: file.path,
             name: name,
             hash: hash,
             takenAt: item.asset.createDateTime,
           );
+          // The server's ack: its row id + the hash IT computed. Matching
+          // hashes = the bytes on the HDD are the bytes on this device.
+          _log.info('backed up', fields: {
+            'name': name,
+            'bytes': ack.size,
+            'server_id': ack.id,
+            'hash_verified': ack.hash == hash,
+          });
           await ledger.record(item.id, hash);
           done++;
         } catch (e) {
           failed++;
-          _log.debug('upload failed', fields: {'name': name, 'err': '$e'});
+          _log.warn('upload failed', fields: {'name': name, 'err': '$e'});
         }
         state = state.copyWith(done: done, failed: failed);
       }
     }
 
     await ledger.flush();
+    _log.info('backup run finished', fields: {
+      'found': found,
+      'done': done,
+      'failed': failed,
+      'secs': DateTime.now().difference(started).inSeconds,
+    });
     state = state.copyWith(
       phase: failed > 0 && done < found ? BackupPhase.error : BackupPhase.done,
       found: found,

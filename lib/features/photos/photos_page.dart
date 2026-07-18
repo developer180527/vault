@@ -5,13 +5,35 @@ import '../media/data/local_media_library.dart';
 import '../media/data/media_providers.dart';
 import 'data/backup_engine.dart';
 
-/// The Photos service page (M3, simple phase): camera-roll → server backup.
-/// A status card with live progress, the auto-backup toggle, and the last few
-/// backed-up originals as a confirmation surface. The browsable timeline
-/// arrives with the thumbnail pipeline; this page is about TRUST — seeing
-/// that your photos are safe on your own hardware.
-class PhotosBackupPage extends ConsumerWidget {
-  const PhotosBackupPage({super.key});
+/// Opens the backup sheet over the whole shell — backup is a PROPERTY of the
+/// media library (a cloud button beside trash), not a destination tab.
+void openBackupSheet(BuildContext context) {
+  showModalBottomSheet<void>(
+    context: context,
+    // Root navigator: above the shell chrome (dock + mini player).
+    useRootNavigator: true,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      builder: (context, scroll) =>
+          BackupSheet(scrollController: scroll),
+    ),
+  );
+}
+
+/// Camera-roll → server backup (M3, simple phase): a status card with live
+/// progress, the auto-backup toggle, and the last few backed-up originals as
+/// a confirmation surface. The browsable timeline arrives with the thumbnail
+/// pipeline; this sheet is about TRUST — seeing that your photos are safe on
+/// your own hardware.
+class BackupSheet extends ConsumerWidget {
+  const BackupSheet({super.key, this.scrollController});
+
+  final ScrollController? scrollController;
 
   static String _fmtBytes(int b) {
     if (b >= 1 << 30) return '${(b / (1 << 30)).toStringAsFixed(1)} GB';
@@ -34,9 +56,10 @@ class PhotosBackupPage extends ConsumerWidget {
         state.phase == BackupPhase.uploading;
 
     return SafeArea(
-      bottom: false,
+      top: false,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+        controller: scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [
           Text('Backup', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 4),

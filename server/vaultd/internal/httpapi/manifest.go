@@ -32,6 +32,8 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Suggested dock order: the canonical four, filtered to what's granted.
+	// (photos is deliberately absent — backup lives inside the Media tab as
+	// a toolbar sheet, not as its own dock destination.)
 	pinned := []string{}
 	for _, svc := range []string{"media", "files", "music", "torrent"} {
 		if _, ok := caps[svc]; ok {

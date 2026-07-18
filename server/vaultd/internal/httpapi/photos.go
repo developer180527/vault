@@ -46,6 +46,8 @@ func (s *Server) handlePhotosCheck(w http.ResponseWriter, r *http.Request) {
 			missing = append(missing, h)
 		}
 	}
+	s.log.Info("photos check",
+		"user", p.Username, "asked", len(req.Hashes), "missing", len(missing))
 	writeJSON(w, http.StatusOK, map[string]any{"missing": missing})
 }
 
@@ -103,6 +105,10 @@ func (s *Server) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		// bytes were damaged in transit — never record a corrupt original.
 		if claimedHash != "" && claimedHash != res.Hash {
 			_ = s.photos.Remove(p.Username, res.RelPath)
+			s.log.Warn("photo rejected: hash mismatch",
+				"user", p.Username, "name", filename,
+				"claimed", claimedHash[:min(12, len(claimedHash))],
+				"actual", res.Hash[:12])
 			writeErr(w, http.StatusBadRequest, "hash mismatch — upload corrupted")
 			return
 		}
@@ -111,6 +117,8 @@ func (s *Server) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		// with the existing row. Idempotent re-uploads, no wasted disk.
 		if existing, err := s.store.Read().PhotoByHash(r.Context(), p.UserID, res.Hash); err == nil {
 			_ = s.photos.Remove(p.Username, res.RelPath)
+			s.log.Info("photo duplicate ignored",
+				"user", p.Username, "name", filename, "id", existing.ID)
 			writeJSON(w, http.StatusOK, existing)
 			return
 		}
@@ -138,6 +146,12 @@ func (s *Server) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
+		// The stored ack — grep `photo stored` in vaultd logs to audit
+		// exactly what landed, where, and under which verified hash.
+		s.log.Info("photo stored",
+			"user", p.Username, "name", filename, "kind", kind,
+			"bytes", res.Size, "rel", res.RelPath, "hash", res.Hash[:12],
+			"id", id)
 		writeJSON(w, http.StatusCreated, saved)
 		return
 	}
