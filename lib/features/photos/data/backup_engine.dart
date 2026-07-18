@@ -261,7 +261,14 @@ class BackupEngine extends Notifier<BackupState> {
           state = state.copyWith(phase: BackupPhase.uploading, done: done);
           continue;
         }
-        final name = item.asset.title ?? '${item.id}.bin';
+        // Filename: the asset title when the OS gives one, else the origin
+        // file's own basename. NEVER a made-up extension — iOS often returns
+        // a null title in release builds, and the server (correctly) refuses
+        // files it can't classify; a `.bin` fallback 400'd entire rolls.
+        var name = item.asset.title ?? '';
+        if (!name.contains('.')) {
+          name = file.path.split('/').last;
+        }
         state = state.copyWith(phase: BackupPhase.uploading, current: name);
         try {
           final ack = await api.upload(

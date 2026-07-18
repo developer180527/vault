@@ -69,6 +69,8 @@ func (s *Server) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 	for {
 		part, err := mr.NextPart()
 		if err != nil {
+			s.log.Warn("photo rejected: no file part",
+				"user", p.Username, "err", err)
 			writeErr(w, http.StatusBadRequest, "missing file part")
 			return
 		}
@@ -92,6 +94,10 @@ func (s *Server) handlePhotoUpload(w http.ResponseWriter, r *http.Request) {
 		filename := filepath.Base(part.FileName())
 		kind := photos.KindFor(filename)
 		if kind == "" {
+			// Log the NAME — a whole camera roll once 400'd on a client
+			// filename bug and the logs couldn't say why.
+			s.log.Warn("photo rejected: not a media filename",
+				"user", p.Username, "name", filename)
 			writeErr(w, http.StatusBadRequest, "not a photo or video file")
 			return
 		}
