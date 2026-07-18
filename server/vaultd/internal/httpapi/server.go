@@ -92,6 +92,11 @@ func New(o Options) http.Handler {
 		photosRoot = filepath.Join(o.DataRoot, "photos")
 	}
 	s.photos = &photos.Service{Root: photosRoot}
+	// Uploads interrupted by a restart leave .part orphans; no upload can be
+	// live before the listener starts, so booting is the safe sweep moment.
+	if n := s.photos.SweepPartials(); n > 0 {
+		o.Log.Info("swept stale partial uploads", "count", n)
+	}
 	// The shared catalog directory must exist before the admin's first drop.
 	if err := s.music.EnsureCatalog(); err != nil {
 		o.Log.Warn("catalog dir", "err", err)

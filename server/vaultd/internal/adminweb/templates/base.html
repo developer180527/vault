@@ -127,6 +127,27 @@
   }
   .center { text-align: center; padding-top: 12vh; }
   .err { color: #ff8a8a; }
+
+  /* insights: zero-JS horizontal bars (widths computed server-side) */
+  .bar-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+  .bar-label {
+    flex: 0 0 34%; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-size: 13.5px;
+  }
+  .bar-track {
+    flex: 1; height: 10px; background: #1a1a22; border-radius: 5px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    display: block; height: 100%; background: #2f5cff; border-radius: 5px;
+  }
+  .bar-val {
+    flex: 0 0 auto; min-width: 64px; text-align: right;
+    color: #8b8b98; font-size: 12.5px; white-space: nowrap;
+  }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .row2 { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -138,6 +159,7 @@
   <a class="item {{if eq .Active "overview"}}active{{end}}" href="/">Overview</a>
   <a class="item {{if eq .Active "users"}}active{{end}}" href="/users">Users &amp; access</a>
   <a class="item {{if eq .Active "catalog"}}active{{end}}" href="/catalog">Music catalog</a>
+  <a class="item {{if eq .Active "insights"}}active{{end}}" href="/insights">Insights</a>
   <a class="item {{if eq .Active "activity"}}active{{end}}" href="/activity">Activity</a>
   <a class="item {{if eq .Active "system"}}active{{end}}" href="/system">System</a>
   <div class="grow"></div>

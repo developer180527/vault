@@ -11,6 +11,7 @@ import '../../../core/auth/session.dart';
 import '../../../core/client/vault_client.dart';
 import '../../../core/logging/vault_log.dart';
 import '../../../core/models/server_photo.dart';
+import '../../../core/playback/playback_controller.dart';
 import '../../media/data/local_media_library.dart';
 import '../../media/data/media_providers.dart';
 
@@ -252,6 +253,10 @@ class BackupEngine extends Notifier<BackupState> {
         'missing': missing.length,
       });
 
+      // Keep the sheet's "items on the server" figure live as batches land —
+      // it was fetched once at open and sat stale for the whole run.
+      ref.invalidate(backupListingProvider);
+
       for (final (item, file, hash) in hashed) {
         if (!missing.contains(hash)) {
           // Already on the server (say, uploaded by this user's other
@@ -270,6 +275,16 @@ class BackupEngine extends Notifier<BackupState> {
           name = file.path.split('/').last;
         }
         state = state.copyWith(phase: BackupPhase.uploading, current: name);
+        // Music first, backup second: continuous uploads saturate the
+        // phone's Wi-Fi uplink and starve the audio stream's TCP acks —
+        // streaming stuttered whenever a backup ran. While audio is
+        // actively playing, yield between uploads so the stream gets
+        // airtime; the backup just takes longer, which is what a
+        // background job should do.
+        if (ref.read(playbackProvider).currentAudio != null &&
+            ref.read(playbackProvider.notifier).player.playing) {
+          await Future<void>.delayed(const Duration(milliseconds: 1500));
+        }
         try {
           final ack = await api.upload(
             path: file.path,
@@ -296,6 +311,7 @@ class BackupEngine extends Notifier<BackupState> {
     }
 
     await ledger.flush();
+    ref.invalidate(backupListingProvider);
     _log.info('backup run finished', fields: {
       'found': found,
       'done': done,

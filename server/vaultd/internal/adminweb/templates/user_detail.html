@@ -72,6 +72,18 @@
     {{end}}
   </div>
 
+  <h2>Photo backup</h2>
+  <div class="panel">
+    {{if gt .PhotoCount 0}}
+    <p>{{.PhotoCount}} originals · {{fmtBytes .PhotoBytes}} on the pool ·
+       last upload {{ago .PhotoLast}}</p>
+    {{else}}
+    <p class="muted">Nothing backed up yet{{if .HasPhotosGrant}} — the grant is
+      in place; the app backs up once they enable it{{else}} — grant
+      <code>photos: read + sync</code> above to allow it{{end}}.</p>
+    {{end}}
+  </div>
+
   <h2>Devices</h2>
   {{if .Devices}}
   <table>

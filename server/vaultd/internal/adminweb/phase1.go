@@ -136,12 +136,17 @@ func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
 		matrix[svc] = row
 	}
 
+	// Backup posture: how much of this member's camera roll is safe here.
+	photoN, photoBytes, photoLast, _ := s.store.Read().PhotoStatsForUser(ctx, target.ID)
+
 	s.render(w, "user_detail.html", map[string]any{
 		"User": userFrom(r), "Active": "users",
 		"Target": target, "Self": target.ID == userFrom(r).ID,
 		"Pending":  target.OIDCSubject == "",
 		"Services": store.KnownServices, "Matrix": matrix,
 		"Devices": devices, "Msg": r.URL.Query().Get("msg"),
+		"PhotoCount": photoN, "PhotoBytes": photoBytes, "PhotoLast": photoLast,
+		"HasPhotosGrant": len(grants["photos"]) > 0 || target.Role == "admin",
 	})
 }
 

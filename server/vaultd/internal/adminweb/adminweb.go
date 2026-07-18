@@ -112,6 +112,8 @@ func New(o Options) (http.Handler, error) {
 		r.Get("/catalog/{id}/art", s.handleTrackArt)
 		r.Post("/catalog/{id}/art", s.handleTrackArtUpload)
 
+		// Phase 4 — Insights (listen analytics, read-only).
+		r.Get("/insights", s.handleInsights)
 		// Phase 2 — Activity (append-only audit feed).
 		r.Get("/activity", s.handleActivity)
 

@@ -385,7 +385,11 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
             ref.watch(mostPlayedProvider).asData?.value ?? const [];
         final groups = groupTracks(
           tracks,
-          _groupBy == _GroupBy.artist ? (t) => t.artist : (t) => t.genre,
+          // Artists: comma-separated credits split, so a duet lists under
+          // BOTH singers. Genres stay whole strings.
+          _groupBy == _GroupBy.artist
+              ? (t) => splitArtists(t.artist)
+              : (t) => [t.genre],
           unknownLabel: _groupBy == _GroupBy.artist
               ? 'Unknown artist'
               : 'Unsorted',
@@ -591,11 +595,17 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
           }
           return SliverList.builder(
             itemCount: tracks.length,
-            itemBuilder: (context, i) => _CatalogTrackTile(
-              track: tracks[i],
-              onPlay: () => _play(tracks, i, source: const CatalogSource()),
-              onLongPress: () => _trackMenu(tracks[i]),
-              onSecondaryTap: (pos) => _trackContextMenu(tracks[i], pos),
+            itemBuilder: (context, i) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _CatalogTrackTile(
+                  track: tracks[i],
+                  onPlay: () => _play(tracks, i, source: const CatalogSource()),
+                  onLongPress: () => _trackMenu(tracks[i]),
+                  onSecondaryTap: (pos) => _trackContextMenu(tracks[i], pos),
+                ),
+                const _RowDivider(),
+              ],
             ),
           );
         },
@@ -799,10 +809,16 @@ class _ServerTrackList extends ConsumerWidget {
         onTap: () => onPlay(tracks, i),
         onLongPress: onLongPress == null ? null : () => onLongPress!(t),
       );
-      if (onSecondaryTap == null) return tile;
-      return GestureDetector(
-        onSecondaryTapUp: (d) => onSecondaryTap!(t, d.globalPosition),
-        child: tile,
+      final withMenu = onSecondaryTap == null
+          ? tile
+          : GestureDetector(
+              onSecondaryTapUp: (d) => onSecondaryTap!(t, d.globalPosition),
+              child: tile,
+            );
+      // Inset divider under every row (consistent rail, both themes).
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [withMenu, const _RowDivider()],
       );
     }
 
@@ -810,6 +826,23 @@ class _ServerTrackList extends ConsumerWidget {
       return SliverList.builder(itemCount: tracks.length, itemBuilder: row);
     }
     return ListView.builder(itemCount: tracks.length, itemBuilder: row);
+  }
+}
+
+/// Inset separator between track rows (Apple Music-style): starts after the
+/// artwork column. onSurface-derived so it reads in BOTH themes — the
+/// outlineVariant-with-alpha version vanished entirely on dark surfaces.
+class _RowDivider extends StatelessWidget {
+  const _RowDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      indent: 72,
+      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.14),
+    );
   }
 }
 
@@ -840,11 +873,17 @@ class _HomeRow {
     if (_isHeader) {
       return _GroupHeader(_label!, count: _queue.length);
     }
-    return _CatalogTrackTile(
+    final tile = _CatalogTrackTile(
       track: _queue[_index],
       onPlay: () => onPlay(_queue, _index),
       onLongPress: () => onLongPress(_queue[_index]),
       onSecondaryTap: (pos) => onSecondaryTap(_queue[_index], pos),
+    );
+    // Divider under EVERY row — skipping the group's last one made the
+    // rail look broken wherever groups met.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [tile, const _RowDivider()],
     );
   }
 }

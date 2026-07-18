@@ -153,3 +153,23 @@ func (s *Service) SaveUpload(username, filename string, takenAt time.Time, r io.
 func (s *Service) Remove(username, relPath string) error {
 	return os.Remove(s.PhotoPath(username, relPath))
 }
+
+// SweepPartials deletes leftover .part files — uploads killed mid-stream by
+// a dropped connection or a server restart (a redeploy during an active
+// backup run orphans whatever was in flight). Safe at boot: no upload can be
+// in progress before the listener starts. Returns how many were removed.
+func (s *Service) SweepPartials() int {
+	n := 0
+	_ = filepath.WalkDir(s.Root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".part") {
+			if os.Remove(path) == nil {
+				n++
+			}
+		}
+		return nil
+	})
+	return n
+}

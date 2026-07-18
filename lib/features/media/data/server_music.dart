@@ -300,18 +300,36 @@ class TrackGroup {
   final List<ServerTrack> tracks;
 }
 
-/// Groups catalog tracks by a chosen key into alphabetically-ordered
-/// [TrackGroup]s. Blank keys collapse into a single trailing bucket so
-/// untagged tracks are still reachable rather than silently dropped.
+/// Splits a credit string into individual artists: "Asha Bhosle, Mohammed
+/// Rafi" is TWO artists, not one combined act. Comma is the only separator —
+/// splitting on "&" would wrongly cut duo names like "Simon & Garfunkel".
+List<String> splitArtists(String credit) => [
+  for (final part in credit.split(','))
+    if (part.trim().isNotEmpty) part.trim(),
+];
+
+/// Groups catalog tracks into alphabetically-ordered [TrackGroup]s. [keysOf]
+/// may return SEVERAL keys per track — a duet files under each of its
+/// artists. No key at all lands in a single trailing bucket so untagged
+/// tracks stay reachable rather than silently dropped.
 List<TrackGroup> groupTracks(
   List<ServerTrack> tracks,
-  String Function(ServerTrack) keyOf, {
+  Iterable<String> Function(ServerTrack) keysOf, {
   required String unknownLabel,
 }) {
   final buckets = <String, List<ServerTrack>>{};
   for (final t in tracks) {
-    final raw = keyOf(t).trim();
-    buckets.putIfAbsent(raw.isEmpty ? '' : raw, () => []).add(t);
+    final keys = [
+      for (final k in keysOf(t))
+        if (k.trim().isNotEmpty) k.trim(),
+    ];
+    if (keys.isEmpty) {
+      buckets.putIfAbsent('', () => []).add(t);
+      continue;
+    }
+    for (final k in keys) {
+      buckets.putIfAbsent(k, () => []).add(t);
+    }
   }
   final keys = buckets.keys.toList()
     ..sort((a, b) {
