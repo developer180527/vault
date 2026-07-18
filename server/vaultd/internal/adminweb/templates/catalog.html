@@ -14,9 +14,26 @@
                placeholder="Search title, artist, album…" aria-label="Search catalog">
       </form>
       <form class="tight" method="post" action="/catalog/scan">
-        <button type="submit" class="primary">Scan for new music</button>
+        <button type="submit">Scan for new music</button>
       </form>
     </div>
+  </div>
+
+  <div class="panel">
+    <form method="post" action="/catalog/upload" enctype="multipart/form-data">
+      <div class="row">
+        <div>
+          <label class="field" for="files">Upload music (mp3, flac, m4a… — 200&nbsp;MB per batch)</label>
+          <input type="file" id="files" name="files" multiple
+                 accept=".mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.aiff,.alac,audio/*">
+        </div>
+        <div class="tight">
+          <button type="submit" class="primary">Upload &amp; index</button>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:8px">Files land in the shared catalog and are
+      indexed immediately — every member with music access can stream them right away.</p>
+    </form>
   </div>
 
   {{if .Tracks}}

@@ -1,0 +1,58 @@
+{{template "head" .}}
+<div class="layout">
+{{template "nav" .}}
+<main class="content">
+  <h1>System</h1>
+  <p class="sub">Read-only health snapshot. Host figures come from
+  <code>/proc</code> (Linux); anything unavailable shows as —.</p>
+  {{template "flash" .}}
+
+  <h2>Host</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="num">{{if .M.Load}}{{.M.Load}}{{else}}—{{end}}</div>
+      <div class="label">Load (1 · 5 · 15 min)</div>
+    </div>
+    <div class="card">
+      <div class="num">{{if ge .M.MemTotal 0}}{{fmtBytes .M.MemUsed}} / {{fmtBytes .M.MemTotal}}{{else}}—{{end}}</div>
+      <div class="label">Memory used</div>
+    </div>
+    <div class="card">
+      <div class="num">{{if .M.Uptime}}{{.M.Uptime}}{{else}}—{{end}}</div>
+      <div class="label">Uptime</div>
+    </div>
+  </div>
+
+  <h2>Storage</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="num">{{fmtBytes .M.DiskFree}}</div>
+      <div class="label">Free on data volume{{if ge .M.DiskSize 0}} (of {{fmtBytes .M.DiskSize}}){{end}}</div>
+    </div>
+    <div class="card">
+      <div class="num">{{fmtBytes .M.DBBytes}}</div>
+      <div class="label">Database size</div>
+    </div>
+  </div>
+
+  <h2>Vault</h2>
+  <div class="cards">
+    <div class="card"><div class="num">{{.M.Users}}</div><div class="label">Users ({{.M.Admins}} admin{{if ne .M.Admins 1}}s{{end}})</div></div>
+    <div class="card"><div class="num">{{.M.Devices}}</div><div class="label">Enrolled devices</div></div>
+    <div class="card"><div class="num">{{.M.Tracks}}</div><div class="label">Catalog tracks</div></div>
+    <div class="card"><div class="num">{{.M.Listens}}</div><div class="label">Listens recorded</div></div>
+  </div>
+
+  <h2>Build</h2>
+  <div class="panel">
+    <p class="muted">
+      vaultd {{if .M.Revision}}<code>{{.M.Revision}}</code>{{if .M.BuildTime}} · built {{.M.BuildTime}}{{end}}{{else}}(no VCS stamp — local build){{end}}
+      · {{.M.GoVersion}}
+    </p>
+  </div>
+
+  <p class="muted">ZFS pool status, temperatures, and container health arrive
+  with the host-helper metrics file (ADMIN.md §8).</p>
+</main>
+</div>
+{{template "foot" .}}

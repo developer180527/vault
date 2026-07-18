@@ -2,7 +2,10 @@ package music
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,10 +118,99 @@ func (s *Service) ScanCatalog(ctx context.Context) (added, pruned int, err error
 	return added, len(gone), nil
 }
 
-// CatalogArtwork extracts embedded art from a catalog track, lazily per
-// request (ETag-cached at the HTTP layer, like per-user artwork).
+// CatalogArtwork returns a track's cover: the admin-uploaded override when
+// present, else art embedded in the file's tags. Lazy per request, ETag'd at
+// the HTTP layer via [CatalogArtVersion].
 func (s *Service) CatalogArtwork(t *store.CatalogTrack) ([]byte, string, bool) {
+	if data, err := os.ReadFile(s.artOverridePath(t.ID)); err == nil && len(data) > 0 {
+		return data, http.DetectContentType(data), true
+	}
 	return artworkFromFile(s.CatalogTrackPath(t))
+}
+
+// ErrNotAudio rejects uploads whose extension isn't a known audio container.
+var ErrNotAudio = errors.New("not an audio file")
+
+// sanitizeFilename keeps a HUMAN track name (spaces, unicode, case) and only
+// strips what's hostile in a filename: path separators, control chars, and
+// the usual reserved punctuation. Usernames have their own, far stricter
+// sanitizer — using it here mangled titles ("My Song" → "mysong").
+func sanitizeFilename(raw string) string {
+	out := make([]rune, 0, len(raw))
+	for _, r := range raw {
+		switch {
+		case r < 0x20, r == 0x7f:
+		case strings.ContainsRune("/\\:*?\"<>|", r):
+		default:
+			out = append(out, r)
+		}
+	}
+	s := strings.Trim(strings.TrimSpace(string(out)), ".")
+	if s == "" {
+		return "track"
+	}
+	return s
+}
+
+// SaveUpload writes uploaded bytes into the catalog under a sanitized
+// filename, atomically (.part + rename), never escaping CatalogRoot. Returns
+// the final base name. The caller scans afterward to index it — SaveUpload
+// only lands the file. A name collision gets a " (2)", " (3)"… suffix so an
+// upload never silently overwrites existing music.
+func (s *Service) SaveUpload(filename string, data []byte) (string, error) {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if !audioExt[ext] {
+		return "", ErrNotAudio
+	}
+	base := sanitizeFilename(
+		strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename)))
+	if err := s.EnsureCatalog(); err != nil {
+		return "", err
+	}
+	name := base + ext
+	dst := filepath.Join(s.CatalogRoot(), name)
+	for i := 2; ; i++ {
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			break
+		}
+		name = fmt.Sprintf("%s (%d)%s", base, i, ext)
+		dst = filepath.Join(s.CatalogRoot(), name)
+	}
+	tmp := dst + ".part"
+	if err := os.WriteFile(tmp, data, 0o640); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return name, nil
+}
+
+// artOverridePath is where an admin-uploaded cover for [id] lives — a
+// dot-dir sidecar (never scanned), keyed by the track's stable UUID so it
+// survives file renames and rescans.
+func (s *Service) artOverridePath(id string) string {
+	return filepath.Join(s.CatalogRoot(), ".art", filepath.Base(id)+".img")
+}
+
+// SetCatalogArtOverride stores admin-uploaded cover art for a track. The
+// override wins over embedded tag art everywhere (panel AND member API).
+func (s *Service) SetCatalogArtOverride(id string, data []byte) error {
+	p := s.artOverridePath(id)
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+		return err
+	}
+	return os.WriteFile(p, data, 0o640)
+}
+
+// CatalogArtVersion feeds art ETags: the override's mtime when present
+// (uploading new art must bust caches), else the audio file's mtime.
+func (s *Service) CatalogArtVersion(t *store.CatalogTrack) int64 {
+	if fi, err := os.Stat(s.artOverridePath(t.ID)); err == nil {
+		return fi.ModTime().Unix()
+	}
+	return t.Mtime
 }
 
 // TrashCatalogTrack removes a track: the FILE moves into the catalog's

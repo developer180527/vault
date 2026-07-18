@@ -52,6 +52,29 @@
     </div>
   </div>
 
+  <h2>Cover art</h2>
+  <div class="panel">
+    <div class="row" style="align-items:center">
+      <div class="tight">
+        {{if .T.HasArt}}
+        <img src="/catalog/{{.T.ID}}/art" alt="Current cover"
+             style="width:76px;height:76px;border-radius:8px;object-fit:cover">
+        {{else}}
+        <span class="art" style="display:inline-block;width:76px;height:76px"></span>
+        {{end}}
+      </div>
+      <form method="post" action="/catalog/{{.T.ID}}/art" enctype="multipart/form-data">
+        <label class="field" for="f-art">Upload a new cover (JPEG/PNG, 10&nbsp;MB max)</label>
+        <div class="row">
+          <input id="f-art" type="file" name="art" accept="image/*" required>
+          <div class="tight"><button type="submit">Set artwork</button></div>
+        </div>
+        <p class="muted" style="margin-top:6px">Overrides the art embedded in the
+        file, everywhere — apps included. Survives rescans (keyed by track UUID).</p>
+      </form>
+    </div>
+  </div>
+
   <h2>Danger zone</h2>
   <div class="panel">
     <form method="post" action="/catalog/{{.T.ID}}/delete">

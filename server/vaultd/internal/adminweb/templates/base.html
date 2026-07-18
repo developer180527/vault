@@ -138,8 +138,8 @@
   <a class="item {{if eq .Active "overview"}}active{{end}}" href="/">Overview</a>
   <a class="item {{if eq .Active "users"}}active{{end}}" href="/users">Users &amp; access</a>
   <a class="item {{if eq .Active "catalog"}}active{{end}}" href="/catalog">Music catalog</a>
-  <a class="item soon" href="#">Activity <span class="muted">· P2</span></a>
-  <a class="item soon" href="#">System <span class="muted">· P3</span></a>
+  <a class="item {{if eq .Active "activity"}}active{{end}}" href="/activity">Activity</a>
+  <a class="item {{if eq .Active "system"}}active{{end}}" href="/system">System</a>
   <div class="grow"></div>
   <div class="who">
     <span>{{.User.Username}} · admin</span>

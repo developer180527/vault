@@ -2,16 +2,53 @@ package adminweb
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"net/http"
+	"time"
 )
 
 //go:embed templates/*.html
 var templateFS embed.FS
 
+// funcs are the display helpers pages lean on (bytes, relative times).
+var funcs = template.FuncMap{
+	// fmtBytes: humanized size; negative = unavailable → em dash.
+	"fmtBytes": func(n int64) string {
+		if n < 0 {
+			return "—"
+		}
+		const unit = 1024
+		if n < unit {
+			return fmt.Sprintf("%d B", n)
+		}
+		div, exp := int64(unit), 0
+		for m := n / unit; m >= unit; m /= unit {
+			div *= unit
+			exp++
+		}
+		return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
+	},
+	// ago: compact relative time for feeds.
+	"ago": func(t time.Time) string {
+		d := time.Since(t)
+		switch {
+		case d < time.Minute:
+			return "just now"
+		case d < time.Hour:
+			return fmt.Sprintf("%dm ago", int(d.Minutes()))
+		case d < 24*time.Hour:
+			return fmt.Sprintf("%dh ago", int(d.Hours()))
+		default:
+			return t.Format("Jan 2 15:04")
+		}
+	},
+}
+
 // Parsed once at init; template execution is per-request. base.html defines
 // the shell, each page fills the "content" block.
-var templates = template.Must(template.ParseFS(templateFS, "templates/*.html"))
+var templates = template.Must(
+	template.New("").Funcs(funcs).ParseFS(templateFS, "templates/*.html"))
 
 func (s *Server) render(w http.ResponseWriter, page string, data map[string]any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

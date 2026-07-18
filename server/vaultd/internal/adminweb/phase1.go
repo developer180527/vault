@@ -2,6 +2,7 @@ package adminweb
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -93,6 +94,7 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("admin: user invited", "username", username,
 		"by", userFrom(r).Username)
+	s.audit(r, "user.invite", "user", username, "invited via "+email)
 	redirectMsg(w, r, "/users",
 		fmt.Sprintf("Invited %s — they sign in with Pocket ID (%s) to activate.",
 			username, email))
@@ -174,6 +176,7 @@ func (s *Server) handleSaveGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("admin: grants saved", "target", target.Username,
 		"by", userFrom(r).Username)
+	s.audit(r, "user.grants", "user", target.ID, "grant matrix updated for "+target.Username)
 	redirectMsg(w, r, back, "Grants saved.")
 }
 
@@ -206,6 +209,7 @@ func (s *Server) handleSetStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("admin: status changed", "target", target.Username,
 		"status", next, "by", userFrom(r).Username)
+	s.audit(r, "user.status", "user", target.ID, target.Username+" -> "+next)
 	redirectMsg(w, r, back, "Account "+next+".")
 }
 
@@ -236,6 +240,7 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("admin: role changed", "target", target.Username,
 		"role", next, "by", userFrom(r).Username)
+	s.audit(r, "user.role", "user", target.ID, target.Username+" -> "+next)
 	redirectMsg(w, r, back, "Role set to "+next+".")
 }
 
@@ -252,6 +257,8 @@ func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("admin: device revoked", "target", target.Username,
 		"by", userFrom(r).Username)
+	s.audit(r, "device.revoke", "device", chi.URLParam(r, "deviceID"),
+		"device revoked for "+target.Username)
 	redirectMsg(w, r, back, "Device revoked — its tokens are dead.")
 }
 
@@ -287,8 +294,63 @@ func (s *Server) handleCatalogScan(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("admin: catalog scanned", "changed", added, "pruned", pruned,
 		"by", userFrom(r).Username)
+	s.audit(r, "catalog.scan", "catalog", "",
+		fmt.Sprintf("%d changed, %d pruned", added, pruned))
 	redirectMsg(w, r, "/catalog",
 		fmt.Sprintf("Scan done: %d changed, %d pruned.", added, pruned))
+}
+
+// maxUpload caps a single multipart request. Music files are a few MB (lossy)
+// to ~100MB (lossless); 200MB leaves headroom without inviting abuse.
+const maxUpload = 200 << 20
+
+// handleCatalogUpload ingests audio files straight from the admin's browser
+// into catalog/music/, then scans so they appear immediately. Multi-file.
+func (s *Server) handleCatalogUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload+(4<<20))
+	if err := r.ParseMultipartForm(16 << 20); err != nil {
+		redirectMsg(w, r, "/catalog",
+			"Upload too large or malformed (200MB max per batch).")
+		return
+	}
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		redirectMsg(w, r, "/catalog", "No files chosen.")
+		return
+	}
+	var saved, skipped int
+	for _, fh := range files {
+		f, err := fh.Open()
+		if err != nil {
+			skipped++
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(f, maxUpload))
+		_ = f.Close()
+		if err != nil {
+			skipped++
+			continue
+		}
+		if _, err := s.music.SaveUpload(fh.Filename, data); err != nil {
+			skipped++ // wrong type or write error — reported in the tally
+			continue
+		}
+		saved++
+	}
+	if saved > 0 {
+		if _, _, err := s.music.ScanCatalog(r.Context()); err != nil {
+			s.log.Warn("post-upload scan failed", "err", err)
+		}
+	}
+	s.log.Info("admin: catalog upload", "saved", saved, "skipped", skipped,
+		"by", userFrom(r).Username)
+	s.audit(r, "catalog.upload", "catalog", "",
+		fmt.Sprintf("%d uploaded, %d skipped", saved, skipped))
+	msg := fmt.Sprintf("Uploaded %d file(s).", saved)
+	if skipped > 0 {
+		msg += fmt.Sprintf(" %d skipped (not audio, or failed).", skipped)
+	}
+	redirectMsg(w, r, "/catalog", msg)
 }
 
 func (s *Server) targetTrack(w http.ResponseWriter, r *http.Request) (*store.CatalogTrack, bool) {
@@ -334,6 +396,7 @@ func (s *Server) handleTrackSave(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("admin: track metadata edited", "track", t.ID,
 		"by", userFrom(r).Username)
+	s.audit(r, "track.edit", "track", t.ID, "metadata: "+t.Title)
 	redirectMsg(w, r, back, "Saved. Edits survive rescans (DB is authoritative).")
 }
 
@@ -354,6 +417,7 @@ func (s *Server) handleTrackDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("admin: track deleted (trashed)", "track", t.ID,
 		"title", t.Title, "by", userFrom(r).Username)
+	s.audit(r, "track.delete", "track", t.ID, "trashed: "+t.Title)
 	redirectMsg(w, r, "/catalog",
 		"Deleted “"+t.Title+"” — file moved to the catalog trash.")
 }
@@ -363,7 +427,8 @@ func (s *Server) handleTrackArt(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	etag := fmt.Sprintf(`"%s-%d"`, t.ID, t.Mtime)
+	// Art version, not file mtime: an uploaded cover override must bust caches.
+	etag := fmt.Sprintf(`"%s-%d"`, t.ID, s.music.CatalogArtVersion(t))
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return

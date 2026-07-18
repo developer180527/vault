@@ -99,10 +99,18 @@ func New(o Options) (http.Handler, error) {
 		// Phase 1 — Catalog manager.
 		r.Get("/catalog", s.handleCatalog)
 		r.Post("/catalog/scan", s.handleCatalogScan)
+		r.Post("/catalog/upload", s.handleCatalogUpload)
 		r.Get("/catalog/{id}", s.handleTrackEditPage)
 		r.Post("/catalog/{id}", s.handleTrackSave)
 		r.Post("/catalog/{id}/delete", s.handleTrackDelete)
 		r.Get("/catalog/{id}/art", s.handleTrackArt)
+		r.Post("/catalog/{id}/art", s.handleTrackArtUpload)
+
+		// Phase 2 — Activity (append-only audit feed).
+		r.Get("/activity", s.handleActivity)
+
+		// Phase 3 — System (read-only host/data metrics).
+		r.Get("/system", s.handleSystem)
 	})
 	return r, nil
 }

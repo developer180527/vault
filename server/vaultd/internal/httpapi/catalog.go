@@ -96,7 +96,8 @@ func (s *Server) handleCatalogArt(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	etag := fmt.Sprintf(`"%s-%d"`, t.ID, t.Mtime)
+	// Art version, not file mtime: an uploaded cover override must bust caches.
+	etag := fmt.Sprintf(`"%s-%d"`, t.ID, s.music.CatalogArtVersion(t))
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
