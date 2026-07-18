@@ -26,6 +26,10 @@ services:
     environment:
       - VAULTD_ADDR=:8080
       - VAULT_DATA_ROOT=/srv/vault
+      # Camera-roll backups land on the HDD pool (ZFS dataset mounted here on
+      # the host, inside the /srv/vault bind). Default would be the same path
+      # anyway — explicit so the storage split is visible in one place.
+      - VAULT_PHOTOS_ROOT=/srv/vault/photos
       # OIDC: Pocket ID at its own port. Issuer must match what the client
       # sees. Client id comes from registering vaultd in Pocket ID (see
       # server/vaultd/README + deploy README).

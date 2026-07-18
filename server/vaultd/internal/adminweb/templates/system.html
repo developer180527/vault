@@ -27,8 +27,14 @@
   <div class="cards">
     <div class="card">
       <div class="num">{{fmtBytes .M.DiskFree}}</div>
-      <div class="label">Free on data volume{{if ge .M.DiskSize 0}} (of {{fmtBytes .M.DiskSize}}){{end}}</div>
+      <div class="label">Free on data volume (SSD){{if ge .M.DiskSize 0}} (of {{fmtBytes .M.DiskSize}}){{end}}</div>
     </div>
+    {{if ge .M.PhotoSize 0}}
+    <div class="card">
+      <div class="num">{{fmtBytes .M.PhotoFree}}</div>
+      <div class="label">Free on photo pool (HDD) (of {{fmtBytes .M.PhotoSize}})</div>
+    </div>
+    {{end}}
     <div class="card">
       <div class="num">{{fmtBytes .M.DBBytes}}</div>
       <div class="label">Database size</div>
@@ -41,6 +47,7 @@
     <div class="card"><div class="num">{{.M.Devices}}</div><div class="label">Enrolled devices</div></div>
     <div class="card"><div class="num">{{.M.Tracks}}</div><div class="label">Catalog tracks</div></div>
     <div class="card"><div class="num">{{.M.Listens}}</div><div class="label">Listens recorded</div></div>
+    <div class="card"><div class="num">{{.M.PhotoCount}}</div><div class="label">Photos backed up ({{fmtBytes .M.PhotoBytes}})</div></div>
   </div>
 
   <h2>Build</h2>

@@ -9,7 +9,7 @@ import (
 // registry and CapabilityAction enum. Grants for unknown ids are rejected at
 // the CLI/API edge so typos don't silently grant nothing.
 var (
-	KnownServices = []string{"media", "files", "music", "torrent", "downloads", "chat"}
+	KnownServices = []string{"media", "files", "music", "photos", "torrent", "downloads", "chat"}
 	// Keep in lockstep with the client's CapabilityAction enum.
 	// `sync` gates the heavy backup/sync engine, distinct from plain write
 	// (see DESIGN.md "The library directory vs the Files service").

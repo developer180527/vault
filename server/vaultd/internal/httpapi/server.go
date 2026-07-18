@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"sync"
 
 	"github.com/go-chi/chi/v5"
@@ -15,6 +16,7 @@ import (
 	"github.com/developer180527/vault/vaultd/internal/files"
 	"github.com/developer180527/vault/vaultd/internal/jobs"
 	"github.com/developer180527/vault/vaultd/internal/music"
+	"github.com/developer180527/vault/vaultd/internal/photos"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -40,6 +42,10 @@ type Options struct {
 	// enrollment.
 	DataRoot string
 
+	// PhotosRoot is the camera-backup store (its own filesystem in prod —
+	// the HDD pool). Empty → defaults under DataRoot.
+	PhotosRoot string
+
 	// Jobs is the background-work engine (nil disables the jobs API).
 	Jobs *jobs.Engine
 
@@ -61,6 +67,7 @@ type Server struct {
 	jobs         *jobs.Engine
 	files        *files.Service
 	music        *music.Service
+	photos       *photos.Service
 	signer       *auth.StreamSigner
 }
 
@@ -80,6 +87,11 @@ func New(o Options) http.Handler {
 		music: &music.Service{
 			DataRoot: o.DataRoot, Store: o.Store, Log: o.Log},
 	}
+	photosRoot := o.PhotosRoot
+	if photosRoot == "" {
+		photosRoot = filepath.Join(o.DataRoot, "photos")
+	}
+	s.photos = &photos.Service{Root: photosRoot}
 	// The shared catalog directory must exist before the admin's first drop.
 	if err := s.music.EnsureCatalog(); err != nil {
 		o.Log.Warn("catalog dir", "err", err)
@@ -174,6 +186,20 @@ func New(o Options) http.Handler {
 				r.Use(s.RequireGrant("music", "write"))
 				r.Patch("/music/catalog/{id}", s.handleCatalogEdit)
 				r.Post("/music/catalog/scan", s.handleCatalogScan)
+			})
+
+			// Photos — camera-roll backup (M3 simple phase). The sync action
+			// gates the backup engine (check+upload); read serves the
+			// listing and originals back.
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("photos", "sync"))
+				r.Post("/photos/check", s.handlePhotosCheck)
+				r.Post("/photos", s.handlePhotoUpload)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("photos", "read"))
+				r.Get("/photos", s.handleListPhotos)
+				r.Get("/photos/{id}/content", s.handlePhotoContent)
 			})
 			// backup (M4) lands here.
 		})

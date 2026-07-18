@@ -105,6 +105,7 @@ func main() {
 			OIDCIssuer:   cfg.OIDCIssuer,
 			OIDCClientID: cfg.OIDCClientID,
 			DataRoot:     cfg.DataRoot,
+			PhotosRoot:   cfg.PhotosRoot,
 			Jobs:         engine,
 			Signer:       signer,
 		}),
@@ -121,6 +122,7 @@ func main() {
 			Store: st,
 			Music: &music.Service{
 				DataRoot: cfg.DataRoot, Store: st, Log: log},
+			PhotosRoot:  cfg.PhotosRoot,
 			ExternalURL: cfg.AdminExternalURL,
 			Flow: adminweb.NewOIDCFlow(cfg.OIDCIssuer, cfg.OIDCClientID,
 				cfg.AdminExternalURL+"/oauth/callback"),

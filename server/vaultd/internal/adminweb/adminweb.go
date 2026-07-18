@@ -39,6 +39,11 @@ type Options struct {
 	// Music powers the catalog manager (scan / artwork / trash-delete).
 	Music *music.Service
 
+	// PhotosRoot is the camera-backup store (the HDD pool in prod). Its
+	// volume shows on the System page beside the data volume. Empty = same
+	// volume, no separate card.
+	PhotosRoot string
+
 	// ExternalURL is how the ADMIN'S BROWSER reaches the panel, e.g.
 	// https://vault-server.<tailnet>.ts.net:8444 — used for the OAuth
 	// redirect URI and the same-origin mutation check.
@@ -55,11 +60,12 @@ const (
 )
 
 type Server struct {
-	log      *slog.Logger
-	store    *store.Store
-	music    *music.Service
-	flow     OAuthFlow
-	external *url.URL
+	log        *slog.Logger
+	store      *store.Store
+	music      *music.Service
+	photosRoot string
+	flow       OAuthFlow
+	external   *url.URL
 }
 
 // New builds the admin panel handler.
@@ -70,7 +76,7 @@ func New(o Options) (http.Handler, error) {
 	}
 	s := &Server{
 		log: o.Log, store: o.Store, music: o.Music,
-		flow: o.Flow, external: ext,
+		photosRoot: o.PhotosRoot, flow: o.Flow, external: ext,
 	}
 
 	r := chi.NewRouter()

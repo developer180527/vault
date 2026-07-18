@@ -106,7 +106,14 @@ type sysMetrics struct {
 	DiskSize int64
 	DBBytes  int64 // -1 = unavailable
 
+	// Photo store volume (the HDD pool) — only shown when it's a separate
+	// filesystem from the data volume. -1 = no separate volume.
+	PhotoFree int64
+	PhotoSize int64
+
 	Users, Admins, Devices, Tracks, Listens int
+	PhotoCount int
+	PhotoBytes int64
 
 	GoVersion, Revision, BuildTime string
 }
@@ -152,10 +159,21 @@ func (s *Server) collectMetrics(r *http.Request) sysMetrics {
 	}
 
 	// Data volume free space (works on Linux and macOS).
+	m.PhotoFree, m.PhotoSize = -1, -1
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(s.music.DataRoot, &st); err == nil {
 		m.DiskFree = int64(st.Bavail) * int64(st.Bsize) //nolint:unconvert
 		m.DiskSize = int64(st.Blocks) * int64(st.Bsize) //nolint:unconvert
+	}
+	// The photo store (HDD pool) gets its own card when it's a different
+	// filesystem — same fsid as the data volume means one disk, one card.
+	if s.photosRoot != "" {
+		var pst syscall.Statfs_t
+		if err := syscall.Statfs(s.photosRoot, &pst); err == nil &&
+			pst.Fsid != st.Fsid {
+			m.PhotoFree = int64(pst.Bavail) * int64(pst.Bsize) //nolint:unconvert
+			m.PhotoSize = int64(pst.Blocks) * int64(pst.Bsize) //nolint:unconvert
+		}
 	}
 	if fi, err := os.Stat(filepath.Join(
 		s.music.DataRoot, "system", "db", "vault.db")); err == nil {
@@ -172,6 +190,7 @@ func (s *Server) collectMetrics(r *http.Request) sysMetrics {
 		m.Tracks = len(tracks)
 	}
 	m.Listens, _ = s.store.Read().CountListens(ctx)
+	m.PhotoCount, m.PhotoBytes, _ = s.store.Read().CountAllPhotos(ctx)
 
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		for _, kv := range bi.Settings {

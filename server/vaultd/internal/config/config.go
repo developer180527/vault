@@ -21,6 +21,11 @@ type Config struct {
 	// DBPath is the SQLite file (WAL). Derived from DataRoot by default.
 	DBPath string
 
+	// PhotosRoot is where camera-roll backups land — its own filesystem in
+	// production (the HDD pool mounted at /srv/vault/photos). Defaults under
+	// DataRoot so dev and tests need no extra setup.
+	PhotosRoot string
+
 	// OIDCIssuer is Pocket ID's issuer URL, e.g.
 	// https://vault-server.<tailnet>.ts.net:9443 — used to fetch JWKS and to
 	// validate the `iss` claim.
@@ -75,6 +80,8 @@ func Load() (*Config, error) {
 	if c.DBPath == "" {
 		c.DBPath = filepath.Join(c.DataRoot, "system", "db", "vault.db")
 	}
+	c.PhotosRoot = getenv("VAULT_PHOTOS_ROOT",
+		filepath.Join(c.DataRoot, "photos"))
 
 	// OIDC + token secret are required for auth, but the skeleton (health +
 	// migrations) must run without them so M2 can be brought up incrementally.

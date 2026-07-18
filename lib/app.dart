@@ -14,6 +14,7 @@ import 'features/jobs/jobs_page.dart';
 import 'features/media/media_library_page.dart';
 import 'features/media/widgets/media_filter_dropdown.dart';
 import 'features/media/widgets/music_section.dart';
+import 'features/photos/photos_page.dart';
 import 'features/placeholder_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/user/user_page.dart';
@@ -71,6 +72,17 @@ final vaultServices = <ServiceDefinition>[
     category: ServiceCategory.tools,
     actions: downloadsServiceActions,
     builder: (_) => const JobsPage(kind: JobKind.download),
+  ),
+  ServiceDefinition(
+    id: 'photos',
+    label: 'Photos',
+    icon: VaultIcons.photo,
+    category: ServiceCategory.media,
+    // Manifest-gated (photos:read/sync on the server): only members the
+    // admin grants backup see this tab. The local gallery stays 'media'.
+    // Registered after the M2 services so it doesn't displace the default
+    // dock pins (first four registry entries).
+    builder: (_) => const PhotosBackupPage(),
   ),
   ServiceDefinition(
     id: 'chat',

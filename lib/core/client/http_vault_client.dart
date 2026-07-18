@@ -10,6 +10,7 @@ import '../logging/vault_log.dart';
 import 'http_file_repository.dart';
 import 'http_jobs_api.dart';
 import 'http_music_api.dart';
+import 'http_photos_api.dart';
 import 'vault_client.dart';
 
 final _log = VaultLog.tag('client.http');
@@ -24,12 +25,14 @@ class HttpVaultClient implements VaultClient {
   HttpVaultClient(this._ref)
       : _jobs = HttpJobsApi(_ref),
         _files = HttpFileRepository(_ref),
-        _music = HttpMusicApi(_ref);
+        _music = HttpMusicApi(_ref),
+        _photos = HttpPhotosApi(_ref);
 
   final Ref _ref;
   final HttpJobsApi _jobs;
   final HttpFileRepository _files;
   final HttpMusicApi _music;
+  final HttpPhotosApi _photos;
 
   @override
   FileRepository get files => _files;
@@ -39,6 +42,9 @@ class HttpVaultClient implements VaultClient {
 
   @override
   MusicApi get music => _music;
+
+  @override
+  PhotosApi get photos => _photos;
 
   @override
   Future<CapabilityManifest> fetchManifest() async {

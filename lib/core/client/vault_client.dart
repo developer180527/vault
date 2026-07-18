@@ -7,6 +7,7 @@ import '../capability/capability.dart';
 import '../jobs/job.dart';
 import '../models/file_node.dart';
 import '../models/playlist.dart';
+import '../models/server_photo.dart';
 import '../models/server_track.dart';
 import '../services/service_registry.dart';
 import 'http_vault_client.dart';
@@ -36,6 +37,10 @@ abstract interface class VaultClient {
   /// The SERVER's music library (list/search/stream — docs/MUSIC.md).
   /// Standalone mode plays local files instead and never calls this.
   MusicApi get music;
+
+  /// Camera-roll backup: hash-check + upload originals, list what's stored.
+  /// Standalone mode has no server to back up to and never calls this.
+  PhotosApi get photos;
 
   /// The caller's profile picture, or null when none is set (or standalone).
   Future<Uint8List?> myAvatar();
@@ -135,6 +140,29 @@ abstract interface class MusicApi {
 
   /// Bearer header for stream/artwork requests (refreshed if expired).
   Future<Map<String, String>> authHeaders();
+}
+
+/// Camera-roll backup against vaultd's /v1/photos endpoints. The engine's
+/// contract: ask which content hashes the server is missing, upload exactly
+/// those (originals, streamed from disk), list what's stored for the status
+/// surface.
+abstract interface class PhotosApi {
+  /// The subset of [hashes] the server does NOT have yet for this user.
+  Future<List<String>> checkMissing(List<String> hashes);
+
+  /// Upload one original from a local file path (streamed — videos never load
+  /// into memory). [hash] is verified server-side; a corrupted transfer is
+  /// rejected rather than stored. Idempotent: re-uploading returns the
+  /// existing row.
+  Future<ServerPhoto> upload({
+    required String path,
+    required String name,
+    required String hash,
+    DateTime? takenAt,
+  });
+
+  /// One page of the backed-up listing, newest capture first, with totals.
+  Future<PhotoBackupListing> list({int limit = 200, int offset = 0});
 }
 
 /// The jobs pipeline. Submitting hands work to the scheduler; [watch] streams
