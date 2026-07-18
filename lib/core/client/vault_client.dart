@@ -189,8 +189,15 @@ abstract interface class VaultJobsApi {
 /// so the app is fully usable before a server is configured, and tests never
 /// touch the network.
 final vaultClientProvider = Provider<VaultClient>((ref) {
-  final session = ref.watch(sessionProvider).asData?.value;
-  final VaultClient client = session != null
+  // select: rebuild only when CONNECTEDNESS flips (login/logout) — not on
+  // every session mutation. Token refreshes and noteUsername update the
+  // session object mid-request; rebuilding here disposed the client that
+  // was mid-fetch, killing it with "Ref used after dispose". The client
+  // always reads the CURRENT session per-call anyway.
+  final connected = ref.watch(
+    sessionProvider.select((s) => s.asData?.value != null),
+  );
+  final VaultClient client = connected
       ? HttpVaultClient(ref)
       : MockVaultClient(
           // Deferred: only fetchManifest needs the registry, and reading it

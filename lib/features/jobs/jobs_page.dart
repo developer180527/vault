@@ -10,9 +10,17 @@ import '../../core/platform/design/adaptive_icons.dart';
 
 /// Live job list from the client seam. StreamProvider so every view (both
 /// tabs, future status chip) shares ONE subscription; each view filters by
-/// kind.
-final jobsProvider = StreamProvider<List<VaultJob>>(
-    (ref) => ref.watch(vaultClientProvider).jobs.watch());
+/// kind. Gated on an actual jobs grant: a member with neither Torrent nor
+/// Downloads must not open the SSE stream at all — the server 403s it, and
+/// the reconnect loop was hammering every no-grant device for nothing.
+final jobsProvider = StreamProvider<List<VaultJob>>((ref) {
+  final manifest = ref.watch(manifestProvider).asData?.value;
+  final granted = manifest != null &&
+      (manifest.capabilities.containsKey('torrent') ||
+          manifest.capabilities.containsKey('downloads'));
+  if (!granted) return Stream.value(const <VaultJob>[]);
+  return ref.watch(vaultClientProvider).jobs.watch();
+});
 
 bool _can(WidgetRef ref, String service) =>
     ref.read(canProvider((serviceId: service, action: CapabilityAction.write)));

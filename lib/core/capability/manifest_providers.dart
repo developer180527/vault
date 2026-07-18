@@ -54,10 +54,15 @@ class ManifestController extends AsyncNotifier<CapabilityManifest> {
   Future<CapabilityManifest> build() async {
     // Connected to a real server → its manifest is the only authority.
     // Not connected → the editable mock keeps the app usable standalone
-    // (and drives all tests). Watching the session makes login/logout flip
-    // the whole app's navigation automatically.
-    final session = ref.watch(sessionProvider).asData?.value;
-    if (session == null) {
+    // (and drives all tests). select on server+device IDENTITY: login/logout
+    // and server switches refetch, but session MUTATIONS (token refresh,
+    // noteUsername — which fetchManifest itself triggers) must not — they
+    // used to cancel the in-flight fetch and double-fetch on every launch.
+    final scope = ref.watch(sessionProvider.select((s) {
+      final v = s.asData?.value;
+      return v == null ? null : '${v.serverHost}/${v.deviceId}';
+    }));
+    if (scope == null) {
       final manifest = ref.watch(mockManifestProvider);
       _log.debug('Using mock manifest (no server session)', fields: {
         'services': manifest.capabilities.length,
@@ -72,6 +77,9 @@ class ManifestController extends AsyncNotifier<CapabilityManifest> {
       });
       return manifest;
     } catch (e, s) {
+      // A stale build (this ref was rebuilt/disposed mid-fetch) is not a
+      // failure — a newer fetch owns the state. Don't log a scary error.
+      if (!ref.mounted) rethrow;
       // Fail-closed: log why, the UI shows the retry screen.
       _log.error('Manifest fetch failed — failing closed',
           error: e, stackTrace: s);

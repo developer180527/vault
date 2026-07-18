@@ -83,6 +83,10 @@ class HttpJobsApi implements VaultJobsApi {
     http.Client? client;
     var closed = false;
 
+    // Transient drops back off 2s → 4s → … → 60s (reset by a successful
+    // connect); a 403 ends the stream for good — the grant is not coming
+    // back mid-session, and retrying it every 2s hammered no-grant devices.
+    var backoff = const Duration(seconds: 2);
     Future<void> connect() async {
       while (!closed) {
         try {
@@ -92,9 +96,15 @@ class HttpJobsApi implements VaultJobsApi {
             ..headers['Authorization'] = 'Bearer $token'
             ..headers['Accept'] = 'text/event-stream';
           final res = await client!.send(req);
+          if (res.statusCode == 403) {
+            _log.info('jobs watch refused (no grant) — not retrying');
+            controller.add(const []);
+            return;
+          }
           if (res.statusCode != 200) {
             throw Exception('watch HTTP ${res.statusCode}');
           }
+          backoff = const Duration(seconds: 2); // healthy connect → reset
           // Parse the SSE byte stream line-by-line into `data:` events.
           var buffer = '';
           await for (final chunk
@@ -118,7 +128,10 @@ class HttpJobsApi implements VaultJobsApi {
           client?.close();
         }
         if (closed) break;
-        await Future<void>.delayed(const Duration(seconds: 2));
+        await Future<void>.delayed(backoff);
+        backoff = backoff * 2 > const Duration(seconds: 60)
+            ? const Duration(seconds: 60)
+            : backoff * 2;
       }
     }
 
