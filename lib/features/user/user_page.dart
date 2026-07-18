@@ -45,10 +45,10 @@ final userServiceActions = <VaultAction>[
   ),
 ];
 
-/// The You page, in three sections under a slim tab strip (same pattern as
-/// the music service): **Profile** (identity + services shelf), **Activity**
-/// (this device's background jobs), **Trash** (media recently-deleted,
-/// unlocked with device biometrics).
+/// The You page: a FIXED identity header (picture, name, connect/disconnect)
+/// that stays put, and below it three swipeable sections — **Services** (the
+/// shelf), **Activity** (background jobs), **Trash** (media recently-deleted,
+/// biometric-unlocked). Only the section content swipes; the header doesn't.
 class UserPage extends ConsumerWidget {
   const UserPage({super.key});
 
@@ -57,40 +57,53 @@ class UserPage extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     return SafeArea(
       bottom: false,
-      child: DefaultTabController(
-        length: 3,
-        child: Column(
-          children: [
-            TabBar(
-              dividerColor: Colors.transparent,
-              indicatorSize: TabBarIndicatorSize.label,
-              labelColor: scheme.primary,
-              unselectedLabelColor: scheme.onSurfaceVariant,
-              tabs: const [
-                Tab(height: 44, icon: Icon(Icons.person_outline, size: 20)),
-                Tab(height: 44, icon: Icon(Icons.history, size: 20)),
-                Tab(height: 44, icon: Icon(Icons.delete_outline, size: 20)),
-              ],
-            ),
-            const Expanded(
-              child: TabBarView(
+      child: Column(
+        children: [
+          // Fixed above the tabs — swiping the sections never moves this.
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: _ProfileHeader(),
+          ),
+          Expanded(
+            child: DefaultTabController(
+              length: 3,
+              child: Column(
                 children: [
-                  _ProfileSection(),
-                  _ActivitySection(),
-                  _TrashSection(),
+                  TabBar(
+                    dividerColor: Colors.transparent,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    labelColor: scheme.primary,
+                    unselectedLabelColor: scheme.onSurfaceVariant,
+                    tabs: const [
+                      Tab(height: 44, icon: Icon(Icons.apps_outlined, size: 20)),
+                      Tab(height: 44, icon: Icon(Icons.history, size: 20)),
+                      Tab(
+                          height: 44,
+                          icon: Icon(Icons.delete_outline, size: 20)),
+                    ],
+                  ),
+                  const Expanded(
+                    child: TabBarView(
+                      children: [
+                        _ServicesSection(),
+                        _ActivitySection(),
+                        _TrashSection(),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Profile: identity header + the full services shelf (launch / pin).
-class _ProfileSection extends ConsumerWidget {
-  const _ProfileSection();
+/// Services: the launch/pin shelf (the identity header lives fixed above).
+class _ServicesSection extends ConsumerWidget {
+  const _ServicesSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -104,16 +117,35 @@ class _ProfileSection extends ConsumerWidget {
 
     return ListView(
       padding: EdgeInsets.fromLTRB(
-          16, 16, 16, 16 + MediaQuery.paddingOf(context).bottom),
+          16, 8, 16, 16 + MediaQuery.paddingOf(context).bottom),
       children: [
-        const _ProfileHeader(),
-        const SizedBox(height: 24),
-        Text('Services',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant)),
-        const SizedBox(height: 4),
-        for (final s in shelf)
-          _ServiceTile(service: s, pinned: pinnedIds.contains(s.id)),
+        if (shelf.isEmpty)
+          // A freshly-invited member has no grants yet — say so plainly
+          // instead of showing a blank shelf that reads as "broken".
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              children: [
+                Icon(Icons.lock_outline,
+                    size: 40,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                const SizedBox(height: 12),
+                Text('No services yet',
+                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 6),
+                Text(
+                  'Your account is connected, but the admin hasn’t granted '
+                  'you access to any services yet. Ask them to add you.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+          )
+        else
+          for (final s in shelf)
+            _ServiceTile(service: s, pinned: pinnedIds.contains(s.id)),
       ],
     );
   }

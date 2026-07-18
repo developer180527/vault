@@ -31,6 +31,11 @@ final vaultServices = <ServiceDefinition>[
     label: 'Media',
     icon: VaultIcons.media,
     category: ServiceCategory.media,
+    // Always available: the media browser reads THIS DEVICE's own photos and
+    // videos — a local capability the server has no say over. So even a
+    // connected member with no grants (or a standalone device) still gets a
+    // working tab and never a blank bottom nav.
+    alwaysAvailable: true,
     statusBar: (_) => const MediaToolbarControls(),
     builder: (_) => const MediaLibraryPage(),
   ),
@@ -120,7 +125,17 @@ final routerProvider = Provider<GoRouter>((ref) {
               )),
     ];
   } else {
-    initialLocation = '/${services.first.id}';
+    // Landing tab: prefer the first real CONTENT service; fall back to the You
+    // page, and never Settings. A zero-grant member's permitted set is only
+    // the always-available services (settings, user) — and settings sorts
+    // first, so without this they booted straight INTO the Settings screen
+    // with no other tabs and looked stranded. Settings stays a branch (the
+    // desktop sidebar lists it), it just can't be the home tab.
+    const notLanding = {'settings', 'user'};
+    final landing = services.firstWhere((s) => !notLanding.contains(s.id),
+        orElse: () => services.firstWhere((s) => s.id == 'user',
+            orElse: () => services.first));
+    initialLocation = '/${landing.id}';
     routes = [
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) =>

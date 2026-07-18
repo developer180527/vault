@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../capability/manifest_providers.dart';
+import '../services/service_registry.dart';
 
 /// Hard cap on dock pins — the dock row is static (no scrolling), so this is
 /// what fits comfortably beside the fixed You slot on a phone. Everything else
@@ -21,7 +22,21 @@ class PinnedServicesNotifier extends AsyncNotifier<List<String>> {
     final stored = prefs.getStringList(_key);
     if (stored != null) return stored;
     final manifest = ref.watch(manifestProvider).asData?.value;
-    return manifest?.defaultPinned ?? const [];
+    final defaults = List<String>.of(manifest?.defaultPinned ?? const []);
+    // Always-available LOCAL content services (e.g. Media, which browses the
+    // device's own photos) belong on the dock even when the server grants
+    // nothing — otherwise a no-grant member has an empty bottom nav. Lead with
+    // them; 'user' is the detached You slot and 'settings' lives behind its
+    // gear, so neither is a dock pin.
+    for (final s in ref.watch(serviceRegistryProvider)) {
+      if (s.alwaysAvailable &&
+          s.id != 'user' &&
+          s.id != 'settings' &&
+          !defaults.contains(s.id)) {
+        defaults.insert(0, s.id);
+      }
+    }
+    return defaults;
   }
 
   Future<void> _persist(List<String> ids) async {
