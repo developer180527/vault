@@ -297,3 +297,75 @@ func (w *WriteStore) InsertListen(ctx context.Context, userID, trackID string, m
 		userID, trackID, time.Now().Unix(), msPlayed, source)
 	return err
 }
+
+// MostPlayed returns a user's top tracks by total listening time — the "You"
+// shelf. Ranks by SUM(ms_played) so a track played to the end outweighs one
+// skipped after two seconds, with listen count breaking ties. Only tracks the
+// user has actually heard appear (INNER JOIN on listens).
+func (r *ReadStore) MostPlayed(ctx context.Context, userID string, limit int) ([]CatalogTrack, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT `+catalogCols+` FROM catalog_tracks
+		JOIN (
+			SELECT track_id, SUM(ms_played) AS ms, COUNT(1) AS n
+			FROM listens WHERE user_id = ?
+			GROUP BY track_id
+		) agg ON agg.track_id = catalog_tracks.id
+		ORDER BY agg.ms DESC, agg.n DESC, title COLLATE NOCASE
+		LIMIT ?`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return collectCatalog(rows)
+}
+
+// --- favorites (per-user "liked songs" over the shared catalog) ---
+
+// AddFavorite likes a track for a user (idempotent — re-liking is a no-op).
+func (w *WriteStore) AddFavorite(ctx context.Context, userID, trackID string) error {
+	_, err := w.db.ExecContext(ctx, `
+		INSERT INTO favorites (user_id, track_id, created_at) VALUES (?, ?, ?)
+		ON CONFLICT (user_id, track_id) DO NOTHING`,
+		userID, trackID, time.Now().Unix())
+	return err
+}
+
+// RemoveFavorite unlikes a track (no error if it wasn't liked).
+func (w *WriteStore) RemoveFavorite(ctx context.Context, userID, trackID string) error {
+	_, err := w.db.ExecContext(ctx,
+		`DELETE FROM favorites WHERE user_id = ? AND track_id = ?`, userID, trackID)
+	return err
+}
+
+// Favorites lists a user's liked tracks, most-recently-liked first.
+func (r *ReadStore) Favorites(ctx context.Context, userID string) ([]CatalogTrack, error) {
+	// rowid tiebreaks likes made within the same second so "newest first"
+	// stays deterministic (created_at has only second resolution).
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT `+catalogCols+` FROM catalog_tracks
+		JOIN favorites f ON f.track_id = catalog_tracks.id
+		WHERE f.user_id = ? ORDER BY f.created_at DESC, f.rowid DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	return collectCatalog(rows)
+}
+
+// FavoriteIDs returns just the track ids a user has liked — a cheap membership
+// set for painting heart states across a listing without loading full rows.
+func (r *ReadStore) FavoriteIDs(ctx context.Context, userID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT track_id FROM favorites WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

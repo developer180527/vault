@@ -9,6 +9,7 @@ class ServerTrack {
     required this.title,
     this.artist = '',
     this.album = '',
+    this.genre = '',
     this.trackNo = 0,
     this.year = 0,
     this.hasArt = false,
@@ -19,6 +20,7 @@ class ServerTrack {
   final String title;
   final String artist;
   final String album;
+  final String genre;
   final int trackNo;
   final int year;
   final bool hasArt;
@@ -33,6 +35,7 @@ class ServerTrack {
     title: (j['title'] as String?) ?? '',
     artist: (j['artist'] as String?) ?? '',
     album: (j['album'] as String?) ?? '',
+    genre: (j['genre'] as String?) ?? '',
     trackNo: (j['track_no'] as num?)?.toInt() ?? 0,
     year: (j['year'] as num?)?.toInt() ?? 0,
     hasArt: (j['has_art'] as bool?) ?? false,
@@ -46,6 +49,7 @@ class ServerTrack {
     'title': title,
     'artist': artist,
     'album': album,
+    'genre': genre,
     'track_no': trackNo,
     'year': year,
     'has_art': hasArt,

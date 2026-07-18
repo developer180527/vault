@@ -291,3 +291,63 @@ func (s *Server) handleReportListen(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"ok": true})
 }
+
+// GET /v1/music/you/most-played  (music:read)
+// The "You" shelf: this caller's top catalog tracks by total play time. Empty
+// until they've listened to something — a fresh account has no history.
+func (s *Server) handleMostPlayed(w http.ResponseWriter, r *http.Request) {
+	p := PrincipalFrom(r.Context())
+	tracks, err := s.store.Read().MostPlayed(r.Context(), p.UserID, 25)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if tracks == nil {
+		tracks = []store.CatalogTrack{}
+	}
+	s.signCatalogStreams(tracks)
+	writeJSON(w, http.StatusOK, map[string]any{"tracks": tracks})
+}
+
+// --- favorites (per-user liked songs) ---
+
+// GET /v1/music/favorites  (music:read) — caller's liked tracks, newest first.
+func (s *Server) handleListFavorites(w http.ResponseWriter, r *http.Request) {
+	p := PrincipalFrom(r.Context())
+	tracks, err := s.store.Read().Favorites(r.Context(), p.UserID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if tracks == nil {
+		tracks = []store.CatalogTrack{}
+	}
+	s.signCatalogStreams(tracks)
+	writeJSON(w, http.StatusOK, map[string]any{"tracks": tracks})
+}
+
+// PUT /v1/music/favorites/{id}  (music:read) — like a catalog track.
+func (s *Server) handleAddFavorite(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	// Validate the track exists so favorites can't hold dangling ids.
+	if _, err := s.store.Read().CatalogTrackByID(r.Context(), id); err != nil {
+		s.filesErr(w, r, err)
+		return
+	}
+	p := PrincipalFrom(r.Context())
+	if err := s.store.Write().AddFavorite(r.Context(), p.UserID, id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// DELETE /v1/music/favorites/{id}  (music:read) — unlike a track.
+func (s *Server) handleRemoveFavorite(w http.ResponseWriter, r *http.Request) {
+	p := PrincipalFrom(r.Context())
+	if err := s.store.Write().RemoveFavorite(r.Context(), p.UserID, chi.URLParam(r, "id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}

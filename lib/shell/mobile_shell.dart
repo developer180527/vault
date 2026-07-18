@@ -423,12 +423,9 @@ class _MiniPlayerPill extends ConsumerWidget {
     return NativeGlassSurface(
       radius: _kMiniPlayerHeight / 2,
       child: InkWell(
-        onTap: () => Navigator.of(context, rootNavigator: true).push(
-          MaterialPageRoute<void>(
-            fullscreenDialog: true,
-            builder: (_) => const MusicPlayerPage(),
-          ),
-        ),
+        // Guarded opener: a pill tap while the player is already up (or a
+        // double-tap) must not stack a second copy.
+        onTap: () => openMusicPlayer(context),
         child: SizedBox(
           height: _kMiniPlayerHeight,
           child: Row(

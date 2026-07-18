@@ -246,6 +246,84 @@ final playlistTracksProvider = FutureProvider.family<List<ServerTrack>, String>(
   },
 );
 
+/// Library: the caller's liked songs. Snapshot-first (paints instantly on cold
+/// start), invalidated after any like/unlike so the section stays truthful.
+class FavoritesNotifier extends AsyncNotifier<List<ServerTrack>> {
+  @override
+  Future<List<ServerTrack>> build() => _snapshotFirst(
+    ref: ref,
+    name: 'music.favorites',
+    fetch: () => ref.read(vaultClientProvider).music.favorites(),
+    encode: (t) => t.toJson(),
+    decode: ServerTrack.fromJson,
+    update: (fresh) => state = AsyncData(fresh),
+  );
+}
+
+final favoritesProvider =
+    AsyncNotifierProvider<FavoritesNotifier, List<ServerTrack>>(
+      FavoritesNotifier.new,
+    );
+
+/// The set of liked track ids — the single source of truth for heart states
+/// everywhere (rows, player), derived from [favoritesProvider] so one
+/// invalidation flips every heart at once.
+final favoriteIdsProvider = Provider<Set<String>>((ref) {
+  final favs = ref.watch(favoritesProvider).asData?.value ?? const [];
+  return {for (final t in favs) t.id};
+});
+
+/// Home "You" shelf: the caller's most-played catalog tracks. Snapshot-first
+/// so the shelf survives a cold, offline start.
+class MostPlayedNotifier extends AsyncNotifier<List<ServerTrack>> {
+  @override
+  Future<List<ServerTrack>> build() => _snapshotFirst(
+    ref: ref,
+    name: 'music.most_played',
+    fetch: () => ref.read(vaultClientProvider).music.mostPlayed(),
+    encode: (t) => t.toJson(),
+    decode: ServerTrack.fromJson,
+    update: (fresh) => state = AsyncData(fresh),
+  );
+}
+
+final mostPlayedProvider =
+    AsyncNotifierProvider<MostPlayedNotifier, List<ServerTrack>>(
+      MostPlayedNotifier.new,
+    );
+
+/// One catalog dimension for Home browsing: a labeled bucket of tracks
+/// (an artist, or a genre) plus the tracks under it.
+class TrackGroup {
+  const TrackGroup(this.label, this.tracks);
+  final String label;
+  final List<ServerTrack> tracks;
+}
+
+/// Groups catalog tracks by a chosen key into alphabetically-ordered
+/// [TrackGroup]s. Blank keys collapse into a single trailing bucket so
+/// untagged tracks are still reachable rather than silently dropped.
+List<TrackGroup> groupTracks(
+  List<ServerTrack> tracks,
+  String Function(ServerTrack) keyOf, {
+  required String unknownLabel,
+}) {
+  final buckets = <String, List<ServerTrack>>{};
+  for (final t in tracks) {
+    final raw = keyOf(t).trim();
+    buckets.putIfAbsent(raw.isEmpty ? '' : raw, () => []).add(t);
+  }
+  final keys = buckets.keys.toList()
+    ..sort((a, b) {
+      if (a.isEmpty) return 1; // unknown sinks to the bottom
+      if (b.isEmpty) return -1;
+      return a.toLowerCase().compareTo(b.toLowerCase());
+    });
+  return [
+    for (final k in keys) TrackGroup(k.isEmpty ? unknownLabel : k, buckets[k]!),
+  ];
+}
+
 /// The listen-event `source` tag for what's on screen — raw fact recording
 /// for the future recommender (`library` | `search` | `playlist:<id>`).
 String listenSourceFor(MusicSource source, String query) {

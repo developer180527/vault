@@ -35,12 +35,8 @@ class NowPlayingStrip extends ConsumerWidget {
             button: true,
             label: 'Now playing: ${track.title}. Opens the player.',
             child: InkWell(
-              onTap: () => Navigator.of(context, rootNavigator: true).push(
-                MaterialPageRoute<void>(
-                  fullscreenDialog: true,
-                  builder: (_) => const MusicPlayerPage(),
-                ),
-              ),
+              // Guarded opener — never stacks a second player page.
+              onTap: () => openMusicPlayer(context),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,

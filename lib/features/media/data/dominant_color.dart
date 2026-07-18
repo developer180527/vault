@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/playback/playback_controller.dart';
+import 'server_music.dart';
 
 /// Dominant color of an image, for tinting the player background from album
 /// art. Decodes a 24×24 preview and picks the most *saturated-weighted*
@@ -48,17 +49,24 @@ Future<Color?> dominantColorOf(Uint8List bytes) async {
 }
 
 /// Dominant art color for the currently-playing [Playable] (keyed by its id).
-/// Sourced from the playback queue's artwork, so it works for any audio —
-/// local music or a future server stream. Null when there's no art.
+/// Local tracks carry embedded artwork bytes; server tracks only carry an
+/// artwork URL — for those the bytes come through the content cache (already
+/// warm: the player's artwork widget fetches the same URL), so the tint works
+/// for catalog streams too. Null when there's no art either way.
 final artColorProvider =
     FutureProvider.family<Color?, String>((ref, id) async {
   final queue = ref.watch(playbackProvider).queue;
   Uint8List? art;
+  Uri? artUri;
   for (final p in queue) {
     if (p.id == id) {
       art = p.artwork;
+      artUri = p.artworkUri;
       break;
     }
+  }
+  if (art == null && artUri != null) {
+    art = await ref.watch(artBytesProvider(artUri.toString()).future);
   }
   if (art == null) return null;
   return dominantColorOf(art);

@@ -163,6 +163,12 @@ func New(o Options) http.Handler {
 				r.Delete("/music/playlists/{id}/tracks/{trackId}", s.handleRemoveFromPlaylist)
 
 				r.Post("/music/listens", s.handleReportListen)
+
+				// "You" shelf + per-user liked songs over the shared catalog.
+				r.Get("/music/you/most-played", s.handleMostPlayed)
+				r.Get("/music/favorites", s.handleListFavorites)
+				r.Put("/music/favorites/{id}", s.handleAddFavorite)
+				r.Delete("/music/favorites/{id}", s.handleRemoveFavorite)
 			})
 			r.Group(func(r chi.Router) {
 				r.Use(s.RequireGrant("music", "write"))

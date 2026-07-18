@@ -92,6 +92,9 @@ class _ServerMusic extends ConsumerStatefulWidget {
   ConsumerState<_ServerMusic> createState() => _ServerMusicState();
 }
 
+/// How the Home catalog is grouped for browsing.
+enum _GroupBy { artist, genre }
+
 class _ServerMusicState extends ConsumerState<_ServerMusic> {
   /// Library drill-in: non-null while a playlist's tracks are open.
   Playlist? _openPlaylist;
@@ -99,6 +102,9 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
   /// Whether the last catalog play started from the Search section — the
   /// listen event's `library` vs `search` tag.
   bool _playingFromSearch = false;
+
+  /// Home browse dimension (Artists / Genres toggle).
+  _GroupBy _groupBy = _GroupBy.artist;
 
   // ---- playback ----
 
@@ -194,6 +200,20 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
     }
   }
 
+  /// Toggle a track's liked state, then refresh the favorites listing so the
+  /// Library section and every heart (derived from [favoriteIdsProvider])
+  /// update at once.
+  Future<void> _toggleFavorite(ServerTrack t) async {
+    final music = ref.read(vaultClientProvider).music;
+    final liked = ref.read(favoriteIdsProvider).contains(t.id);
+    if (liked) {
+      await music.removeFavorite(t.id);
+    } else {
+      await music.addFavorite(t.id);
+    }
+    ref.invalidate(favoritesProvider);
+  }
+
   /// Long-press a catalog track → add-to-playlist sheet; inside a playlist →
   /// remove it from that playlist.
   Future<void> _trackMenu(ServerTrack t, {Playlist? inPlaylist}) async {
@@ -209,6 +229,7 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
         .read(playlistsProvider.future)
         .catchError((_) => <Playlist>[]);
     if (!mounted) return;
+    final liked = ref.read(favoriteIdsProvider).contains(t.id);
     final target = await showModalBottomSheet<Playlist>(
       context: context,
       // Root navigator: the sheet must rise ABOVE the shell chrome (glass
@@ -221,11 +242,28 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
           children: [
             ListTile(
               title: Text(
-                'Add "${t.title}" to playlist',
+                t.title,
                 style: Theme.of(context).textTheme.titleSmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
+              subtitle: t.artist.isEmpty ? null : Text(t.artist),
               dense: true,
             ),
+            // Favorite toggle acts immediately and dismisses the sheet — it is
+            // not a playlist choice, so it returns null.
+            ListTile(
+              leading: Icon(
+                liked ? Icons.favorite : Icons.favorite_border,
+                color: liked ? Theme.of(context).colorScheme.primary : null,
+              ),
+              title: Text(liked ? 'Remove from Favorites' : 'Add to Favorites'),
+              onTap: () {
+                Navigator.pop(context);
+                _toggleFavorite(t);
+              },
+            ),
+            const Divider(height: 1),
             for (final p in playlists)
               ListTile(
                 leading: const Icon(Icons.queue_music),
@@ -235,7 +273,8 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
               ),
             if (playlists.isEmpty)
               const ListTile(
-                title: Text('No playlists yet — create one first.'),
+                dense: true,
+                title: Text('No playlists yet — create one to add tracks.'),
               ),
           ],
         ),
@@ -254,11 +293,18 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
     Offset position, {
     Playlist? inPlaylist,
   }) {
+    final liked = ref.read(favoriteIdsProvider).contains(t.id);
     showContextMenu(
       context: context,
       ref: ref,
       globalPosition: position,
       actions: [
+        VaultAction(
+          id: 'music.favorite.toggle',
+          label: liked ? 'Remove from Favorites' : 'Add to Favorites',
+          icon: liked ? VaultIcons.trash : VaultIcons.add,
+          onInvoke: (_, _) => _toggleFavorite(t),
+        ),
         VaultAction(
           id: 'music.playlist.toggle',
           label: inPlaylist != null
@@ -320,25 +366,78 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
     );
   }
 
+  /// Home: a "You" shelf of most-played tracks on top, then the whole catalog
+  /// browsable grouped by Artist or Genre — not a raw flat list. Playing a
+  /// track uses its GROUP as the queue, so a tap on an artist's song plays that
+  /// artist through.
   Widget _buildHome() {
     final tracksAsync = ref.watch(catalogTracksProvider);
     return tracksAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Catalog unavailable: $e')),
-      data: (tracks) => tracks.isEmpty
-          ? const _EmptyNote(
-              'The catalog is empty.\nThe admin loads music into it on the server.',
-            )
-          : _ServerTrackList(
-              tracks: tracks,
-              catalogArt: true,
-              onPlay: (t, i) {
-                _playingFromSearch = false;
-                _play(t, i, source: const CatalogSource());
-              },
-              onLongPress: (t) => _trackMenu(t),
-              onSecondaryTap: (t, pos) => _trackContextMenu(t, pos),
+      data: (tracks) {
+        if (tracks.isEmpty) {
+          return const _EmptyNote(
+            'The catalog is empty.\nThe admin loads music into it on the server.',
+          );
+        }
+        final mostPlayed =
+            ref.watch(mostPlayedProvider).asData?.value ?? const [];
+        final groups = groupTracks(
+          tracks,
+          _groupBy == _GroupBy.artist ? (t) => t.artist : (t) => t.genre,
+          unknownLabel: _groupBy == _GroupBy.artist
+              ? 'Unknown artist'
+              : 'Unsorted',
+        );
+
+        // Flatten (group header, track…)+ into one lazy sliver list so the
+        // whole Home scrolls as a single surface without building every row.
+        final rows = <_HomeRow>[];
+        for (final g in groups) {
+          rows.add(_HomeRow.header(g.label, g.tracks));
+          for (var i = 0; i < g.tracks.length; i++) {
+            rows.add(_HomeRow.track(g.tracks, i));
+          }
+        }
+
+        return CustomScrollView(
+          slivers: [
+            if (mostPlayed.isNotEmpty) ...[
+              SliverToBoxAdapter(child: _SectionHeader('You')),
+              SliverToBoxAdapter(
+                child: _MostPlayedShelf(
+                  tracks: mostPlayed,
+                  onPlay: (i) {
+                    _playingFromSearch = false;
+                    _play(mostPlayed, i, source: const CatalogSource());
+                  },
+                ),
+              ),
+            ],
+            SliverToBoxAdapter(
+              child: _GroupByToggle(
+                value: _groupBy,
+                onChanged: (g) => setState(() => _groupBy = g),
+              ),
             ),
+            SliverList.builder(
+              itemCount: rows.length,
+              itemBuilder: (context, i) => rows[i].build(
+                context,
+                ref,
+                onPlay: (queue, index) {
+                  _playingFromSearch = false;
+                  _play(queue, index, source: const CatalogSource());
+                },
+                onLongPress: (t) => _trackMenu(t),
+                onSecondaryTap: (t, pos) => _trackContextMenu(t, pos),
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 120)),
+          ],
+        );
+      },
     );
   }
 
@@ -411,6 +510,9 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
             );
           },
         ),
+        // Favorites — the caller's liked songs over the shared catalog.
+        SliverToBoxAdapter(child: _SectionHeader('Favorites')),
+        ..._favoritesSlivers(),
         SliverToBoxAdapter(child: _SectionHeader('My music')),
         personalAsync.when(
           loading: () => const SliverToBoxAdapter(
@@ -450,6 +552,55 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
         ),
       ],
     );
+  }
+
+  /// The Library "Favorites" section as slivers: a lazy list of liked tracks,
+  /// an empty note when there are none, or a spinner on first load. Playing a
+  /// favorite uses the whole favorites list as the queue.
+  List<Widget> _favoritesSlivers() {
+    final scheme = Theme.of(context).colorScheme;
+    final favAsync = ref.watch(favoritesProvider);
+    return [
+      favAsync.when(
+        loading: () => const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        ),
+        error: (e, _) => SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text('Favorites unavailable: $e'),
+          ),
+        ),
+        data: (tracks) {
+          if (tracks.isEmpty) {
+            return SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 4,
+                ),
+                child: Text(
+                  'No liked songs yet.\nTap the heart on a track to add it here.',
+                  style: TextStyle(color: scheme.onSurfaceVariant),
+                ),
+              ),
+            );
+          }
+          return SliverList.builder(
+            itemCount: tracks.length,
+            itemBuilder: (context, i) => _CatalogTrackTile(
+              track: tracks[i],
+              onPlay: () => _play(tracks, i, source: const CatalogSource()),
+              onLongPress: () => _trackMenu(tracks[i]),
+              onSecondaryTap: (pos) => _trackContextMenu(tracks[i], pos),
+            ),
+          );
+        },
+      ),
+    ];
   }
 
   Widget _buildPlaylistDetail(Playlist p) {
@@ -662,6 +813,275 @@ class _ServerTrackList extends ConsumerWidget {
   }
 }
 
+/// One flattened Home row: either a group header or a track within its group.
+/// Kept as a lightweight descriptor so the whole grouped catalog renders from
+/// a single lazy [SliverList.builder].
+class _HomeRow {
+  const _HomeRow._(this._label, this._queue, this._index);
+
+  _HomeRow.header(String label, List<ServerTrack> queue)
+      : this._(label, queue, -1);
+  _HomeRow.track(List<ServerTrack> queue, int index)
+      : this._(null, queue, index);
+
+  final String? _label;
+  final List<ServerTrack> _queue;
+  final int _index;
+
+  bool get _isHeader => _index < 0;
+
+  Widget build(
+    BuildContext context,
+    WidgetRef ref, {
+    required void Function(List<ServerTrack>, int) onPlay,
+    required void Function(ServerTrack) onLongPress,
+    required void Function(ServerTrack, Offset) onSecondaryTap,
+  }) {
+    if (_isHeader) {
+      return _GroupHeader(_label!, count: _queue.length);
+    }
+    return _CatalogTrackTile(
+      track: _queue[_index],
+      onPlay: () => onPlay(_queue, _index),
+      onLongPress: () => onLongPress(_queue[_index]),
+      onSecondaryTap: (pos) => onSecondaryTap(_queue[_index], pos),
+    );
+  }
+}
+
+/// A browse-group divider (artist or genre) with its track count.
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader(this.label, {required this.count});
+  final String label;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Flexible(
+            child: Text(
+              label,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$count',
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Artists ⇄ Genres selector for Home browsing.
+class _GroupByToggle extends StatelessWidget {
+  const _GroupByToggle({required this.value, required this.onChanged});
+  final _GroupBy value;
+  final ValueChanged<_GroupBy> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: SegmentedButton<_GroupBy>(
+          style: ButtonStyle(
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          segments: const [
+            ButtonSegment(
+              value: _GroupBy.artist,
+              label: Text('Artists'),
+              icon: Icon(Icons.person_outline, size: 18),
+            ),
+            ButtonSegment(
+              value: _GroupBy.genre,
+              label: Text('Genres'),
+              icon: Icon(Icons.category_outlined, size: 18),
+            ),
+          ],
+          selected: {value},
+          showSelectedIcon: false,
+          onSelectionChanged: (s) => onChanged(s.first),
+        ),
+      ),
+    );
+  }
+}
+
+/// Horizontal "You" shelf: most-played tracks as tappable art cards.
+class _MostPlayedShelf extends ConsumerWidget {
+  const _MostPlayedShelf({required this.tracks, required this.onPlay});
+  final List<ServerTrack> tracks;
+  final void Function(int index) onPlay;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final music = ref.read(vaultClientProvider).music;
+    final currentId = ref.watch(
+      playbackProvider.select((s) => s.currentAudio?.id),
+    );
+    return SizedBox(
+      height: 172,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+        itemCount: tracks.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final t = tracks[i];
+          return _ShelfCard(
+            track: t,
+            artUri: t.hasArt ? music.catalogArtUri(t.id) : null,
+            isCurrent: currentId == t.id,
+            onTap: () => onPlay(i),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ShelfCard extends ConsumerWidget {
+  const _ShelfCard({
+    required this.track,
+    required this.artUri,
+    required this.isCurrent,
+    required this.onTap,
+  });
+  final ServerTrack track;
+  final Uri? artUri;
+  final bool isCurrent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final bytes = artUri == null
+        ? null
+        : ref.watch(artBytesProvider(artUri!.toString())).asData?.value;
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 116,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 116,
+                height: 116,
+                child: bytes != null
+                    ? Image.memory(
+                        bytes,
+                        fit: BoxFit.cover,
+                        cacheWidth: 232,
+                        gaplessPlayback: true,
+                      )
+                    : ColoredBox(
+                        color: scheme.surfaceContainerHighest,
+                        child: Icon(
+                          Icons.music_note,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              track.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: isCurrent ? scheme.primary : null,
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
+            if (track.artist.isNotEmpty)
+              Text(
+                track.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A single catalog track row (art, title, artist, now-playing highlight) with
+/// tap-to-play plus long-press / right-click hooks. Shared by Home's grouped
+/// list; watches only the current track id so unrelated playback events don't
+/// rebuild it.
+class _CatalogTrackTile extends ConsumerWidget {
+  const _CatalogTrackTile({
+    required this.track,
+    required this.onPlay,
+    required this.onLongPress,
+    required this.onSecondaryTap,
+  });
+  final ServerTrack track;
+  final VoidCallback onPlay;
+  final VoidCallback onLongPress;
+  final void Function(Offset) onSecondaryTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final music = ref.read(vaultClientProvider).music;
+    final scheme = Theme.of(context).colorScheme;
+    final isCurrent = ref.watch(
+      playbackProvider.select((s) => s.currentAudio?.id == track.id),
+    );
+    final isFavorite = ref.watch(
+      favoriteIdsProvider.select((ids) => ids.contains(track.id)),
+    );
+    final tile = ListTile(
+      leading: _ServerArt(uri: track.hasArt ? music.catalogArtUri(track.id) : null),
+      title: Text(
+        track.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: isCurrent ? TextStyle(color: scheme.primary) : null,
+      ),
+      subtitle: track.artist.isEmpty
+          ? null
+          : Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: isFavorite
+          ? Icon(Icons.favorite, size: 18, color: scheme.primary)
+          : (isCurrent
+              ? Icon(Icons.equalizer, size: 20, color: scheme.primary)
+              : null),
+      onTap: onPlay,
+      onLongPress: onLongPress,
+    );
+    return GestureDetector(
+      onSecondaryTapUp: (d) => onSecondaryTap(d.globalPosition),
+      child: tile,
+    );
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader(this.title, {this.trailing});
 
@@ -858,12 +1278,6 @@ class _TrackList extends ConsumerWidget {
 }
 
 void _openPlayer(BuildContext context) {
-  // Root navigator so the full-screen player covers the whole shell (app bar +
-  // bottom nav), not just the tab's body.
-  Navigator.of(context, rootNavigator: true).push(
-    MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (_) => const MusicPlayerPage(),
-    ),
-  );
+  // Shared guarded opener: pushes over the whole shell, never stacks twice.
+  openMusicPlayer(context);
 }

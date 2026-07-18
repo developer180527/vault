@@ -3,10 +3,33 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../core/client/vault_client.dart';
 import '../../core/platform/platform_info.dart';
 import '../../core/playback/playback_controller.dart';
 import 'data/dominant_color.dart';
 import 'data/server_music.dart';
+
+/// True while a [MusicPlayerPage] is on the navigator. Guards [openMusicPlayer]
+/// so the full-screen player can never be pushed twice — the bug where tapping
+/// a track while the mini-player pill was also live stacked two copies.
+bool _playerOpen = false;
+
+/// Open the full-screen player once, over the whole shell. Every entry point
+/// (track tap, mini-player pill, desktop now-playing strip) routes through
+/// here; a second call while it's already open is a no-op. The flag resets when
+/// the route is popped.
+void openMusicPlayer(BuildContext context) {
+  if (_playerOpen) return;
+  _playerOpen = true;
+  Navigator.of(context, rootNavigator: true)
+      .push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => const MusicPlayerPage(),
+        ),
+      )
+      .whenComplete(() => _playerOpen = false);
+}
 
 /// Full-screen now-playing screen, styled after Apple Music: large artwork,
 /// track title/artist, scrubber, transport controls, and a volume/output row.
@@ -24,9 +47,12 @@ class MusicPlayerPage extends ConsumerWidget {
     final track = ref.watch(playbackProvider.select((s) => s.currentAudio));
     final scheme = Theme.of(context).colorScheme;
 
-    final artColor = track?.artwork == null
-        ? null
-        : ref.watch(artColorProvider(track!.id)).asData?.value;
+    // Tint from embedded art (local) OR fetched art (server catalog): the
+    // provider resolves either; gate only on "has any art at all".
+    final hasArt = track != null &&
+        (track.artwork != null || track.artworkUri != null);
+    final artColor =
+        hasArt ? ref.watch(artColorProvider(track.id)).asData?.value : null;
 
     return Scaffold(
       body: AnimatedContainer(
@@ -56,17 +82,24 @@ class MusicPlayerPage extends ConsumerWidget {
                     icon: const Icon(Icons.keyboard_arrow_down, size: 32),
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
-                  // Stop entirely: kills playback, clears the queue, and
-                  // (via current == null) removes the mini-player pill.
-                  IconButton(
-                    tooltip: 'Stop',
-                    icon: const Icon(Icons.stop_circle_outlined, size: 30),
-                    onPressed: () async {
-                      await controller.stopAudio();
-                      if (context.mounted) {
-                        Navigator.of(context).maybePop();
-                      }
-                    },
+                  Row(
+                    children: [
+                      // Like/unlike the playing track (server catalog only —
+                      // local files have no server-side favorites row).
+                      if (track != null) _FavoriteButton(trackId: track.id),
+                      // Stop entirely: kills playback, clears the queue, and
+                      // (via current == null) removes the mini-player pill.
+                      IconButton(
+                        tooltip: 'Stop',
+                        icon: const Icon(Icons.stop_circle_outlined, size: 30),
+                        onPressed: () async {
+                          await controller.stopAudio();
+                          if (context.mounted) {
+                            Navigator.of(context).maybePop();
+                          }
+                        },
+                      ),
+                    ],
                   ),
                 ],
               );
@@ -155,6 +188,44 @@ class MusicPlayerPage extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Heart toggle for the playing track. Only rendered while connected — local
+/// standalone playback has no server-side favorites. The liked state derives
+/// from [favoriteIdsProvider], so a toggle here also updates every list row.
+class _FavoriteButton extends ConsumerWidget {
+  const _FavoriteButton({required this.trackId});
+  final String trackId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(musicServerModeProvider)) return const SizedBox.shrink();
+    final liked = ref.watch(
+      favoriteIdsProvider.select((ids) => ids.contains(trackId)),
+    );
+    return IconButton(
+      tooltip: liked ? 'Remove from Favorites' : 'Add to Favorites',
+      icon: Icon(
+        liked ? Icons.favorite : Icons.favorite_border,
+        size: 26,
+        color: liked ? Theme.of(context).colorScheme.primary : null,
+      ),
+      onPressed: () async {
+        final music = ref.read(vaultClientProvider).music;
+        try {
+          if (liked) {
+            await music.removeFavorite(trackId);
+          } else {
+            await music.addFavorite(trackId);
+          }
+          ref.invalidate(favoritesProvider);
+        } catch (_) {
+          // Personal-zone tracks aren't in the shared catalog — the server
+          // (correctly) refuses to favorite them. Quietly ignore.
+        }
+      },
     );
   }
 }

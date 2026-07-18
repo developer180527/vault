@@ -122,6 +122,17 @@ abstract interface class MusicApi {
   Future<void> reportListen(String trackId,
       {String source = '', int msPlayed = 0});
 
+  /// The caller's "You" shelf: top catalog tracks by total play time. Empty
+  /// until they've listened to something.
+  Future<List<ServerTrack>> mostPlayed();
+
+  /// The caller's liked songs over the shared catalog (newest-liked first).
+  Future<List<ServerTrack>> favorites();
+
+  /// Like / unlike a catalog track for the caller. Idempotent both ways.
+  Future<void> addFavorite(String trackId);
+  Future<void> removeFavorite(String trackId);
+
   /// Bearer header for stream/artwork requests (refreshed if expired).
   Future<Map<String, String>> authHeaders();
 }

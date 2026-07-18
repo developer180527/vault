@@ -64,6 +64,18 @@ class _FakeMusicApi implements MusicApi {
       {String source = '', int msPlayed = 0}) async {
     listens.add((trackId, source));
   }
+
+  @override
+  Future<List<ServerTrack>> mostPlayed() async => const [];
+
+  @override
+  Future<List<ServerTrack>> favorites() async => const [];
+
+  @override
+  Future<void> addFavorite(String trackId) async {}
+
+  @override
+  Future<void> removeFavorite(String trackId) async {}
 }
 
 void main() {

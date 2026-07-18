@@ -116,6 +116,22 @@ class HttpMusicApi implements MusicApi {
     } catch (_) {}
   }
 
+  @override
+  Future<List<ServerTrack>> mostPlayed() =>
+      _fetch(_session.api('/v1/music/you/most-played'));
+
+  @override
+  Future<List<ServerTrack>> favorites() =>
+      _fetch(_session.api('/v1/music/favorites'));
+
+  @override
+  Future<void> addFavorite(String trackId) =>
+      _json('PUT', '/v1/music/favorites/$trackId');
+
+  @override
+  Future<void> removeFavorite(String trackId) =>
+      _json('DELETE', '/v1/music/favorites/$trackId');
+
   Future<List<ServerTrack>> _fetch(Uri uri) async {
     final res = await http.get(uri, headers: await authHeaders());
     if (res.statusCode != 200) {
