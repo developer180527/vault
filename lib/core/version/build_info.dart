@@ -4,9 +4,9 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 35;
-  static const String commit = '92d767c';
-  static const String commitSubject = 'Added polish in music service';
+  static const int build = 37;
+  static const String commit = '7c73974';
+  static const String commitSubject = 'What got built: Server: a photos service: POST /v1/photos/check (send hashes, get back what\'s missing — re-running over a 10k-item roll costs one request), POST /v1/photos (streamed multipart upload, hash-verified server-side so a corrupted transfer is rejected rather than stored, per-user dedupe so the same shot never lands twice), plus list/content endpoints. Files land as plain date-sharded originals — photos/users/venu/2026/07/IMG_1234.HEIC — so duplicating the store is literally one rsync or zfs send. Grants: photos:sync for backing up, photos:read for viewing; the admin panel\'s grant matrix picks the new service up automatically, and the System page now shows the HDD pool as its own storage card next to the SSD, plus a photos-backed-up counter. Client: a backup engine (enumerate camera roll → sha256 each new item → ask the server what\'s missing → upload exactly that, sequentially, streamed from disk so videos never sit in memory) with a device-local ledger so already-backed-up items are skipped instantly on every later run; losing the ledger only costs re-hashing, never re-uploading. New Photos tab (manifest-gated) with live progress, an auto-backup toggle (runs on app open while connected), denied-permission recovery, and a \'recently backed up\' list. iOS/Android photo permissions were already in place from the Media tab.';
   static const String date = '2026-07-18';
 
   static String get label =>
