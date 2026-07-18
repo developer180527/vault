@@ -1,0 +1,98 @@
+{{template "head" .}}
+<div class="layout">
+{{template "nav" .}}
+<main class="content">
+  <p class="sub"><a href="/users">← All users</a></p>
+  <h1>{{.Target.Username}}
+    <span class="pill {{if eq .Target.Role "admin"}}admin{{end}}">{{.Target.Role}}</span>
+    {{if .Pending}}<span class="pill pending">invited</span>
+    {{else}}<span class="pill {{.Target.Status}}">{{.Target.Status}}</span>{{end}}
+  </h1>
+  <p class="sub">{{.Target.Email}}{{if .Self}} · this is you{{end}}</p>
+  {{template "flash" .}}
+
+  <h2>Service grants</h2>
+  <div class="panel">
+    <form method="post" action="/users/{{.Target.ID}}/grants">
+      <table class="matrix">
+        <tr>
+          <th>Service</th>
+          {{range index .Matrix (index .Services 0)}}<th>{{.Action}}</th>{{end}}
+        </tr>
+        {{$m := .Matrix}}
+        {{range $svc := .Services}}
+        <tr>
+          <td class="svc">{{$svc}}</td>
+          {{range index $m $svc}}
+          <td><input type="checkbox" name="grant/{{.Service}}/{{.Action}}"
+                     {{if .Checked}}checked{{end}}
+                     aria-label="{{.Service}} {{.Action}}"></td>
+          {{end}}
+        </tr>
+        {{end}}
+      </table>
+      <div style="margin-top:14px">
+        <button type="submit" class="primary">Save grants</button>
+        {{if eq .Target.Role "admin"}}
+        <span class="muted">Admins hold every service regardless — the matrix
+        matters if they're ever demoted.</span>
+        {{end}}
+      </div>
+    </form>
+  </div>
+
+  <h2>Account</h2>
+  <div class="panel">
+    {{if .Self}}
+      <p class="muted">You can't change your own role or status — another
+      admin has to. (Anti-lockout, ADMIN.md §5.)</p>
+    {{else}}
+      <div class="row">
+        <form class="tight" method="post" action="/users/{{.Target.ID}}/role">
+          {{if eq .Target.Role "admin"}}
+            <input type="hidden" name="role" value="member">
+            <button type="submit">Demote to member</button>
+          {{else}}
+            <input type="hidden" name="role" value="admin">
+            <button type="submit">Promote to admin</button>
+          {{end}}
+        </form>
+        <form class="tight" method="post" action="/users/{{.Target.ID}}/status">
+          {{if eq .Target.Status "active"}}
+            <input type="hidden" name="status" value="disabled">
+            <button type="submit" class="danger">Disable account</button>
+          {{else}}
+            <input type="hidden" name="status" value="active">
+            <button type="submit">Enable account</button>
+          {{end}}
+        </form>
+      </div>
+      <p class="muted" style="margin-top:10px">Disabling kills every session
+      on their next request — app and panel both.</p>
+    {{end}}
+  </div>
+
+  <h2>Devices</h2>
+  {{if .Devices}}
+  <table>
+    <tr><th>Name</th><th>Platform</th><th>Last seen</th><th></th></tr>
+    {{range .Devices}}
+    <tr>
+      <td>{{.Name}}</td>
+      <td class="muted">{{.Platform}}</td>
+      <td class="muted">{{.LastSeen.Format "Jan 2, 15:04"}}</td>
+      <td>
+        <form class="inline" method="post"
+              action="/users/{{$.Target.ID}}/devices/{{.ID}}/revoke">
+          <button type="submit" class="small danger">Revoke</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+  </table>
+  {{else}}
+  <p class="muted">No enrolled devices.</p>
+  {{end}}
+</main>
+</div>
+{{template "foot" .}}

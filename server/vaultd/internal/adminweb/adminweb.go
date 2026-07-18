@@ -27,6 +27,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/developer180527/vault/vaultd/internal/auth"
+	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -34,6 +35,9 @@ import (
 type Options struct {
 	Log   *slog.Logger
 	Store *store.Store
+
+	// Music powers the catalog manager (scan / artwork / trash-delete).
+	Music *music.Service
 
 	// ExternalURL is how the ADMIN'S BROWSER reaches the panel, e.g.
 	// https://vault-server.<tailnet>.ts.net:8444 — used for the OAuth
@@ -53,6 +57,7 @@ const (
 type Server struct {
 	log      *slog.Logger
 	store    *store.Store
+	music    *music.Service
 	flow     OAuthFlow
 	external *url.URL
 }
@@ -63,7 +68,10 @@ func New(o Options) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{log: o.Log, store: o.Store, flow: o.Flow, external: ext}
+	s := &Server{
+		log: o.Log, store: o.Store, music: o.Music,
+		flow: o.Flow, external: ext,
+	}
 
 	r := chi.NewRouter()
 	r.Use(s.secureHeaders)
@@ -71,11 +79,29 @@ func New(o Options) (http.Handler, error) {
 	r.Get("/login/start", s.handleLoginStart)
 	r.Get("/oauth/callback", s.handleCallback)
 
-	// Authenticated pages.
+	// Authenticated pages. requireAdmin re-checks role/status per request and
+	// enforces same-origin on every mutation.
 	r.Group(func(r chi.Router) {
 		r.Use(s.requireAdmin)
 		r.Get("/", s.handleOverview)
 		r.Post("/logout", s.handleLogout)
+
+		// Phase 1 — Users & grants.
+		r.Get("/users", s.handleUsers)
+		r.Post("/users", s.handleCreateInvite)
+		r.Get("/users/{id}", s.handleUserDetail)
+		r.Post("/users/{id}/grants", s.handleSaveGrants)
+		r.Post("/users/{id}/status", s.handleSetStatus)
+		r.Post("/users/{id}/role", s.handleSetRole)
+		r.Post("/users/{id}/devices/{deviceID}/revoke", s.handleRevokeDevice)
+
+		// Phase 1 — Catalog manager.
+		r.Get("/catalog", s.handleCatalog)
+		r.Post("/catalog/scan", s.handleCatalogScan)
+		r.Get("/catalog/{id}", s.handleTrackEditPage)
+		r.Post("/catalog/{id}", s.handleTrackSave)
+		r.Post("/catalog/{id}/delete", s.handleTrackDelete)
+		r.Get("/catalog/{id}/art", s.handleTrackArt)
 	})
 	return r, nil
 }
@@ -298,6 +324,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	tracks, _ := s.store.Read().CatalogTracks(ctx)
 	s.render(w, "overview.html", map[string]any{
 		"User":          userFrom(r),
+		"Active":        "overview",
 		"UserCount":     users,
 		"CatalogTracks": len(tracks),
 	})

@@ -219,7 +219,11 @@ final personalTracksProvider =
 /// Album art bytes via the content cache: memory → disk (instant) → network,
 /// with background ETag revalidation. Keyed by URL string; bearer headers are
 /// fetched fresh inside so an expired token never poisons the cache.
-final artBytesProvider = FutureProvider.family<Uint8List?, String>((
+///
+/// autoDispose: WITHOUT it every scrolled-past track pinned its full-size art
+/// bytes in provider state forever (hundreds of MB on a large catalog). The
+/// ContentCache's LRU + disk make re-entry instant when a row scrolls back.
+final artBytesProvider = FutureProvider.autoDispose.family<Uint8List?, String>((
   ref,
   url,
 ) async {

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -41,10 +42,22 @@ class ContentCache {
   /// Disk copies older than this are revalidated (in the background) on read.
   static const imageTtl = Duration(days: 7);
 
-  static const _memCap = 64; // ~a few MB of small art at most
+  /// Memory layer budget in BYTES — a count cap lied: 64 entries of full-size
+  /// embedded covers (≈1 MB each) is ~64 MB, not "a few". 16 MB holds ~hundreds
+  /// of typical covers; anything evicted is still one disk read away.
+  static const _memBudgetBytes = 16 << 20;
+
+  /// Entries bigger than this skip the memory layer entirely (disk-only) so a
+  /// single giant image can't flush the whole LRU.
+  static const _memEntryCapBytes = 3 << 20;
 
   /// Insertion-ordered → oldest first; re-inserting on hit keeps it LRU.
   final _mem = <String, Uint8List>{};
+  int _memBytes = 0;
+
+  /// Current memory-layer footprint (tests assert the budget holds).
+  @visibleForTesting
+  int get memoryBytes => _memBytes;
 
   Directory? _root;
 
@@ -70,10 +83,13 @@ class ContentCache {
   }
 
   void _remember(String key, Uint8List bytes) {
-    _mem.remove(key);
+    final old = _mem.remove(key);
+    if (old != null) _memBytes -= old.length;
+    if (bytes.length > _memEntryCapBytes) return; // disk-only, see cap docs
     _mem[key] = bytes;
-    while (_mem.length > _memCap) {
-      _mem.remove(_mem.keys.first);
+    _memBytes += bytes.length;
+    while (_memBytes > _memBudgetBytes && _mem.isNotEmpty) {
+      _memBytes -= _mem.remove(_mem.keys.first)!.length;
     }
   }
 
@@ -217,6 +233,7 @@ class ContentCache {
   /// Wipe everything (logout / storage pressure).
   Future<void> clear() async {
     _mem.clear();
+    _memBytes = 0;
     try {
       final root = _root ?? _rootOverride;
       if (root != null && await root.exists()) {

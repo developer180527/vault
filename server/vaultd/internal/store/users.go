@@ -142,3 +142,20 @@ func (w *WriteStore) SetUserStatus(ctx context.Context, userID, status string) e
 		`UPDATE users SET status=? WHERE id=?`, status, userID)
 	return err
 }
+
+// SetUserRole promotes/demotes a user ('admin' | 'member'). Blast-radius
+// guards (not-self, last-admin) live at the caller — this is mechanism only.
+func (w *WriteStore) SetUserRole(ctx context.Context, userID, role string) error {
+	_, err := w.db.ExecContext(ctx,
+		`UPDATE users SET role=? WHERE id=?`, role, userID)
+	return err
+}
+
+// CountActiveAdmins backs the last-admin lockout guard (ADMIN.md §5).
+func (r *ReadStore) CountActiveAdmins(ctx context.Context) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(1) FROM users WHERE role='admin' AND status='active'`,
+	).Scan(&n)
+	return n, err
+}

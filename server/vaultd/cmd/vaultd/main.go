@@ -21,6 +21,7 @@ import (
 	"github.com/developer180527/vault/vaultd/internal/config"
 	"github.com/developer180527/vault/vaultd/internal/httpapi"
 	"github.com/developer180527/vault/vaultd/internal/jobs"
+	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -107,8 +108,10 @@ func main() {
 	var adminSrv *http.Server
 	if cfg.AdminAddr != "" && cfg.AdminExternalURL != "" {
 		handler, err := adminweb.New(adminweb.Options{
-			Log:         log,
-			Store:       st,
+			Log:   log,
+			Store: st,
+			Music: &music.Service{
+				DataRoot: cfg.DataRoot, Store: st, Log: log},
 			ExternalURL: cfg.AdminExternalURL,
 			Flow: adminweb.NewOIDCFlow(cfg.OIDCIssuer, cfg.OIDCClientID,
 				cfg.AdminExternalURL+"/oauth/callback"),

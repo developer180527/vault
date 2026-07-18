@@ -47,7 +47,15 @@ func (s *Service) ScanCatalog(ctx context.Context) (added, pruned int, err error
 	root := s.CatalogRoot()
 
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			// Dot-dirs are service-internal (.trash holds admin-deleted
+			// tracks) — never re-index them.
+			if path != root && strings.HasPrefix(d.Name(), ".") {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if !audioExt[strings.ToLower(filepath.Ext(path))] {
@@ -111,4 +119,22 @@ func (s *Service) ScanCatalog(ctx context.Context) (added, pruned int, err error
 // request (ETag-cached at the HTTP layer, like per-user artwork).
 func (s *Service) CatalogArtwork(t *store.CatalogTrack) ([]byte, string, bool) {
 	return artworkFromFile(s.CatalogTrackPath(t))
+}
+
+// TrashCatalogTrack removes a track: the FILE moves into the catalog's
+// `.trash/` (never hard-deleted — MUSIC.md; the scan skips dot-dirs so it
+// won't be re-indexed), then the row is deleted, which cascades the track out
+// of playlists. A missing file is fine — the row still goes.
+func (s *Service) TrashCatalogTrack(ctx context.Context, t *store.CatalogTrack) error {
+	src := s.CatalogTrackPath(t)
+	dst := filepath.Join(s.CatalogRoot(), ".trash", filepath.FromSlash(t.RelPath))
+	if _, err := os.Stat(src); err == nil {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o770); err != nil {
+			return err
+		}
+		if err := os.Rename(src, dst); err != nil {
+			return err
+		}
+	}
+	return s.Store.Write().DeleteCatalogTracks(ctx, []string{t.ID})
 }

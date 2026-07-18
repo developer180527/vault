@@ -82,6 +82,60 @@ void main() {
     expect(hits, 1);
   });
 
+  test('memory layer stays within the byte budget (evicts oldest)', () async {
+    final hits = <String, int>{};
+    // 1 MB bodies; 16 MB budget → at most ~16 resident at once.
+    final client = MockClient((req) async {
+      hits[req.url.path] = (hits[req.url.path] ?? 0) + 1;
+      return http.Response.bytes(List.filled(1 << 20, 7), 200,
+          headers: {'etag': 'v1'});
+    });
+    final cache = ContentCache(root: tmp, client: client);
+
+    for (var i = 0; i < 40; i++) {
+      await cache.image(Uri.parse('https://s/art/$i'));
+    }
+    expect(cache.memoryBytes, lessThanOrEqualTo(16 << 20));
+    expect(cache.memoryBytes, greaterThan(0));
+
+    // An early (memory-evicted) URL re-reads from DISK — no second fetch.
+    await cache.image(Uri.parse('https://s/art/0'));
+    expect(hits['/art/0'], 1);
+  });
+
+  test('oversized entries skip memory but still serve from disk', () async {
+    final hits = <String, int>{};
+    final client = MockClient((req) async {
+      hits[req.url.path] = (hits[req.url.path] ?? 0) + 1;
+      // > 3 MB per-entry cap → disk-only.
+      return http.Response.bytes(List.filled(4 << 20, 7), 200);
+    });
+    final cache = ContentCache(root: tmp, client: client);
+
+    final bytes = await cache.image(Uri.parse('https://s/art/huge'));
+    expect(bytes, isNotNull);
+    expect(cache.memoryBytes, 0); // not retained in RAM
+
+    await cache.image(Uri.parse('https://s/art/huge'));
+    expect(hits['/art/huge'], 1); // second read: disk, not network
+  });
+
+  test('re-reading the same key does not grow the footprint', () async {
+    var hits = 0;
+    final client = MockClient((req) async {
+      hits++;
+      return http.Response.bytes(List.filled(1 << 20, 7), 200);
+    });
+    final cache = ContentCache(root: tmp, client: client);
+
+    await cache.image(Uri.parse('https://s/art/a'));
+    final once = cache.memoryBytes;
+    // Memory-hit path re-inserts for LRU freshness — bytes must not grow.
+    await cache.image(Uri.parse('https://s/art/a'));
+    expect(cache.memoryBytes, once);
+    expect(hits, 1);
+  });
+
   test('image: non-200 is not cached', () async {
     final client = MockClient((req) async => http.Response('nope', 404));
     final cache = ContentCache(root: tmp, client: client);

@@ -351,84 +351,103 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
     final personalAsync = ref.watch(personalTracksProvider);
     final scheme = Theme.of(context).colorScheme;
 
-    return ListView(
-      children: [
-        _SectionHeader(
-          'Playlists',
-          trailing: TextButton.icon(
-            onPressed: _newPlaylist,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('New'),
+    // CustomScrollView so the "My music" rows are a real lazy sliver — the old
+    // shrinkWrap inner list built EVERY row the moment the tab opened.
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: _SectionHeader(
+            'Playlists',
+            trailing: TextButton.icon(
+              onPressed: _newPlaylist,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('New'),
+            ),
           ),
         ),
         if (playlists.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-            child: Text(
-              'No playlists yet.',
-              style: TextStyle(color: scheme.onSurfaceVariant),
-            ),
-          ),
-        for (final p in playlists)
-          GestureDetector(
-            onSecondaryTapUp: (d) => showContextMenu(
-              context: context,
-              ref: ref,
-              globalPosition: d.globalPosition,
-              actions: [
-                VaultAction(
-                  id: 'music.playlist.delete',
-                  label: 'Delete playlist',
-                  icon: VaultIcons.trash,
-                  onInvoke: (_, _) => _deletePlaylist(p),
-                ),
-              ],
-            ),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: scheme.surfaceContainerHighest,
-                child: Icon(
-                  Icons.queue_music,
-                  size: 20,
-                  color: scheme.onSurfaceVariant,
-                ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+              child: Text(
+                'No playlists yet.',
+                style: TextStyle(color: scheme.onSurfaceVariant),
               ),
-              title: Text(p.name),
-              subtitle: Text('${p.trackCount} tracks'),
-              trailing: const Icon(Icons.chevron_right, size: 20),
-              onTap: () => setState(() => _openPlaylist = p),
-              onLongPress: () => _deletePlaylist(p),
             ),
           ),
-        _SectionHeader('My music'),
+        SliverList.builder(
+          itemCount: playlists.length,
+          itemBuilder: (context, i) {
+            final p = playlists[i];
+            return GestureDetector(
+              onSecondaryTapUp: (d) => showContextMenu(
+                context: context,
+                ref: ref,
+                globalPosition: d.globalPosition,
+                actions: [
+                  VaultAction(
+                    id: 'music.playlist.delete',
+                    label: 'Delete playlist',
+                    icon: VaultIcons.trash,
+                    onInvoke: (_, _) => _deletePlaylist(p),
+                  ),
+                ],
+              ),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: scheme.surfaceContainerHighest,
+                  child: Icon(
+                    Icons.queue_music,
+                    size: 20,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                title: Text(p.name),
+                subtitle: Text('${p.trackCount} tracks'),
+                trailing: const Icon(Icons.chevron_right, size: 20),
+                onTap: () => setState(() => _openPlaylist = p),
+                onLongPress: () => _deletePlaylist(p),
+              ),
+            );
+          },
+        ),
+        SliverToBoxAdapter(child: _SectionHeader('My music')),
         personalAsync.when(
-          loading: () => const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(child: CircularProgressIndicator()),
+          loading: () => const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            ),
           ),
-          error: (e, _) => Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text('My music unavailable: $e'),
+          error: (e, _) => SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text('My music unavailable: $e'),
+            ),
           ),
           data: (tracks) => tracks.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 4,
-                  ),
-                  child: Text(
-                    'No music in your zone yet.\nDrop files into your music folder.',
-                    style: TextStyle(color: scheme.onSurfaceVariant),
+              ? SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      'No music in your zone yet.\nDrop files into your music folder.',
+                      style: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
                   ),
                 )
               : _ServerTrackList(
                   tracks: tracks,
                   catalogArt: false,
-                  shrinkWrap: true,
+                  sliver: true,
                   onPlay: (t, i) => _play(t, i, source: const PersonalSource()),
                 ),
         ),
-        const SizedBox(height: 120), // clear the floating dock
+        const SliverToBoxAdapter(
+          child: SizedBox(height: 120), // clear the floating dock
+        ),
       ],
     );
   }
@@ -570,7 +589,10 @@ class _SearchSectionState extends ConsumerState<_SearchSection> {
 }
 
 /// Shared server-track list: artwork rows, now-playing highlight, optional
-/// long-press / right-click hooks. Used by all three sections.
+/// long-press / right-click hooks. Used by all three sections. [sliver] mode
+/// is for embedding in a CustomScrollView (the Library page) — rows stay
+/// lazily built there, unlike the old shrinkWrap list which laid out EVERY
+/// row up front (a jank spike + memory hit on large personal zones).
 class _ServerTrackList extends ConsumerWidget {
   const _ServerTrackList({
     required this.tracks,
@@ -578,7 +600,7 @@ class _ServerTrackList extends ConsumerWidget {
     required this.onPlay,
     this.onLongPress,
     this.onSecondaryTap,
-    this.shrinkWrap = false,
+    this.sliver = false,
   });
 
   final List<ServerTrack> tracks;
@@ -588,7 +610,7 @@ class _ServerTrackList extends ConsumerWidget {
   final void Function(List<ServerTrack>, int) onPlay;
   final void Function(ServerTrack)? onLongPress;
   final void Function(ServerTrack, Offset)? onSecondaryTap;
-  final bool shrinkWrap;
+  final bool sliver;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -600,43 +622,43 @@ class _ServerTrackList extends ConsumerWidget {
     final music = ref.read(vaultClientProvider).music;
     final scheme = Theme.of(context).colorScheme;
 
-    return ListView.builder(
-      shrinkWrap: shrinkWrap,
-      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-      itemCount: tracks.length,
-      itemBuilder: (context, i) {
-        final t = tracks[i];
-        final isCurrent = currentId == t.id;
-        final tile = ListTile(
-          leading: _ServerArt(
-            uri: !t.hasArt
-                ? null
-                : catalogArt
-                ? music.catalogArtUri(t.id)
-                : music.artUri(t.id),
-          ),
-          title: Text(
-            t.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: isCurrent ? TextStyle(color: scheme.primary) : null,
-          ),
-          subtitle: t.artist.isEmpty
+    Widget row(BuildContext context, int i) {
+      final t = tracks[i];
+      final isCurrent = currentId == t.id;
+      final tile = ListTile(
+        leading: _ServerArt(
+          uri: !t.hasArt
               ? null
-              : Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
-          trailing: isCurrent
-              ? Icon(Icons.equalizer, size: 20, color: scheme.primary)
-              : null,
-          onTap: () => onPlay(tracks, i),
-          onLongPress: onLongPress == null ? null : () => onLongPress!(t),
-        );
-        if (onSecondaryTap == null) return tile;
-        return GestureDetector(
-          onSecondaryTapUp: (d) => onSecondaryTap!(t, d.globalPosition),
-          child: tile,
-        );
-      },
-    );
+              : catalogArt
+              ? music.catalogArtUri(t.id)
+              : music.artUri(t.id),
+        ),
+        title: Text(
+          t.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: isCurrent ? TextStyle(color: scheme.primary) : null,
+        ),
+        subtitle: t.artist.isEmpty
+            ? null
+            : Text(t.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+        trailing: isCurrent
+            ? Icon(Icons.equalizer, size: 20, color: scheme.primary)
+            : null,
+        onTap: () => onPlay(tracks, i),
+        onLongPress: onLongPress == null ? null : () => onLongPress!(t),
+      );
+      if (onSecondaryTap == null) return tile;
+      return GestureDetector(
+        onSecondaryTapUp: (d) => onSecondaryTap!(t, d.globalPosition),
+        child: tile,
+      );
+    }
+
+    if (sliver) {
+      return SliverList.builder(itemCount: tracks.length, itemBuilder: row);
+    }
+    return ListView.builder(itemCount: tracks.length, itemBuilder: row);
   }
 }
 

@@ -1,0 +1,57 @@
+{{template "head" .}}
+<div class="layout">
+{{template "nav" .}}
+<main class="content">
+  <h1>Users &amp; access</h1>
+  <p class="sub">Everyone with a Vault identity. Click a row to manage grants,
+  role, and devices.</p>
+  {{template "flash" .}}
+
+  <table>
+    <tr>
+      <th>User</th><th>Email</th><th>Role</th><th>Status</th>
+      <th class="num">Devices</th><th></th>
+    </tr>
+    {{range .Rows}}
+    <tr>
+      <td><a href="/users/{{.ID}}"><strong>{{.Username}}</strong></a></td>
+      <td class="muted">{{.Email}}</td>
+      <td><span class="pill {{if eq .Role "admin"}}admin{{end}}">{{.Role}}</span></td>
+      <td>
+        {{if .Pending}}<span class="pill pending">invited</span>
+        {{else}}<span class="pill {{.Status}}">{{.Status}}</span>{{end}}
+      </td>
+      <td class="num">{{.Devices}}</td>
+      <td><a href="/users/{{.ID}}">Manage →</a></td>
+    </tr>
+    {{end}}
+  </table>
+
+  <h2>Invite someone</h2>
+  <div class="panel">
+    <form method="post" action="/users">
+      <div class="row">
+        <div>
+          <label class="field" for="inv-username">Username</label>
+          <input id="inv-username" type="text" name="username"
+                 placeholder="lowercase letters, digits, . _ -" required>
+        </div>
+        <div>
+          <label class="field" for="inv-email">Email (must match their Pocket&nbsp;ID)</label>
+          <input id="inv-email" type="email" name="email"
+                 placeholder="name@example.com" required>
+        </div>
+        <div class="tight">
+          <button type="submit" class="primary">Invite</button>
+        </div>
+      </div>
+    </form>
+    <p class="muted" style="margin-top:10px">
+      The invite binds when they first sign in with a Pocket&nbsp;ID passkey
+      registered to that email. New members start with no service grants —
+      set them on their page after inviting.
+    </p>
+  </div>
+</main>
+</div>
+{{template "foot" .}}

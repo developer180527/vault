@@ -1,0 +1,74 @@
+{{template "head" .}}
+<div class="layout">
+{{template "nav" .}}
+<main class="content">
+  <p class="sub"><a href="/catalog">← Catalog</a></p>
+  <h1>Edit metadata</h1>
+  <p class="sub">The database is authoritative: your edits here survive
+  rescans. Tags in the file only seed brand-new tracks.</p>
+  {{template "flash" .}}
+
+  <div class="panel">
+    <div class="row" style="align-items:start">
+      {{if .T.HasArt}}
+      <div class="tight">
+        <img src="/catalog/{{.T.ID}}/art" alt="Album art"
+             style="width:120px;height:120px;border-radius:10px;object-fit:cover">
+      </div>
+      {{end}}
+      <form method="post" action="/catalog/{{.T.ID}}">
+        <label class="field" for="f-title">Title</label>
+        <input id="f-title" type="text" name="title" value="{{.T.Title}}" required>
+        <div class="row">
+          <div>
+            <label class="field" for="f-artist">Artist</label>
+            <input id="f-artist" type="text" name="artist" value="{{.T.Artist}}">
+          </div>
+          <div>
+            <label class="field" for="f-album">Album</label>
+            <input id="f-album" type="text" name="album" value="{{.T.Album}}">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label class="field" for="f-genre">Genre</label>
+            <input id="f-genre" type="text" name="genre" value="{{.T.Genre}}">
+          </div>
+          <div>
+            <label class="field" for="f-track">Track №</label>
+            <input id="f-track" type="number" name="track_no" min="0"
+                   value="{{if .T.TrackNo}}{{.T.TrackNo}}{{end}}">
+          </div>
+          <div>
+            <label class="field" for="f-year">Year</label>
+            <input id="f-year" type="number" name="year" min="0"
+                   value="{{if .T.Year}}{{.T.Year}}{{end}}">
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <h2>Danger zone</h2>
+  <div class="panel">
+    <form method="post" action="/catalog/{{.T.ID}}/delete">
+      <label class="field" for="f-confirm">
+        Type the exact title (<strong>{{.T.Title}}</strong>) to delete this
+        track. The file moves to the catalog trash on disk; it leaves every
+        playlist.
+      </label>
+      <div class="row">
+        <input id="f-confirm" type="text" name="confirm"
+               placeholder="{{.T.Title}}" autocomplete="off">
+        <div class="tight">
+          <button type="submit" class="danger">Delete track</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</main>
+</div>
+{{template "foot" .}}

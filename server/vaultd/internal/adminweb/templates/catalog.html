@@ -1,0 +1,48 @@
+{{template "head" .}}
+<div class="layout">
+{{template "nav" .}}
+<main class="content">
+  <h1>Music catalog</h1>
+  <p class="sub">The shared library every member streams. Drop files into
+  <code>/srv/vault/catalog/music/</code> on the server, then scan.</p>
+  {{template "flash" .}}
+
+  <div class="panel">
+    <div class="row">
+      <form method="get" action="/catalog">
+        <input type="search" name="q" value="{{.Query}}"
+               placeholder="Search title, artist, album…" aria-label="Search catalog">
+      </form>
+      <form class="tight" method="post" action="/catalog/scan">
+        <button type="submit" class="primary">Scan for new music</button>
+      </form>
+    </div>
+  </div>
+
+  {{if .Tracks}}
+  <table>
+    <tr><th></th><th>Title</th><th>Artist</th><th>Album</th>
+        <th class="num">Year</th><th></th></tr>
+    {{range .Tracks}}
+    <tr>
+      <td style="width:46px">
+        {{if .HasArt}}<img class="art" src="/catalog/{{.ID}}/art" alt="">{{else}}
+        <span class="art" style="display:inline-block"></span>{{end}}
+      </td>
+      <td><a href="/catalog/{{.ID}}"><strong>{{.Title}}</strong></a></td>
+      <td class="muted">{{.Artist}}</td>
+      <td class="muted">{{.Album}}</td>
+      <td class="num muted">{{if .Year}}{{.Year}}{{end}}</td>
+      <td><a href="/catalog/{{.ID}}">Edit →</a></td>
+    </tr>
+    {{end}}
+  </table>
+  {{else if .Query}}
+  <p class="muted">No matches for “{{.Query}}”.</p>
+  {{else}}
+  <p class="muted">The catalog is empty — copy music to the server and hit
+  “Scan for new music”.</p>
+  {{end}}
+</main>
+</div>
+{{template "foot" .}}

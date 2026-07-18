@@ -10,32 +10,117 @@
   * { box-sizing: border-box; margin: 0; }
   body {
     font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #101014; color: #e6e6ea; min-height: 100vh;
+    background: #0e0e12; color: #e6e6ea; min-height: 100vh;
   }
   a { color: #8ab4ff; text-decoration: none; }
-  header {
-    display: flex; align-items: center; gap: 12px;
-    padding: 14px 24px; border-bottom: 1px solid #23232b;
+  a:hover { text-decoration: underline; }
+
+  /* ---- shell: left rail + content ---- */
+  .layout { display: flex; min-height: 100vh; }
+  nav.rail {
+    width: 210px; flex-shrink: 0; display: flex; flex-direction: column;
+    background: #121218; border-right: 1px solid #1f1f27; padding: 18px 10px;
+    position: sticky; top: 0; height: 100vh;
   }
-  header .brand { font-weight: 600; letter-spacing: .2px; }
-  header .spacer { flex: 1; }
-  header .who { color: #9a9aa5; font-size: 13px; }
-  main { max-width: 880px; margin: 0 auto; padding: 32px 24px; }
-  h1 { font-size: 20px; margin-bottom: 6px; }
-  p.sub { color: #9a9aa5; margin-bottom: 24px; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  nav.rail .brand {
+    font-weight: 700; letter-spacing: .2px; padding: 4px 12px 18px;
+    font-size: 16px;
+  }
+  nav.rail a.item {
+    display: flex; align-items: center; gap: 10px;
+    color: #c9c9d4; padding: 9px 12px; border-radius: 9px; font-size: 14px;
+  }
+  nav.rail a.item:hover { background: #1a1a22; text-decoration: none; }
+  nav.rail a.item.active { background: #22222e; color: #fff; font-weight: 600; }
+  nav.rail a.item.soon { opacity: .45; pointer-events: none; }
+  nav.rail .grow { flex: 1; }
+  nav.rail .who {
+    color: #8a8a96; font-size: 12.5px; padding: 8px 12px;
+    border-top: 1px solid #1f1f27;
+  }
+  main.content { flex: 1; min-width: 0; padding: 30px 34px 60px; max-width: 1060px; }
+
+  @media (max-width: 760px) {
+    .layout { flex-direction: column; }
+    nav.rail {
+      width: 100%; height: auto; position: static; flex-direction: row;
+      align-items: center; overflow-x: auto; padding: 10px 12px;
+      border-right: 0; border-bottom: 1px solid #1f1f27;
+    }
+    nav.rail .brand { padding: 0 10px 0 4px; font-size: 15px; }
+    nav.rail .grow { display: none; }
+    nav.rail .who { border: 0; padding: 0 10px; white-space: nowrap; display: flex; gap: 8px; align-items: center; }
+    nav.rail .who form { margin: 0 !important; }
+    main.content { padding: 20px 16px 60px; }
+  }
+
+  /* ---- shared elements ---- */
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  h2 { font-size: 15px; margin: 26px 0 10px; color: #c9c9d4; }
+  p.sub { color: #9a9aa5; margin-bottom: 22px; font-size: 13.5px; }
+  .flash {
+    background: #14231a; border: 1px solid #24513a; color: #9fdcb6;
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; font-size: 14px;
+  }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
   .card {
-    background: #17171d; border: 1px solid #23232b; border-radius: 12px;
-    padding: 18px;
+    background: #16161d; border: 1px solid #23232b; border-radius: 12px;
+    padding: 18px; color: inherit; display: block;
   }
-  .card .num { font-size: 28px; font-weight: 600; }
+  a.card:hover { border-color: #3a3a48; text-decoration: none; }
+  .card .num { font-size: 26px; font-weight: 650; }
   .card .label { color: #9a9aa5; font-size: 13px; margin-top: 2px; }
-  .card.soon { opacity: .55; }
+  .card.soon { opacity: .5; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #1f1f27; }
+  th { color: #8a8a96; font-weight: 500; font-size: 12.5px; text-transform: uppercase; letter-spacing: .4px; }
+  tr:hover td { background: #14141b; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .pill {
+    display: inline-block; font-size: 12px; border-radius: 999px;
+    padding: 2px 10px; border: 1px solid #30303a; color: #c9c9d4;
+  }
+  .pill.admin  { border-color: #4a3f80; color: #c4b5fd; }
+  .pill.active { border-color: #24513a; color: #9fdcb6; }
+  .pill.disabled { border-color: #5a2a2a; color: #ff9d9d; }
+  .pill.pending { border-color: #4d431f; color: #eede9c; }
+
+  form.inline { display: inline; }
+  input[type=text], input[type=email], input[type=number], input[type=search] {
+    font: inherit; color: #e6e6ea; background: #101017;
+    border: 1px solid #2b2b36; border-radius: 8px; padding: 7px 10px;
+    width: 100%;
+  }
+  input:focus { outline: none; border-color: #4666cf; }
+  label.field { display: block; font-size: 12.5px; color: #9a9aa5; margin: 12px 0 4px; }
   button {
-    font: inherit; color: #e6e6ea; background: #23232b; border: 1px solid #30303a;
-    border-radius: 8px; padding: 6px 14px; cursor: pointer;
+    font: inherit; font-size: 14px; color: #e6e6ea; background: #23232b;
+    border: 1px solid #30303a; border-radius: 8px; padding: 7px 14px; cursor: pointer;
   }
   button:hover { background: #2b2b34; }
+  button.primary { background: #2f5cff; border-color: #2f5cff; color: #fff; font-weight: 600; }
+  button.primary:hover { background: #4066ff; }
+  button.danger { background: #3a1919; border-color: #5a2a2a; color: #ff9d9d; }
+  button.danger:hover { background: #4a2020; }
+  button.small { font-size: 12.5px; padding: 4px 10px; }
+
+  .panel {
+    background: #14141b; border: 1px solid #22222b; border-radius: 12px;
+    padding: 18px; margin-bottom: 18px;
+  }
+  .row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 160px; }
+  .row > .tight { flex: 0 0 auto; min-width: 0; }
+  .muted { color: #8a8a96; font-size: 13px; }
+  .art { width: 38px; height: 38px; border-radius: 6px; object-fit: cover; background: #22222b; vertical-align: middle; }
+
+  /* grant matrix */
+  .matrix td, .matrix th { padding: 6px 10px; }
+  .matrix td.svc { color: #c9c9d4; font-weight: 550; }
+  .matrix input[type=checkbox] { width: 15px; height: 15px; accent-color: #2f5cff; }
+
   .cta {
     display: inline-block; background: #2f5cff; color: #fff; border-radius: 10px;
     padding: 10px 22px; font-weight: 600;
@@ -46,6 +131,26 @@
 </head>
 <body>
 {{end}}
+
+{{define "nav"}}
+<nav class="rail">
+  <div class="brand">Vault Admin</div>
+  <a class="item {{if eq .Active "overview"}}active{{end}}" href="/">Overview</a>
+  <a class="item {{if eq .Active "users"}}active{{end}}" href="/users">Users &amp; access</a>
+  <a class="item {{if eq .Active "catalog"}}active{{end}}" href="/catalog">Music catalog</a>
+  <a class="item soon" href="#">Activity <span class="muted">· P2</span></a>
+  <a class="item soon" href="#">System <span class="muted">· P3</span></a>
+  <div class="grow"></div>
+  <div class="who">
+    <span>{{.User.Username}} · admin</span>
+    <form method="post" action="/logout" style="margin-top:8px">
+      <button type="submit" class="small">Sign out</button>
+    </form>
+  </div>
+</nav>
+{{end}}
+
+{{define "flash"}}{{with .Msg}}<div class="flash">{{.}}</div>{{end}}{{end}}
 
 {{define "foot"}}
 </body>

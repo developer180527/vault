@@ -1,0 +1,352 @@
+package adminweb
+
+import (
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/developer180527/vault/vaultd/internal/library"
+	"github.com/developer180527/vault/vaultd/internal/store"
+)
+
+// Phase 1 (ADMIN.md §10): Users & grants + Catalog management. All handlers
+// run behind requireAdmin (session + role recheck + same-origin on POST);
+// blast-radius guards (§5) are enforced HERE, server-side — the UI hiding a
+// button is never the protection.
+
+// redirectMsg bounces back to [path] with a flash message in the query.
+func redirectMsg(w http.ResponseWriter, r *http.Request, path, msg string) {
+	http.Redirect(w, r, path+"?msg="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
+// ---- Users & grants ----
+
+type userRow struct {
+	store.User
+	Devices int
+	Pending bool // invited, no OIDC identity bound yet
+}
+
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	users, err := s.store.Read().ListUsers(ctx)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Could not list users.")
+		return
+	}
+	rows := make([]userRow, 0, len(users))
+	for _, u := range users {
+		devs, _ := s.store.Read().ListDevices(ctx, u.ID)
+		rows = append(rows, userRow{
+			User: u, Devices: len(devs), Pending: u.OIDCSubject == "",
+		})
+	}
+	s.render(w, "users.html", map[string]any{
+		"User": userFrom(r), "Active": "users",
+		"Rows": rows, "Msg": r.URL.Query().Get("msg"),
+	})
+}
+
+func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
+	username := library.Sanitize(r.FormValue("username"), "")
+	email := strings.TrimSpace(r.FormValue("email"))
+	if username == "" || !strings.Contains(email, "@") {
+		redirectMsg(w, r, "/users", "Invite needs a username and a valid email.")
+		return
+	}
+	// Invited users bind their Pocket ID identity on first login (by email).
+	if _, err := s.store.Write().CreateUser(
+		r.Context(), username, email, "", "member", "", ""); err != nil {
+		redirectMsg(w, r, "/users", "Could not invite: username or email already in use.")
+		return
+	}
+	s.log.Info("admin: user invited", "username", username,
+		"by", userFrom(r).Username)
+	redirectMsg(w, r, "/users",
+		fmt.Sprintf("Invited %s — they sign in with Pocket ID (%s) to activate.",
+			username, email))
+}
+
+func (s *Server) targetUser(w http.ResponseWriter, r *http.Request) (*store.User, bool) {
+	u, err := s.store.Read().UserByID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		s.renderError(w, http.StatusNotFound, "No such user.")
+		return nil, false
+	}
+	return u, true
+}
+
+func (s *Server) handleUserDetail(w http.ResponseWriter, r *http.Request) {
+	target, ok := s.targetUser(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	grants, _ := s.store.Read().GrantsForUser(ctx, target.ID)
+	devices, _ := s.store.Read().ListDevices(ctx, target.ID)
+
+	// services × actions matrix, pre-checked from current grants.
+	type cell struct {
+		Service, Action string
+		Checked         bool
+	}
+	matrix := make(map[string][]cell, len(store.KnownServices))
+	for _, svc := range store.KnownServices {
+		held := map[string]bool{}
+		for _, a := range grants[svc] {
+			held[a] = true
+		}
+		row := make([]cell, 0, len(store.KnownActions))
+		for _, a := range store.KnownActions {
+			row = append(row, cell{Service: svc, Action: a, Checked: held[a]})
+		}
+		matrix[svc] = row
+	}
+
+	s.render(w, "user_detail.html", map[string]any{
+		"User": userFrom(r), "Active": "users",
+		"Target": target, "Self": target.ID == userFrom(r).ID,
+		"Pending":  target.OIDCSubject == "",
+		"Services": store.KnownServices, "Matrix": matrix,
+		"Devices": devices, "Msg": r.URL.Query().Get("msg"),
+	})
+}
+
+func (s *Server) handleSaveGrants(w http.ResponseWriter, r *http.Request) {
+	target, ok := s.targetUser(w, r)
+	if !ok {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.renderError(w, http.StatusBadRequest, "Bad form.")
+		return
+	}
+	ctx := r.Context()
+	back := "/users/" + target.ID
+	for _, svc := range store.KnownServices {
+		actions := make([]string, 0, len(store.KnownActions))
+		for _, a := range store.KnownActions {
+			if r.Form.Get("grant/"+svc+"/"+a) == "on" {
+				actions = append(actions, a)
+			}
+		}
+		var err error
+		if len(actions) == 0 {
+			err = s.store.Write().RemoveGrant(ctx, target.ID, svc)
+		} else {
+			err = s.store.Write().SetGrant(ctx, target.ID, svc, actions)
+		}
+		if err != nil {
+			redirectMsg(w, r, back, "Saving grants failed — check the logs.")
+			return
+		}
+	}
+	s.log.Info("admin: grants saved", "target", target.Username,
+		"by", userFrom(r).Username)
+	redirectMsg(w, r, back, "Grants saved.")
+}
+
+func (s *Server) handleSetStatus(w http.ResponseWriter, r *http.Request) {
+	target, ok := s.targetUser(w, r)
+	if !ok {
+		return
+	}
+	back := "/users/" + target.ID
+	next := r.FormValue("status")
+	if next != "active" && next != "disabled" {
+		s.renderError(w, http.StatusBadRequest, "Bad status.")
+		return
+	}
+	// §5 guards: never your own account; never strand the server without an
+	// active admin.
+	if target.ID == userFrom(r).ID {
+		redirectMsg(w, r, back, "You can't disable your own account.")
+		return
+	}
+	if next == "disabled" && target.Role == "admin" && target.Status == "active" {
+		if n, _ := s.store.Read().CountActiveAdmins(r.Context()); n <= 1 {
+			redirectMsg(w, r, back, "Refused: that is the last active admin.")
+			return
+		}
+	}
+	if err := s.store.Write().SetUserStatus(r.Context(), target.ID, next); err != nil {
+		redirectMsg(w, r, back, "Status change failed.")
+		return
+	}
+	s.log.Info("admin: status changed", "target", target.Username,
+		"status", next, "by", userFrom(r).Username)
+	redirectMsg(w, r, back, "Account "+next+".")
+}
+
+func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request) {
+	target, ok := s.targetUser(w, r)
+	if !ok {
+		return
+	}
+	back := "/users/" + target.ID
+	next := r.FormValue("role")
+	if next != "admin" && next != "member" {
+		s.renderError(w, http.StatusBadRequest, "Bad role.")
+		return
+	}
+	if target.ID == userFrom(r).ID {
+		redirectMsg(w, r, back, "You can't change your own role.")
+		return
+	}
+	if next == "member" && target.Role == "admin" && target.Status == "active" {
+		if n, _ := s.store.Read().CountActiveAdmins(r.Context()); n <= 1 {
+			redirectMsg(w, r, back, "Refused: that is the last active admin.")
+			return
+		}
+	}
+	if err := s.store.Write().SetUserRole(r.Context(), target.ID, next); err != nil {
+		redirectMsg(w, r, back, "Role change failed.")
+		return
+	}
+	s.log.Info("admin: role changed", "target", target.Username,
+		"role", next, "by", userFrom(r).Username)
+	redirectMsg(w, r, back, "Role set to "+next+".")
+}
+
+func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
+	target, ok := s.targetUser(w, r)
+	if !ok {
+		return
+	}
+	back := "/users/" + target.ID
+	if err := s.store.Write().RevokeDevice(
+		r.Context(), chi.URLParam(r, "deviceID")); err != nil {
+		redirectMsg(w, r, back, "Device not found (already revoked?).")
+		return
+	}
+	s.log.Info("admin: device revoked", "target", target.Username,
+		"by", userFrom(r).Username)
+	redirectMsg(w, r, back, "Device revoked — its tokens are dead.")
+}
+
+// ---- Catalog ----
+
+func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	var (
+		tracks []store.CatalogTrack
+		err    error
+	)
+	if q == "" {
+		tracks, err = s.store.Read().CatalogTracks(ctx)
+	} else {
+		tracks, err = s.store.Read().SearchCatalog(ctx, q, 200)
+	}
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Could not list the catalog.")
+		return
+	}
+	s.render(w, "catalog.html", map[string]any{
+		"User": userFrom(r), "Active": "catalog",
+		"Tracks": tracks, "Query": q, "Msg": r.URL.Query().Get("msg"),
+	})
+}
+
+func (s *Server) handleCatalogScan(w http.ResponseWriter, r *http.Request) {
+	added, pruned, err := s.music.ScanCatalog(r.Context())
+	if err != nil {
+		redirectMsg(w, r, "/catalog", "Scan failed — check the logs.")
+		return
+	}
+	s.log.Info("admin: catalog scanned", "changed", added, "pruned", pruned,
+		"by", userFrom(r).Username)
+	redirectMsg(w, r, "/catalog",
+		fmt.Sprintf("Scan done: %d changed, %d pruned.", added, pruned))
+}
+
+func (s *Server) targetTrack(w http.ResponseWriter, r *http.Request) (*store.CatalogTrack, bool) {
+	t, err := s.store.Read().CatalogTrackByID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		s.renderError(w, http.StatusNotFound, "No such track.")
+		return nil, false
+	}
+	return t, true
+}
+
+func (s *Server) handleTrackEditPage(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.targetTrack(w, r)
+	if !ok {
+		return
+	}
+	s.render(w, "catalog_edit.html", map[string]any{
+		"User": userFrom(r), "Active": "catalog",
+		"T": t, "Msg": r.URL.Query().Get("msg"),
+	})
+}
+
+func (s *Server) handleTrackSave(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.targetTrack(w, r)
+	if !ok {
+		return
+	}
+	back := "/catalog/" + t.ID
+	title := strings.TrimSpace(r.FormValue("title"))
+	if title == "" {
+		redirectMsg(w, r, back, "Title can't be empty.")
+		return
+	}
+	t.Title = title
+	t.Artist = strings.TrimSpace(r.FormValue("artist"))
+	t.Album = strings.TrimSpace(r.FormValue("album"))
+	t.Genre = strings.TrimSpace(r.FormValue("genre"))
+	fmt.Sscanf(r.FormValue("track_no"), "%d", &t.TrackNo)
+	fmt.Sscanf(r.FormValue("year"), "%d", &t.Year)
+	if err := s.store.Write().UpdateCatalogMeta(r.Context(), t.ID, *t); err != nil {
+		redirectMsg(w, r, back, "Save failed.")
+		return
+	}
+	s.log.Info("admin: track metadata edited", "track", t.ID,
+		"by", userFrom(r).Username)
+	redirectMsg(w, r, back, "Saved. Edits survive rescans (DB is authoritative).")
+}
+
+func (s *Server) handleTrackDelete(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.targetTrack(w, r)
+	if !ok {
+		return
+	}
+	// §5: destructive ops need typed confirmation — the exact title.
+	if r.FormValue("confirm") != t.Title {
+		redirectMsg(w, r, "/catalog/"+t.ID,
+			"Type the track's exact title to confirm deletion.")
+		return
+	}
+	if err := s.music.TrashCatalogTrack(r.Context(), t); err != nil {
+		redirectMsg(w, r, "/catalog/"+t.ID, "Delete failed — check the logs.")
+		return
+	}
+	s.log.Info("admin: track deleted (trashed)", "track", t.ID,
+		"title", t.Title, "by", userFrom(r).Username)
+	redirectMsg(w, r, "/catalog",
+		"Deleted “"+t.Title+"” — file moved to the catalog trash.")
+}
+
+func (s *Server) handleTrackArt(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.targetTrack(w, r)
+	if !ok {
+		return
+	}
+	etag := fmt.Sprintf(`"%s-%d"`, t.ID, t.Mtime)
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	data, mime, ok2 := s.music.CatalogArtwork(t)
+	if !ok2 {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	_, _ = w.Write(data)
+}
