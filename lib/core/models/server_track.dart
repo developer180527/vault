@@ -12,6 +12,7 @@ class ServerTrack {
     this.trackNo = 0,
     this.year = 0,
     this.hasArt = false,
+    this.streamUrl,
   });
 
   final String id;
@@ -22,6 +23,11 @@ class ServerTrack {
   final int year;
   final bool hasArt;
 
+  /// Signed, bearer-free stream path (with query) from the server — playback
+  /// through it outlives the 15-minute access token, which is what makes
+  /// looping/queue-wrap work on long listens. Null on old servers.
+  final String? streamUrl;
+
   factory ServerTrack.fromJson(Map<String, Object?> j) => ServerTrack(
     id: j['id'] as String,
     title: (j['title'] as String?) ?? '',
@@ -30,6 +36,7 @@ class ServerTrack {
     trackNo: (j['track_no'] as num?)?.toInt() ?? 0,
     year: (j['year'] as num?)?.toInt() ?? 0,
     hasArt: (j['has_art'] as bool?) ?? false,
+    streamUrl: j['stream_url'] as String?,
   );
 
   /// Wire-identical to the server's JSON — snapshot caching round-trips
@@ -42,5 +49,6 @@ class ServerTrack {
     'track_no': trackNo,
     'year': year,
     'has_art': hasArt,
+    if (streamUrl != null) 'stream_url': streamUrl,
   };
 }

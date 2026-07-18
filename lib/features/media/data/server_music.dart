@@ -59,7 +59,12 @@ Future<List<Playable>> serverPlayables(
       Playable(
         id: t.id,
         kind: PlayableKind.audio,
-        uri: music.streamUri(t.id),
+        // Signed URL when the server provides one: playback then outlives
+        // the 15-minute bearer (loop restarts / queue wraps kept 401ing on
+        // the stale header). Bearer fallback for old servers.
+        uri: t.streamUrl != null
+            ? music.resolveStreamUrl(t.streamUrl!)
+            : music.streamUri(t.id),
         title: t.title,
         subtitle: t.artist,
         album: t.album,
@@ -259,7 +264,10 @@ Future<List<Playable>> catalogPlayables(
       Playable(
         id: t.id,
         kind: PlayableKind.audio,
-        uri: music.catalogStreamUri(t.id),
+        // Signed URL preferred — see serverPlayables.
+        uri: t.streamUrl != null
+            ? music.resolveStreamUrl(t.streamUrl!)
+            : music.catalogStreamUri(t.id),
         title: t.title,
         subtitle: t.artist,
         album: t.album,

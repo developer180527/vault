@@ -1,9 +1,15 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/actions/vault_action.dart';
+import '../../core/client/vault_client.dart';
+import '../../core/auth/local_auth_gate.dart';
 import '../../core/auth/session.dart';
 import '../../core/capability/manifest_providers.dart';
+import '../../core/jobs/job.dart';
 import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/platform/haptics.dart';
 import '../../core/prefs/pinned_services.dart';
@@ -11,6 +17,8 @@ import '../../core/services/service_registry.dart';
 import '../../shell/adaptive_shell.dart';
 import '../../shell/service_page.dart';
 import '../../shell/widgets/action_bar.dart';
+import '../jobs/jobs_page.dart';
+import '../media/widgets/media_trash_sheet.dart';
 import '../settings/settings_page.dart';
 import 'connect_flow.dart';
 
@@ -37,12 +45,52 @@ final userServiceActions = <VaultAction>[
   ),
 ];
 
-/// The You page: who's signed in (a local placeholder until vaultd auth
-/// exists) and the full services shelf. Every permitted service is listed;
-/// tapping launches it full-screen (the dock hides), the pin toggles whether
-/// it lives on the dock.
+/// The You page, in three sections under a slim tab strip (same pattern as
+/// the music service): **Profile** (identity + services shelf), **Activity**
+/// (this device's background jobs), **Trash** (media recently-deleted,
+/// unlocked with device biometrics).
 class UserPage extends ConsumerWidget {
   const UserPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      bottom: false,
+      child: DefaultTabController(
+        length: 3,
+        child: Column(
+          children: [
+            TabBar(
+              dividerColor: Colors.transparent,
+              indicatorSize: TabBarIndicatorSize.label,
+              labelColor: scheme.primary,
+              unselectedLabelColor: scheme.onSurfaceVariant,
+              tabs: const [
+                Tab(height: 44, icon: Icon(Icons.person_outline, size: 20)),
+                Tab(height: 44, icon: Icon(Icons.history, size: 20)),
+                Tab(height: 44, icon: Icon(Icons.delete_outline, size: 20)),
+              ],
+            ),
+            const Expanded(
+              child: TabBarView(
+                children: [
+                  _ProfileSection(),
+                  _ActivitySection(),
+                  _TrashSection(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Profile: identity header + the full services shelf (launch / pin).
+class _ProfileSection extends ConsumerWidget {
+  const _ProfileSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -55,21 +103,14 @@ class UserPage extends ConsumerWidget {
     ];
 
     return ListView(
-      // Inset for the shell's translucent toolbar and floating dock, so the
-      // page scrolls beneath both.
       padding: EdgeInsets.fromLTRB(
-          16,
-          16 + MediaQuery.paddingOf(context).top,
-          16,
-          16 + MediaQuery.paddingOf(context).bottom),
+          16, 16, 16, 16 + MediaQuery.paddingOf(context).bottom),
       children: [
         const _ProfileHeader(),
         const SizedBox(height: 24),
         Text('Services',
-            style: Theme.of(context)
-                .textTheme
-                .titleSmall
-                ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant)),
         const SizedBox(height: 4),
         for (final s in shelf)
           _ServiceTile(service: s, pinned: pinnedIds.contains(s.id)),
@@ -78,30 +119,193 @@ class UserPage extends ConsumerWidget {
   }
 }
 
+/// Activity: this device's background jobs, newest first — a read-only feed
+/// (manage them in the Torrent/Downloads tabs).
+class _ActivitySection extends ConsumerWidget {
+  const _ActivitySection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final jobsAsync = ref.watch(jobsProvider);
+    return jobsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Activity unavailable: $e')),
+      data: (jobs) => jobs.isEmpty
+          ? Center(
+              child: Text('No activity yet.',
+                  style: TextStyle(color: scheme.onSurfaceVariant)),
+            )
+          : ListView.builder(
+              padding: EdgeInsets.only(
+                  bottom: 16 + MediaQuery.paddingOf(context).bottom),
+              itemCount: jobs.length,
+              itemBuilder: (context, i) {
+                final j = jobs[i];
+                return ListTile(
+                  leading: AdaptiveIcon(j.kind.icon, size: 22),
+                  title: Text(j.title,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: Text(
+                    j.state == JobState.running
+                        ? '${j.kind.label} · ${(j.progress * 100).round()}%'
+                        : '${j.kind.label} · ${j.state.name}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: j.state == JobState.running
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, value: j.progress),
+                        )
+                      : null,
+                );
+              },
+            ),
+    );
+  }
+}
+
+/// Trash: the media recently-deleted list, behind the device-local auth gate.
+class _TrashSection extends ConsumerStatefulWidget {
+  const _TrashSection();
+
+  @override
+  ConsumerState<_TrashSection> createState() => _TrashSectionState();
+}
+
+class _TrashSectionState extends ConsumerState<_TrashSection> {
+  bool _unlocked = false;
+
+  Future<void> _unlock() async {
+    final ok = await ref
+        .read(localAuthGateProvider)
+        .authenticate(reason: 'Unlock the media trash');
+    if (ok && mounted) setState(() => _unlocked = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (!_unlocked) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock_outline, size: 44, color: scheme.onSurfaceVariant),
+            const SizedBox(height: 12),
+            Text('Recently deleted is locked',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text("They'll be permanently deleted after 30 days.",
+                style: TextStyle(color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              icon: const Icon(Icons.fingerprint),
+              label: const Text('Unlock'),
+              onPressed: _unlock,
+            ),
+          ],
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+          child: Text("They'll be permanently deleted after 30 days.",
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant)),
+        ),
+        const Expanded(child: MediaTrashList()),
+      ],
+    );
+  }
+}
+
+/// The caller's profile picture bytes (null = none). Invalidated on upload.
+final myAvatarProvider = FutureProvider<Uint8List?>((ref) {
+  if (ref.watch(sessionProvider).asData?.value == null) return null;
+  return ref.watch(vaultClientProvider).myAvatar();
+});
+
 class _ProfileHeader extends ConsumerWidget {
   const _ProfileHeader();
+
+  Future<void> _pickAvatar(BuildContext context, WidgetRef ref) async {
+    final picked = await FilePicker.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    final bytes = picked?.files.single.bytes;
+    if (bytes == null) return;
+    try {
+      await ref.read(vaultClientProvider).setMyAvatar(bytes);
+      ref.invalidate(myAvatarProvider);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not set picture: $e')));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final session = ref.watch(sessionProvider).asData?.value;
     final connected = session != null;
+    final avatar = ref.watch(myAvatarProvider).asData?.value;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            CircleAvatar(
-              radius: 32,
-              backgroundColor: connected
-                  ? scheme.primaryContainer
-                  : scheme.secondaryContainer,
-              child: Icon(connected ? Icons.person : Icons.person_outline,
-                  size: 36,
-                  color: connected
-                      ? scheme.onPrimaryContainer
-                      : scheme.onSecondaryContainer),
+            // Tap to set/change the picture (connected only — it lives on
+            // the server, next to your identity).
+            InkWell(
+              customBorder: const CircleBorder(),
+              onTap: connected ? () => _pickAvatar(context, ref) : null,
+              child: Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 32,
+                    backgroundColor: connected
+                        ? scheme.primaryContainer
+                        : scheme.secondaryContainer,
+                    foregroundImage:
+                        avatar != null ? MemoryImage(avatar) : null,
+                    child: Icon(
+                        connected ? Icons.person : Icons.person_outline,
+                        size: 36,
+                        color: connected
+                            ? scheme.onPrimaryContainer
+                            : scheme.onSecondaryContainer),
+                  ),
+                  if (connected)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          shape: BoxShape.circle,
+                          border:
+                              Border.all(color: scheme.surface, width: 1.5),
+                        ),
+                        child: Icon(Icons.edit,
+                            size: 11, color: scheme.onPrimary),
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(

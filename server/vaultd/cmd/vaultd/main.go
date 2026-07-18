@@ -87,6 +87,14 @@ func main() {
 			"code", setupCode)
 	}
 
+	// Stream-URL signing key: generated once, lives with the DB under
+	// system/. Signed URLs let playback outlive the 15-minute bearer.
+	signer, err := auth.LoadOrCreateStreamKey(
+		filepath.Join(cfg.DataRoot, "system", "stream_signing_key"))
+	if err != nil {
+		log.Warn("stream signing unavailable — streams stay bearer-only", "err", err)
+	}
+
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(httpapi.Options{
@@ -98,6 +106,7 @@ func main() {
 			OIDCClientID: cfg.OIDCClientID,
 			DataRoot:     cfg.DataRoot,
 			Jobs:         engine,
+			Signer:       signer,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

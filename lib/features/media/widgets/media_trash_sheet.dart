@@ -28,7 +28,6 @@ class _TrashSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final trashed = ref.watch(trashedMediaProvider);
     final scheme = Theme.of(context).colorScheme;
 
     return DraggableScrollableSheet(
@@ -54,26 +53,39 @@ class _TrashSheet extends ConsumerWidget {
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
-          Expanded(
-            child: trashed.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Trash unavailable: $e')),
-              data: (items) => items.isEmpty
-                  ? Center(
-                      child: Text(
-                        'Trash is empty.',
-                        style: TextStyle(color: scheme.onSurfaceVariant),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: scrollController,
-                      itemCount: items.length,
-                      itemBuilder: (context, i) => _TrashRow(item: items[i]),
-                    ),
-            ),
-          ),
+          Expanded(child: MediaTrashList(scrollController: scrollController)),
         ],
       ),
+    );
+  }
+}
+
+/// The recently-deleted list — shared by the bottom sheet and the You page's
+/// Trash section. Rows carry Restore and Delete-now (OS-confirmed).
+class MediaTrashList extends ConsumerWidget {
+  const MediaTrashList({super.key, this.scrollController});
+
+  final ScrollController? scrollController;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final trashed = ref.watch(trashedMediaProvider);
+    return trashed.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Trash unavailable: $e')),
+      data: (items) => items.isEmpty
+          ? Center(
+              child: Text(
+                'Trash is empty.',
+                style: TextStyle(color: scheme.onSurfaceVariant),
+              ),
+            )
+          : ListView.builder(
+              controller: scrollController,
+              itemCount: items.length,
+              itemBuilder: (context, i) => _TrashRow(item: items[i]),
+            ),
     );
   }
 }

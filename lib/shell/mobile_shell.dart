@@ -9,7 +9,10 @@ import '../core/platform/design/adaptive_icons.dart';
 import '../core/platform/design/native_glass.dart';
 import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
+import '../core/playback/playable.dart';
 import '../core/playback/playback_controller.dart';
+import '../features/media/data/server_music.dart';
+import '../features/user/user_page.dart';
 import '../features/media/music_player_page.dart';
 import 'widgets/action_bar.dart';
 import 'widgets/glass_app_bar.dart';
@@ -174,6 +177,12 @@ class _BottomBarArea extends ConsumerWidget {
                                 : Theme.of(
                                     context,
                                   ).colorScheme.surfaceContainerHighest,
+                            // Profile picture when set; person glyph fallback.
+                            foregroundImage: switch (
+                                ref.watch(myAvatarProvider).asData?.value) {
+                              final bytes? => MemoryImage(bytes),
+                              null => null,
+                            },
                             child: AdaptiveIcon(
                               VaultIcons.user,
                               selected: onUserPage,
@@ -362,6 +371,42 @@ class _DockItem extends StatelessWidget {
   }
 }
 
+/// Mini-player leading art: embedded bytes (local files) or bearer-cached
+/// network art (server streams), music-note fallback.
+class _MiniArt extends ConsumerWidget {
+  const _MiniArt({required this.track});
+
+  final Playable track;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final bytes = track.artwork ??
+        (track.artworkUri == null
+            ? null
+            : ref
+                .watch(artBytesProvider(track.artworkUri!.toString()))
+                .asData
+                ?.value);
+    const side = _kMiniPlayerHeight - 12;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(7),
+      child: SizedBox(
+        width: side,
+        height: side,
+        child: bytes != null
+            ? Image.memory(bytes,
+                fit: BoxFit.cover, cacheWidth: 96, gaplessPlayback: true)
+            : ColoredBox(
+                color: scheme.surfaceContainerHighest,
+                child: AdaptiveIcon(VaultIcons.music,
+                    size: 16, color: scheme.primary),
+              ),
+      ),
+    );
+  }
+}
+
 /// Thin now-playing pill: title, play/pause, next. Tapping it opens the
 /// full-screen player (which hides the whole bottom stack).
 class _MiniPlayerPill extends ConsumerWidget {
@@ -374,7 +419,6 @@ class _MiniPlayerPill extends ConsumerWidget {
     // pill's business.
     final track = ref.watch(playbackProvider.select((s) => s.currentAudio));
     if (track == null) return const SizedBox.shrink();
-    final scheme = Theme.of(context).colorScheme;
 
     return NativeGlassSurface(
       radius: _kMiniPlayerHeight / 2,
@@ -389,14 +433,10 @@ class _MiniPlayerPill extends ConsumerWidget {
           height: _kMiniPlayerHeight,
           child: Row(
             children: [
-              const SizedBox(width: 16),
-              ExcludeSemantics(
-                child: AdaptiveIcon(
-                  VaultIcons.music,
-                  size: 18,
-                  color: scheme.primary,
-                ),
-              ),
+              const SizedBox(width: 8),
+              // Album art (embedded bytes or cached network art); the music
+              // glyph is only the no-art fallback.
+              ExcludeSemantics(child: _MiniArt(track: track)),
               const SizedBox(width: 10),
               Expanded(
                 child: Semantics(

@@ -9,11 +9,15 @@
 
   <table>
     <tr>
-      <th>User</th><th>Email</th><th>Role</th><th>Status</th>
+      <th></th><th>User</th><th>Email</th><th>Role</th><th>Status</th>
       <th class="num">Devices</th><th></th>
     </tr>
     {{range .Rows}}
     <tr>
+      <td style="width:46px">
+        <img class="art" style="border-radius:50%" src="/users/{{.ID}}/avatar"
+             alt="">
+      </td>
       <td><a href="/users/{{.ID}}"><strong>{{.Username}}</strong></a></td>
       <td class="muted">{{.Email}}</td>
       <td><span class="pill {{if eq .Role "admin"}}admin{{end}}">{{.Role}}</span></td>

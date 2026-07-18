@@ -20,6 +20,10 @@ class _FakeMusicApi implements MusicApi {
   Uri artUri(String id) => Uri.parse('https://vault/v1/music/tracks/$id/art');
 
   @override
+  Uri resolveStreamUrl(String pathWithQuery) =>
+      Uri.parse('https://vault$pathWithQuery');
+
+  @override
   Future<List<ServerTrack>> tracks() async => const [];
 
   @override
@@ -107,6 +111,33 @@ void main() {
     expect(playables.single.uri.toString(),
         'https://vault/v1/music/catalog/c1/stream');
     expect(playables.single.headers['Authorization'], 'Bearer tok-1');
+  });
+
+  test('playables prefer the signed stream_url when the server sends one',
+      () async {
+    const signed = '/v1/music/catalog/c2/stream?exp=99&sig=abc';
+    final playables = await catalogPlayables(_FakeMusicApi(), const [
+      ServerTrack(id: 'c2', title: 'Signed', streamUrl: signed),
+    ]);
+    expect(playables.single.uri.toString(), 'https://vault$signed');
+
+    final personal = await serverPlayables(_FakeMusicApi(), const [
+      ServerTrack(
+          id: 't9',
+          title: 'Mine',
+          streamUrl: '/v1/music/tracks/t9/stream?u=venu&exp=99&sig=def'),
+    ]);
+    expect(personal.single.uri.queryParameters['sig'], 'def');
+  });
+
+  test('ServerTrack stream_url round-trips through json (snapshot cache)', () {
+    const t = ServerTrack(
+        id: 'x', title: 'T', streamUrl: '/v1/music/catalog/x/stream?sig=s');
+    final back = ServerTrack.fromJson(t.toJson());
+    expect(back.streamUrl, t.streamUrl);
+    // Absent on old servers → null, not empty string.
+    expect(ServerTrack.fromJson(const {'id': 'y', 'title': 'Y'}).streamUrl,
+        isNull);
   });
 
   test('listenSourceFor tags events for the future recommender', () {

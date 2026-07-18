@@ -29,3 +29,26 @@ class SidebarPositionNotifier extends AsyncNotifier<SidebarPosition> {
 final sidebarPositionProvider =
     AsyncNotifierProvider<SidebarPositionNotifier, SidebarPosition>(
         SidebarPositionNotifier.new);
+
+/// Whether the sidebar is collapsed (persisted per device). Toggled from the
+/// title bar / sidebar header; content gets the full window while hidden.
+class SidebarHiddenNotifier extends AsyncNotifier<bool> {
+  static const _key = 'sidebar_hidden';
+
+  @override
+  Future<bool> build() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_key) ?? false;
+  }
+
+  Future<void> toggle() async {
+    final next = !(state.asData?.value ?? false);
+    state = AsyncData(next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_key, next);
+  }
+}
+
+final sidebarHiddenProvider =
+    AsyncNotifierProvider<SidebarHiddenNotifier, bool>(
+        SidebarHiddenNotifier.new);

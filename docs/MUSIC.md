@@ -64,11 +64,17 @@ Artwork is **not stored**: parsed from the file on request and HTTP-cached
   server one).
 - Search: debounced field → `/v1/music/search`; empty query → full listing.
 
-## Known limitation (accepted for M3)
+## Known limitation (accepted for M3) — FIXED via signed stream URLs
 
-Streams carry a bearer that expires in ~15 min. The client refreshes before
-building a queue, so normal listening is fine; a seek on a >15-min-old paused
-stream can 401. Real fix later: short-lived signed stream URLs.
+Streams originally carried a bearer that expires in ~15 min, so loop
+restarts, queue wraps, and late seeks 401'd mid-listen. Fixed: list
+endpoints now attach a per-track `stream_url` — a signed path
+(`?u=&exp=&sig=`, HMAC over track identity + expiry, key generated at
+`system/stream_signing_key`, 24h TTL). Stream endpoints sit outside the
+auth middleware and accept a valid signature OR the bearer+grant path
+(compat for old clients). The signed URL is the capability: leaking one
+leaks one track for a bounded time. Clients prefer `stream_url` when
+present and fall back to the bearer route against old servers.
 
 ## The shared catalog (migration 0003)
 

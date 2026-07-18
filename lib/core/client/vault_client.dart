@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/session.dart';
@@ -34,6 +36,13 @@ abstract interface class VaultClient {
   /// The SERVER's music library (list/search/stream — docs/MUSIC.md).
   /// Standalone mode plays local files instead and never calls this.
   MusicApi get music;
+
+  /// The caller's profile picture, or null when none is set (or standalone).
+  Future<Uint8List?> myAvatar();
+
+  /// Upload raw image bytes as the caller's profile picture (server-side
+  /// sniffed: non-images are rejected).
+  Future<void> setMyAvatar(Uint8List bytes);
 
   /// Release any resources (streams, timers, sockets).
   void dispose();
@@ -87,6 +96,11 @@ abstract interface class MusicApi {
 
   Uri streamUri(String id);
   Uri artUri(String id);
+
+  /// Resolves a server-relative signed stream path (`stream_url` on a track —
+  /// path plus query) against this server's origin. Signed URLs carry their
+  /// own auth, so playback outlives the 15-minute bearer.
+  Uri resolveStreamUrl(String pathWithQuery);
 
   /// The shared catalog: full list when [query] is empty, FTS prefix search
   /// otherwise. Pure server-DB read — the admin curates and scans.

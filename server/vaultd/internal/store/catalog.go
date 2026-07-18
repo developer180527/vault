@@ -23,6 +23,11 @@ type CatalogTrack struct {
 	TrackNo int    `json:"track_no"`
 	Year    int    `json:"year"`
 	HasArt  bool   `json:"has_art"`
+
+	// StreamURL is TRANSIENT (never stored): a signed, bearer-free
+	// stream path attached by the list handlers so playback outlives
+	// the 15-minute access token (docs/MUSIC.md, auth.StreamSigner).
+	StreamURL string `json:"stream_url,omitempty"`
 }
 
 // Playlist is a user-owned ordered set of catalog track UUIDs.

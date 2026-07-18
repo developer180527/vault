@@ -4,8 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../../core/auth/local_auth_gate.dart';
 import '../../core/capability/capability.dart';
 import '../../core/version/build_info.dart';
+import '../media/data/local_media_library.dart';
+import '../media/data/media_providers.dart';
 import '../../core/capability/manifest_providers.dart';
 import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/platform/platform_info.dart';
@@ -25,11 +28,17 @@ class SettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Wide windows (desktop/tablet): settings read as a centered column, not
+    // full-bleed rows stretched across the whole screen.
+    final wide = MediaQuery.sizeOf(context).width > 700;
     return ListView(
       // Include the bottom safe-area inset so the last row clears the iOS home
       // indicator / bottom nav on release builds.
       padding: EdgeInsets.fromLTRB(
-          16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
+          wide ? (MediaQuery.sizeOf(context).width - 620) / 2 : 16,
+          16,
+          wide ? (MediaQuery.sizeOf(context).width - 620) / 2 : 16,
+          16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
         const _SectionHeader('Appearance'),
         const _AppearanceSection(),
@@ -52,6 +61,9 @@ class SettingsPage extends ConsumerWidget {
           title: Text('This device'),
           subtitle: Text('Profile & device identity — server-managed'),
         ),
+        const Divider(height: 32),
+        const _SectionHeader('Device permissions'),
+        const _PermissionsSection(),
         const Divider(height: 32),
         const _SectionHeader('Diagnostics'),
         ListTile(
@@ -115,6 +127,102 @@ class _DesktopSection extends ConsumerWidget {
   }
 }
 
+/// Everything Vault uses from the OS, with its current state — a read-only
+/// mirror of the system permission panel so "why can't Vault see my photos"
+/// is answerable in-app. The OS owns the actual toggles.
+class _PermissionsSection extends ConsumerWidget {
+  const _PermissionsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final media = ref.watch(mediaAccessProvider).asData?.value;
+    final biometrics = ref.watch(_biometricsAvailableProvider).asData?.value;
+
+    Widget pill(String text, bool ok) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+          decoration: BoxDecoration(
+            color: ok ? scheme.secondaryContainer : scheme.errorContainer,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(text,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: ok
+                      ? scheme.onSecondaryContainer
+                      : scheme.onErrorContainer)),
+        );
+
+    return Column(
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.photo_library_outlined),
+          title: const Text('Photos & videos'),
+          subtitle: const Text('Media browsing and backup'),
+          trailing: pill(
+            switch (media) {
+              MediaAccess.authorized => 'Full access',
+              MediaAccess.limited => 'Selected only',
+              MediaAccess.denied => 'Denied',
+              MediaAccess.unavailable => 'Unavailable',
+              null => '…',
+            },
+            media == MediaAccess.authorized || media == MediaAccess.limited,
+          ),
+          onTap: () => ref.read(localMediaLibraryProvider).openSettings(),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.fingerprint),
+          title: const Text('Biometric unlock'),
+          subtitle: const Text('Protects the media trash'),
+          trailing: pill(
+            switch (biometrics) {
+              true => 'Available',
+              false => 'Not set up',
+              null => '…',
+            },
+            biometrics ?? false,
+          ),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.play_circle_outline),
+          title: const Text('Background audio'),
+          subtitle: const Text('Music keeps playing when the app is hidden'),
+          trailing: pill('Enabled', true),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Change these in the system settings — Vault only shows '
+                  'their current state.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ),
+              TextButton(
+                onPressed: () =>
+                    ref.read(localMediaLibraryProvider).openSettings(),
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Whether the device can run the local auth gate (biometrics or passcode).
+final _biometricsAvailableProvider = FutureProvider<bool>(
+    (ref) => ref.watch(localAuthGateProvider).isAvailable);
+
 /// About tile: shows the app version + build; tapping opens the commit this
 /// build was made from (baked in by tool/gen_build_info.sh).
 class _AboutTile extends StatelessWidget {
@@ -132,17 +240,27 @@ class _AboutTile extends StatelessWidget {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Vault'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _row(context, 'Version', BuildInfo.label),
-              _row(context, 'Commit', BuildInfo.commit),
-              _row(context, 'Built', BuildInfo.date),
-              const SizedBox(height: 12),
-              Text(BuildInfo.commitSubject,
-                  style: Theme.of(context).textTheme.bodyMedium),
-            ],
+          // Scrollable + height-capped: commit messages can be paragraphs
+          // long and were overflowing the dialog.
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+              maxWidth: 420,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _row(context, 'Version', BuildInfo.label),
+                  _row(context, 'Commit', BuildInfo.commit),
+                  _row(context, 'Built', BuildInfo.date),
+                  const SizedBox(height: 12),
+                  Text(BuildInfo.commitSubject,
+                      style: Theme.of(context).textTheme.bodyMedium),
+                ],
+              ),
+            ),
           ),
           actions: [
             TextButton(

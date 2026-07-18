@@ -88,6 +88,7 @@ func New(o Options) (http.Handler, error) {
 
 		// Phase 1 — Users & grants.
 		r.Get("/users", s.handleUsers)
+		r.Get("/users/{id}/avatar", s.handleUserAvatar)
 		r.Post("/users", s.handleCreateInvite)
 		r.Get("/users/{id}", s.handleUserDetail)
 		r.Post("/users/{id}/grants", s.handleSaveGrants)

@@ -48,56 +48,110 @@ class MusicPlayerPage extends ConsumerWidget {
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(28, 8, 28, 20),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: LayoutBuilder(builder: (context, constraints) {
+              final topBar = Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.keyboard_arrow_down, size: 32),
+                    onPressed: () => Navigator.of(context).maybePop(),
+                  ),
+                  // Stop entirely: kills playback, clears the queue, and
+                  // (via current == null) removes the mini-player pill.
+                  IconButton(
+                    tooltip: 'Stop',
+                    icon: const Icon(Icons.stop_circle_outlined, size: 30),
+                    onPressed: () async {
+                      await controller.stopAudio();
+                      if (context.mounted) {
+                        Navigator.of(context).maybePop();
+                      }
+                    },
+                  ),
+                ],
+              );
+              final titleBlock = Column(
+                children: [
+                  Text(
+                    track?.title ?? 'Nothing playing',
+                    style: Theme.of(context).textTheme.titleLarge,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    (track?.subtitle.isEmpty ?? true)
+                        ? 'Local music'
+                        : track!.subtitle,
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              );
+              final transport = Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _Scrubber(player: player),
+                  const SizedBox(height: 4),
+                  _Controls(controller: controller, player: player),
+                ],
+              );
+              final art =
+                  _Artwork(art: track?.artwork, artUri: track?.artworkUri);
+
+              // Wide (desktop/tablet): art beside the transport, centered and
+              // width-capped — the phone column stretched across a desktop
+              // window read as a blown-up mobile app.
+              if (constraints.maxWidth > 720) {
+                return Column(
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down, size: 32),
-                      onPressed: () => Navigator.of(context).maybePop(),
-                    ),
-                    // Stop entirely: kills playback, clears the queue, and
-                    // (via current == null) removes the mini-player pill.
-                    IconButton(
-                      tooltip: 'Stop',
-                      icon: const Icon(Icons.stop_circle_outlined, size: 30),
-                      onPressed: () async {
-                        await controller.stopAudio();
-                        if (context.mounted) {
-                          Navigator.of(context).maybePop();
-                        }
-                      },
+                    topBar,
+                    Expanded(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 860),
+                          child: Row(
+                            children: [
+                              Expanded(child: Center(child: art)),
+                              const SizedBox(width: 40),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    titleBlock,
+                                    const SizedBox(height: 28),
+                                    transport,
+                                    const SizedBox(height: 28),
+                                    _VolumeRow(player: player),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                   ],
-                ),
-                const Spacer(),
-                _Artwork(art: track?.artwork, artUri: track?.artworkUri),
-                const SizedBox(height: 32),
-                Text(
-                  track?.title ?? 'Nothing playing',
-                  style: Theme.of(context).textTheme.titleLarge,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  (track?.subtitle.isEmpty ?? true)
-                      ? 'Local music'
-                      : track!.subtitle,
-                  style: TextStyle(color: scheme.onSurfaceVariant),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 20),
-                _Scrubber(player: player),
-                const SizedBox(height: 4),
-                _Controls(controller: controller, player: player),
-                const Spacer(),
-                _VolumeRow(player: player),
-              ],
-            ),
+                );
+              }
+
+              // Phone: the original vertical layout.
+              return Column(
+                children: [
+                  topBar,
+                  const Spacer(),
+                  art,
+                  const SizedBox(height: 32),
+                  titleBlock,
+                  const SizedBox(height: 20),
+                  transport,
+                  const Spacer(),
+                  _VolumeRow(player: player),
+                ],
+              );
+            }),
           ),
         ),
       ),

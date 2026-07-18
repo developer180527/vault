@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../capability/capability.dart';
 import '../capability/manifest_source.dart';
@@ -37,6 +38,13 @@ class MockVaultClient implements VaultClient {
   @override
   MusicApi get music =>
       throw UnsupportedError('server music requires a connected session');
+
+  // Standalone devices have no server-side profile.
+  @override
+  Future<Uint8List?> myAvatar() async => null;
+
+  @override
+  Future<void> setMyAvatar(Uint8List bytes) async {}
 
   @override
   Future<CapabilityManifest> fetchManifest() async =>

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -36,6 +37,7 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	if tracks == nil {
 		tracks = []store.CatalogTrack{}
 	}
+	s.signCatalogStreams(tracks)
 	writeJSON(w, http.StatusOK, map[string]any{"tracks": tracks})
 }
 
@@ -49,10 +51,40 @@ func (s *Server) catalogTrackFor(w http.ResponseWriter, r *http.Request) (*store
 	return t, true
 }
 
-// GET /v1/music/catalog/{id}/stream  (music:read) — Range/seek via ServeFile.
+// GET /v1/music/catalog/{id}/stream — Range/seek via ServeFile. Outside the
+// auth middleware: signed URL (sig/exp) OR bearer + music:read, same rationale
+// as the per-user stream.
 func (s *Server) handleCatalogStream(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.catalogTrackFor(w, r)
-	if !ok {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+	q := r.URL.Query()
+
+	if sig := q.Get("sig"); sig != "" && s.signer != nil {
+		if !s.signer.Verify("stream:catalog:"+id, q.Get("exp"), sig, time.Now()) {
+			writeErr(w, http.StatusUnauthorized, "invalid or expired stream URL")
+			return
+		}
+		t, err := s.store.Read().CatalogTrackByID(ctx, id)
+		if err != nil {
+			s.filesErr(w, r, err)
+			return
+		}
+		http.ServeFile(w, r, s.music.CatalogTrackPath(t))
+		return
+	}
+
+	p := s.bearerPrincipal(r)
+	if p == nil {
+		writeErr(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	if !s.hasGrant(r, p, "music", "read") {
+		writeErr(w, http.StatusForbidden, "music access not granted")
+		return
+	}
+	t, err := s.store.Read().CatalogTrackByID(ctx, id)
+	if err != nil {
+		s.filesErr(w, r, err)
 		return
 	}
 	http.ServeFile(w, r, s.music.CatalogTrackPath(t))
@@ -194,6 +226,7 @@ func (s *Server) handlePlaylistTracks(w http.ResponseWriter, r *http.Request) {
 	if tracks == nil {
 		tracks = []store.CatalogTrack{}
 	}
+	s.signCatalogStreams(tracks)
 	writeJSON(w, http.StatusOK, map[string]any{"tracks": tracks})
 }
 

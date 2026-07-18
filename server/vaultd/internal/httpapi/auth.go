@@ -46,6 +46,22 @@ func (s *Server) RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// bearerPrincipal resolves the Authorization header to a principal, nil if
+// absent/invalid — for routes that accept bearer OR another proof (signed
+// stream URLs) and so sit outside the RequireAuth middleware.
+func (s *Server) bearerPrincipal(r *http.Request) *store.Principal {
+	raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if raw == "" || raw == r.Header.Get("Authorization") {
+		return nil
+	}
+	p, err := s.store.Read().PrincipalByAccessHash(
+		r.Context(), auth.HashToken(raw), time.Now())
+	if err != nil {
+		return nil
+	}
+	return p
+}
+
 // hasGrant reports whether a principal holds (service, action). Admins hold
 // everything. Used inside handlers where the required grant depends on the
 // request (e.g. a job's kind decides torrent vs downloads).

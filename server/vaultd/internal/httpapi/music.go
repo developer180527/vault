@@ -3,12 +3,43 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
+
+// signUserStreams attaches signed, bearer-free stream URLs to a user's tracks
+// so playback outlives the 15-minute access token (loop restarts, queue
+// wraps, late seeks — docs/MUSIC.md "signed stream URLs").
+func (s *Server) signUserStreams(username string, tracks []store.Track) {
+	if s.signer == nil {
+		return
+	}
+	now := time.Now()
+	for i := range tracks {
+		exp, sig := s.signer.Sign(
+			"stream:user:"+username+":"+tracks[i].ID, now)
+		tracks[i].StreamURL = "/v1/music/tracks/" + tracks[i].ID +
+			"/stream?u=" + url.QueryEscape(username) + "&exp=" + exp + "&sig=" + sig
+	}
+}
+
+// signCatalogStreams: same, for shared-catalog tracks.
+func (s *Server) signCatalogStreams(tracks []store.CatalogTrack) {
+	if s.signer == nil {
+		return
+	}
+	now := time.Now()
+	for i := range tracks {
+		exp, sig := s.signer.Sign("stream:catalog:"+tracks[i].ID, now)
+		tracks[i].StreamURL = "/v1/music/catalog/" + tracks[i].ID +
+			"/stream?exp=" + exp + "&sig=" + sig
+	}
+}
 
 // GET /v1/music/tracks — incremental scan, then the full library. The scan on
 // every listing is what keeps the index truthful without a watcher daemon
@@ -24,6 +55,7 @@ func (s *Server) handleListTracks(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.signUserStreams(p.Username, tracks)
 	writeJSON(w, http.StatusOK, map[string]any{"tracks": tracks})
 }
 
@@ -43,6 +75,7 @@ func (s *Server) handleSearchTracks(w http.ResponseWriter, r *http.Request) {
 	if tracks == nil {
 		tracks = []store.Track{}
 	}
+	s.signUserStreams(p.Username, tracks)
 	writeJSON(w, http.StatusOK, map[string]any{"tracks": tracks})
 }
 
@@ -58,12 +91,50 @@ func (s *Server) trackFor(w http.ResponseWriter, r *http.Request) (*store.Track,
 }
 
 // GET /v1/music/tracks/{id}/stream — bytes with Range/seek via ServeFile.
+// Sits OUTSIDE the auth middleware: accepts a signed URL (sig/exp/u query)
+// OR a live bearer + music:read. Signed URLs are what let playback outlive
+// the 15-minute token.
 func (s *Server) handleStreamTrack(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.trackFor(w, r)
-	if !ok {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+	q := r.URL.Query()
+
+	if sig := q.Get("sig"); sig != "" && s.signer != nil {
+		username := q.Get("u")
+		if !s.signer.Verify(
+			"stream:user:"+username+":"+id, q.Get("exp"), sig, time.Now()) {
+			writeErr(w, http.StatusUnauthorized, "invalid or expired stream URL")
+			return
+		}
+		user, err := s.store.Read().UserByUsername(ctx, username)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		t, err := s.store.Read().TrackByID(ctx, user.ID, id)
+		if err != nil {
+			s.filesErr(w, r, err)
+			return
+		}
+		http.ServeFile(w, r, s.music.TrackPath(username, t))
 		return
 	}
-	p := PrincipalFrom(r.Context())
+
+	// Bearer path — same checks the middleware chain used to make.
+	p := s.bearerPrincipal(r)
+	if p == nil {
+		writeErr(w, http.StatusUnauthorized, "missing or invalid token")
+		return
+	}
+	if !s.hasGrant(r, p, "music", "read") {
+		writeErr(w, http.StatusForbidden, "music access not granted")
+		return
+	}
+	t, err := s.store.Read().TrackByID(ctx, p.UserID, id)
+	if err != nil {
+		s.filesErr(w, r, err)
+		return
+	}
 	http.ServeFile(w, r, s.music.TrackPath(p.Username, t))
 }
 

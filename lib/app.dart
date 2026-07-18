@@ -158,12 +158,34 @@ class VaultApp extends ConsumerWidget {
         colorSchemeSeed: const Color(0xFF3B6EA5),
         brightness: Brightness.light,
       ),
-      darkTheme: ThemeData(
-        colorSchemeSeed: const Color(0xFF3B6EA5),
-        brightness: Brightness.dark,
-      ),
+      darkTheme: _darkTheme(),
       themeMode: themeMode,
       routerConfig: router,
     );
+  }
+
+  /// True dark: Material's seeded dark scheme tints every surface toward the
+  /// seed hue (the "why is dark mode blue" effect). Keep the seed for accents
+  /// but pin all surfaces/containers to NEUTRAL near-blacks.
+  ThemeData _darkTheme() {
+    final seeded = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF3B6EA5),
+      brightness: Brightness.dark,
+    );
+    final scheme = seeded.copyWith(
+      surface: const Color(0xFF0E0E10),
+      surfaceContainerLowest: const Color(0xFF08080A),
+      surfaceContainerLow: const Color(0xFF121214),
+      surfaceContainer: const Color(0xFF161618),
+      surfaceContainerHigh: const Color(0xFF1C1C1F),
+      surfaceContainerHighest: const Color(0xFF232326),
+      onSurface: const Color(0xFFE7E7EA),
+      onSurfaceVariant: const Color(0xFFA6A6AE),
+      outline: const Color(0xFF77777F),
+      outlineVariant: const Color(0xFF2C2C30),
+      inverseSurface: const Color(0xFFE7E7EA),
+      surfaceTint: Colors.transparent, // no elevation tinting back to blue
+    );
+    return ThemeData(colorScheme: scheme, brightness: Brightness.dark);
   }
 }

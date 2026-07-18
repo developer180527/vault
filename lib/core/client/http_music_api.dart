@@ -43,6 +43,13 @@ class HttpMusicApi implements MusicApi {
   Uri artUri(String id) => _session.api('/v1/music/tracks/$id/art');
 
   @override
+  Uri resolveStreamUrl(String pathWithQuery) {
+    final parts = pathWithQuery.split('?');
+    final base = _session.api(parts.first);
+    return parts.length > 1 ? base.replace(query: parts[1]) : base;
+  }
+
+  @override
   Future<List<ServerTrack>> tracks() => _fetch(_session.api('/v1/music/tracks'));
 
   @override

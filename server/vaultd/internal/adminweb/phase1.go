@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -16,6 +18,32 @@ import (
 // run behind requireAdmin (session + role recheck + same-origin on POST);
 // blast-radius guards (§5) are enforced HERE, server-side — the UI hiding a
 // button is never the protection.
+
+// handleUserAvatar serves a user's profile picture (the same file the API's
+// /v1/me/avatar writes) for the users table. No picture → an initial-letter
+// SVG, so the template never needs script-based fallbacks (the panel's CSP
+// allows no JS at all).
+func (s *Server) handleUserAvatar(w http.ResponseWriter, r *http.Request) {
+	id := filepath.Base(chi.URLParam(r, "id"))
+	path := filepath.Join(s.music.DataRoot, "system", "avatars", id+".img")
+	if data, err := os.ReadFile(path); err == nil {
+		w.Header().Set("Content-Type", http.DetectContentType(data))
+		w.Header().Set("Cache-Control", "private, max-age=300")
+		_, _ = w.Write(data)
+		return
+	}
+	initial := "?"
+	if u, err := s.store.Read().UserByID(r.Context(), id); err == nil &&
+		u.Username != "" {
+		initial = strings.ToUpper(u.Username[:1])
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" width="76" height="76">`+
+		`<circle cx="38" cy="38" r="38" fill="#2b2b36"/>`+
+		`<text x="38" y="50" text-anchor="middle" font-family="sans-serif" `+
+		`font-size="34" fill="#c9c9d4">%s</text></svg>`, initial)
+}
 
 // redirectMsg bounces back to [path] with a flash message in the query.
 func redirectMsg(w http.ResponseWriter, r *http.Request, path, msg string) {

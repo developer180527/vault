@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -52,6 +53,31 @@ class HttpVaultClient implements VaultClient {
       'user': username,
     });
     return manifest;
+  }
+
+  @override
+  Future<Uint8List?> myAvatar() async {
+    try {
+      final res = await _authedGet('/v1/me/avatar');
+      return res.bodyBytes;
+    } catch (_) {
+      return null; // none set (404) or transient failure — show the fallback
+    }
+  }
+
+  @override
+  Future<void> setMyAvatar(Uint8List bytes) async {
+    var session = _ref.read(sessionProvider).asData?.value;
+    if (session == null) throw Exception('not connected to a server');
+    if (session.accessExpires.isBefore(DateTime.now())) {
+      session = await _ref.read(sessionProvider.notifier).refresh();
+      if (session == null) throw Exception('session revoked');
+    }
+    final res = await http.put(session.api('/v1/me/avatar'),
+        headers: _auth(session), body: bytes);
+    if (res.statusCode != 200) {
+      throw Exception('avatar upload failed: HTTP ${res.statusCode}');
+    }
   }
 
   /// GET with bearer auth; on 401 refreshes once and retries. A refresh that

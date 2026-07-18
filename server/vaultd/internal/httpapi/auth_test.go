@@ -111,6 +111,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Verifier:  verifier,
 		SetupCode: "cafe1234",
 		DataRoot:  dataRoot,
+		Signer:    auth.NewStreamSignerForTest([]byte("0123456789abcdef0123456789abcdef")),
 	})
 	return &testEnv{handler: h, store: st, idp: idp, dataRoot: dataRoot}
 }

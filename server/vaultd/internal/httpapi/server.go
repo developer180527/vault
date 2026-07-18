@@ -42,6 +42,10 @@ type Options struct {
 
 	// Jobs is the background-work engine (nil disables the jobs API).
 	Jobs *jobs.Engine
+
+	// Signer mints/verifies signed stream URLs (nil → lists carry no
+	// stream_url and streams are bearer-only, the pre-signing behavior).
+	Signer *auth.StreamSigner
 }
 
 // Server holds the dependencies shared by handlers.
@@ -57,6 +61,7 @@ type Server struct {
 	jobs         *jobs.Engine
 	files        *files.Service
 	music        *music.Service
+	signer       *auth.StreamSigner
 }
 
 // New builds the router.
@@ -70,6 +75,7 @@ func New(o Options) http.Handler {
 		oidcClientID: o.OIDCClientID,
 		dataRoot:     o.DataRoot,
 		jobs:         o.Jobs,
+		signer:       o.Signer,
 		files:        &files.Service{DataRoot: o.DataRoot},
 		music: &music.Service{
 			DataRoot: o.DataRoot, Store: o.Store, Log: o.Log},
@@ -92,10 +98,20 @@ func New(o Options) http.Handler {
 		r.Post("/devices/register", s.handleRegister)
 		r.Post("/token", s.handleToken)
 
+		// Streams sit OUTSIDE the auth middleware: they accept a signed URL
+		// (minted per track at list time, so playback outlives the 15-minute
+		// bearer) or fall back to bearer + grant inside the handler.
+		r.Get("/music/tracks/{id}/stream", s.handleStreamTrack)
+		r.Get("/music/catalog/{id}/stream", s.handleCatalogStream)
+
 		// Authenticated.
 		r.Group(func(r chi.Router) {
 			r.Use(s.RequireAuth)
 			r.Get("/manifest", s.handleManifest)
+
+			// Profile picture — every user owns exactly their own.
+			r.Get("/me/avatar", s.handleGetMyAvatar)
+			r.Put("/me/avatar", s.handlePutMyAvatar)
 
 			// Jobs — torrent and downloads are separate services sharing one
 			// pipeline. Grants are checked per-request by job KIND inside the
@@ -134,11 +150,9 @@ func New(o Options) http.Handler {
 				r.Use(s.RequireGrant("music", "read"))
 				r.Get("/music/tracks", s.handleListTracks)
 				r.Get("/music/search", s.handleSearchTracks)
-				r.Get("/music/tracks/{id}/stream", s.handleStreamTrack)
 				r.Get("/music/tracks/{id}/art", s.handleTrackArt)
 
 				r.Get("/music/catalog", s.handleCatalog)
-				r.Get("/music/catalog/{id}/stream", s.handleCatalogStream)
 				r.Get("/music/catalog/{id}/art", s.handleCatalogArt)
 
 				r.Get("/music/playlists", s.handleListPlaylists)

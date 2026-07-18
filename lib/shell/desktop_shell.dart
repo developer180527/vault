@@ -25,14 +25,46 @@ class DesktopShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final nativeDesktop = isDesktopPlatform;
-    // Desktop power preference: dock the sidebar to either edge.
+    // Desktop power preferences: dock edge + collapsed state.
     final sidebarRight = ref.watch(sidebarPositionProvider).asData?.value ==
         SidebarPosition.right;
+    final hidden = ref.watch(sidebarHiddenProvider).asData?.value ?? false;
 
     final sidebar = _Sidebar(shell: shell, services: services);
     final divider =
         VerticalDivider(width: 1, thickness: 1, color: theme.dividerColor);
-    final content = Expanded(child: shell);
+    final content = Expanded(
+      child: Stack(
+        children: [
+          Positioned.fill(child: shell),
+          // While collapsed, a floating reveal button keeps the sidebar one
+          // click away (the title-bar toggle also works on native desktop).
+          if (hidden)
+            Positioned(
+              top: 8,
+              left: sidebarRight ? null : 8,
+              right: sidebarRight ? 8 : null,
+              child: Material(
+                color: theme.colorScheme.surfaceContainerHigh,
+                shape: const CircleBorder(),
+                elevation: 2,
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () =>
+                      ref.read(sidebarHiddenProvider.notifier).toggle(),
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Tooltip(
+                      message: 'Show sidebar',
+                      child: Icon(Icons.menu_open, size: 18),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
 
     final body = Column(
       children: [
@@ -40,9 +72,11 @@ class DesktopShell extends ConsumerWidget {
         Expanded(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: sidebarRight
-                ? [content, divider, sidebar]
-                : [sidebar, divider, content],
+            children: hidden
+                ? [content]
+                : sidebarRight
+                    ? [content, divider, sidebar]
+                    : [sidebar, divider, content],
           ),
         ),
       ],
@@ -62,51 +96,31 @@ class _Sidebar extends ConsumerWidget {
   final StatefulNavigationShell shell;
   final List<ServiceDefinition> services;
 
-  /// Sidebar entries grouped by category, honoring the user's pins from the
-  /// You page: a service is listed when it's pinned, always-available
-  /// (Settings, You), or currently active (so unpinning the page you're on
-  /// doesn't strand you). Everything else launches from the You page shelf.
-  /// Headers appear only when more than one category is present, so a small
-  /// install stays clean; a large one stays organized. Branch index is the
+  /// One flat list of services (no category headers — they were visual noise
+  /// at family scale), honoring the user's pins from the You page: a service
+  /// is listed when it's pinned, always-available (Settings, You), or
+  /// currently active (so unpinning the page you're on doesn't strand you).
+  /// Everything else launches from the You page shelf. Branch index is the
   /// service's position in [services].
-  Widget _buildGroupedList(BuildContext context, List<String> pinnedIds) {
-    final theme = Theme.of(context);
+  Widget _buildList(BuildContext context, List<String> pinnedIds) {
     bool visible(int i, ServiceDefinition s) =>
         pinnedIds.contains(s.id) ||
         s.alwaysAvailable ||
         i == shell.currentIndex;
-    final categoriesPresent = {
-      for (var i = 0; i < services.length; i++)
-        if (visible(i, services[i])) services[i].category,
-    }.length > 1;
 
-    final children = <Widget>[];
-    for (final category in ServiceCategory.values) {
-      final inCategory = [
-        for (var i = 0; i < services.length; i++)
-          if (services[i].category == category && visible(i, services[i]))
-            (i, services[i]),
-      ];
-      if (inCategory.isEmpty) continue;
-      if (categoriesPresent) {
-        children.add(Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 12, 4),
-          child: Text(category.label,
-              style: theme.textTheme.labelSmall
-                  ?.copyWith(color: theme.colorScheme.outline)),
-        ));
-      }
-      for (final (i, service) in inCategory) {
-        children.add(_SidebarItem(
-          service: service,
-          selected: shell.currentIndex == i,
-          onTap: () =>
-              shell.goBranch(i, initialLocation: i == shell.currentIndex),
-        ));
-      }
-    }
     return ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 8), children: children);
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      children: [
+        for (var i = 0; i < services.length; i++)
+          if (visible(i, services[i]))
+            _SidebarItem(
+              service: services[i],
+              selected: shell.currentIndex == i,
+              onTap: () =>
+                  shell.goBranch(i, initialLocation: i == shell.currentIndex),
+            ),
+      ],
+    );
   }
 
   @override
@@ -120,8 +134,23 @@ class _Sidebar extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 12),
-          Expanded(child: _buildGroupedList(context, pinnedIds)),
+          // Collapse control, right-aligned above the list.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  tooltip: 'Hide sidebar',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.menu_open, size: 18),
+                  onPressed: () =>
+                      ref.read(sidebarHiddenProvider.notifier).toggle(),
+                ),
+              ],
+            ),
+          ),
+          Expanded(child: _buildList(context, pinnedIds)),
           // Tablets have no title bar, so the global now-playing control lives
           // here; native desktop shows it centered in the title bar instead.
           if (!isDesktopPlatform)
