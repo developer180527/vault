@@ -17,6 +17,7 @@ import 'features/media/widgets/music_section.dart';
 import 'features/placeholder_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/user/user_page.dart';
+import 'features/photos/data/background_backup.dart';
 import 'shell/adaptive_shell.dart';
 import 'shell/service_page.dart';
 import 'shell/widgets/boot_screens.dart';
@@ -169,6 +170,10 @@ class VaultApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
     final themeMode =
         ref.watch(themeModeProvider).asData?.value ?? ThemeMode.system;
+    // Keep the OS background-backup schedule in lockstep with the auto-backup
+    // preference — (re)arms on every launch (iOS needs re-arming) and reacts
+    // to the toggle. No-op off mobile.
+    ref.watch(backgroundBackupSchedulerProvider);
     return MaterialApp.router(
       title: 'Vault',
       debugShowCheckedModeBanner: false,

@@ -10,6 +10,7 @@ import 'core/platform/file_selector_access.dart';
 import 'core/platform/platform_info.dart';
 import 'core/platform/platform_services.dart';
 import 'core/platform/window_setup.dart';
+import 'features/photos/data/background_backup.dart';
 import 'core/services/service_registry.dart';
 import 'shell/widgets/feature_error_view.dart';
 
@@ -36,6 +37,10 @@ Future<void> main() async {
         androidNotificationChannelName: 'Vault playback',
         androidNotificationOngoing: true,
       );
+      // Register the background-backup isolate entrypoint (Android WorkManager
+      // / iOS BGProcessingTask). Actual scheduling is driven by the
+      // auto-backup preference via backgroundBackupSchedulerProvider.
+      await initBackgroundBackup();
     }
 
     // Contain widget-build failures: a crashing feature's subtree is replaced

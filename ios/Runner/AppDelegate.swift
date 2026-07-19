@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import workmanager_apple
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -7,6 +8,11 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Register the background-backup task with BGTaskScheduler. This MUST run
+    // before launch finishes and the identifier must match
+    // background_backup.dart / Info.plist BGTaskSchedulerPermittedIdentifiers.
+    WorkmanagerPlugin.registerBGProcessingTask(
+      withIdentifier: "dev.vault.backup.processing")
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

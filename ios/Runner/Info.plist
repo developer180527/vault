@@ -87,5 +87,17 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Background photo backup: the OS runs it in a BGProcessingTask. The
+	     identifier MUST match background_backup.dart's _iosTaskId and the
+	     AppDelegate registration. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>dev.vault.backup.processing</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
 </dict>
 </plist>
