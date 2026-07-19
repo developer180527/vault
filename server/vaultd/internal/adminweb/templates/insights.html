@@ -78,6 +78,58 @@
     {{end}}
   </table>
   {{end}}
+
+  <h1 style="margin-top:34px">Photo backup</h1>
+  {{if not .PhotoUsers}}
+  <div class="panel"><p class="muted">Nothing backed up yet.</p></div>
+  {{else}}
+  <div class="cards">
+    <div class="card"><div class="num">{{.PhotoCount}}</div>
+      <div class="label">Photos ({{fmtBytes .PhotoBytes}})</div></div>
+    <div class="card"><div class="num">{{.VideoCount}}</div>
+      <div class="label">Videos ({{fmtBytes .VideoBytes}})</div></div>
+  </div>
+
+  <div class="row2">
+    <div>
+      <h2>Per member</h2>
+      <div class="panel">
+        {{range .PhotoUsers}}
+        <div class="bar-row">
+          <span class="bar-label">{{.Label}}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
+          <span class="bar-val">{{.Plays}} · {{.Mins}} MB</span>
+        </div>
+        {{end}}
+      </div>
+    </div>
+    <div>
+      <h2>Library by capture year</h2>
+      <div class="panel">
+        {{range .PhotoYears}}
+        <div class="bar-row">
+          <span class="bar-label mono">{{.Day}}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
+          <span class="bar-val">{{.Plays}}</span>
+        </div>
+        {{end}}
+      </div>
+    </div>
+  </div>
+
+  {{if .PhotoDays}}
+  <h2>Uploads per day (14d)</h2>
+  <div class="panel">
+    {{range .PhotoDays}}
+    <div class="bar-row">
+      <span class="bar-label mono">{{.Day}}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
+      <span class="bar-val">{{.Plays}}</span>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+  {{end}}
 </main>
 </div>
 {{template "foot" .}}

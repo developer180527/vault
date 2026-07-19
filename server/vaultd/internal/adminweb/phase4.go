@@ -59,6 +59,28 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Photo backup analytics — who's protected, how the store grows.
+	photoUsers, err := read.PhotoBackupByUser(ctx)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	photoDays, err := read.PhotosPerDay(ctx, 14)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	photoYears, err := read.PhotosByYear(ctx)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	kinds, err := read.PhotoKindTotals(ctx)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	maxOf := func(n func(i int) int, count int) int {
 		m := 0
 		for i := 0; i < count; i++ {
@@ -98,6 +120,36 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 		dayRows[i] = dayRow{Day: d.Day, Plays: d.Plays, Pct: pct(d.Plays, dayMax)}
 	}
 
+	// Photo bars: users by bytes, upload activity, capture-year spread.
+	userBytesMax := 0
+	for _, u := range photoUsers {
+		if int(u.Bytes>>20) > userBytesMax {
+			userBytesMax = int(u.Bytes >> 20)
+		}
+	}
+	photoUserRows := make([]barRow, len(photoUsers))
+	for i, u := range photoUsers {
+		photoUserRows[i] = barRow{Label: u.Username, Plays: u.Count,
+			Mins: u.Bytes >> 20, Pct: pct(int(u.Bytes>>20), userBytesMax)}
+	}
+	photoDayMax := maxOf(func(i int) int { return photoDays[i].Plays }, len(photoDays))
+	type dayBar struct {
+		Day   string
+		Plays int
+		Pct   int
+	}
+	photoDayRows := make([]dayBar, len(photoDays))
+	for i, d := range photoDays {
+		photoDayRows[i] = dayBar{Day: d.Day, Plays: d.Plays,
+			Pct: pct(d.Plays, photoDayMax)}
+	}
+	photoYearMax := maxOf(func(i int) int { return photoYears[i].Plays }, len(photoYears))
+	photoYearRows := make([]dayBar, len(photoYears))
+	for i, y := range photoYears {
+		photoYearRows[i] = dayBar{Day: y.Day, Plays: y.Plays,
+			Pct: pct(y.Plays, photoYearMax)}
+	}
+
 	s.render(w, "insights.html", map[string]any{
 		"User": userFrom(r), "Active": "insights",
 		"Window":    insightsWindowDays,
@@ -106,6 +158,11 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 		"Listeners": listenerRows,
 		"Days":      dayRows,
 		"Recent":    recent,
-		"Msg":       r.URL.Query().Get("msg"),
+		"PhotoUsers": photoUserRows,
+		"PhotoDays":  photoDayRows,
+		"PhotoYears": photoYearRows,
+		"PhotoCount": kinds["photo"].Count, "PhotoBytes": kinds["photo"].Bytes,
+		"VideoCount": kinds["video"].Count, "VideoBytes": kinds["video"].Bytes,
+		"Msg": r.URL.Query().Get("msg"),
 	})
 }

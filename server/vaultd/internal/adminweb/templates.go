@@ -29,8 +29,26 @@ var funcs = template.FuncMap{
 		}
 		return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 	},
-	// ago: compact relative time for feeds.
-	"ago": func(t time.Time) string {
+	// ago: compact relative time for feeds. Accepts time.Time OR a unix
+	// seconds int64 (store rows carry raw integers); zero = "never".
+	"ago": func(v any) string {
+		var t time.Time
+		switch x := v.(type) {
+		case time.Time:
+			t = x
+		case int64:
+			if x == 0 {
+				return "never"
+			}
+			t = time.Unix(x, 0)
+		case int:
+			if x == 0 {
+				return "never"
+			}
+			t = time.Unix(int64(x), 0)
+		default:
+			return "—"
+		}
 		d := time.Since(t)
 		switch {
 		case d < time.Minute:

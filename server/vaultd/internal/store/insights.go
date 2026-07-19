@@ -166,6 +166,109 @@ func (r *ReadStore) RecentListens(ctx context.Context, limit int) ([]RecentListe
 	return out, rows.Err()
 }
 
+// PhotoUserStats is one member's backup posture (Insights).
+type PhotoUserStats struct {
+	Username string
+	Count    int
+	Bytes    int64
+	LastAt   int64
+}
+
+// PhotoBackupByUser summarizes every member's backup store, largest first.
+func (r *ReadStore) PhotoBackupByUser(ctx context.Context) ([]PhotoUserStats, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT u.username, COUNT(1), COALESCE(SUM(p.size), 0),
+			COALESCE(MAX(p.uploaded_at), 0)
+		FROM photos p JOIN users u ON u.id = p.user_id
+		GROUP BY p.user_id ORDER BY SUM(p.size) DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PhotoUserStats
+	for rows.Next() {
+		var s PhotoUserStats
+		if err := rows.Scan(&s.Username, &s.Count, &s.Bytes, &s.LastAt); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// PhotosPerDay buckets uploads by UTC day over the last [days] — backup
+// activity, the photo twin of ListensPerDay.
+func (r *ReadStore) PhotosPerDay(ctx context.Context, days int) ([]DayCount, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT date(uploaded_at, 'unixepoch'), COUNT(1)
+		FROM photos WHERE uploaded_at >= ?
+		GROUP BY 1 ORDER BY 1`, sinceUnix(days))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DayCount
+	for rows.Next() {
+		var d DayCount
+		if err := rows.Scan(&d.Day, &d.Plays); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// PhotosByYear counts originals by CAPTURE year ('unknown' bucket for 0) —
+// how the library spreads across time.
+func (r *ReadStore) PhotosByYear(ctx context.Context) ([]DayCount, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT CASE WHEN taken_at = 0 THEN 'unknown'
+			ELSE strftime('%Y', taken_at, 'unixepoch') END, COUNT(1)
+		FROM photos GROUP BY 1 ORDER BY 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DayCount
+	for rows.Next() {
+		var d DayCount
+		if err := rows.Scan(&d.Day, &d.Plays); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// PhotoKindTotals: photos vs videos, with bytes.
+func (r *ReadStore) PhotoKindTotals(ctx context.Context) (map[string]struct {
+	Count int
+	Bytes int64
+}, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT kind, COUNT(1), COALESCE(SUM(size), 0) FROM photos GROUP BY kind`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]struct {
+		Count int
+		Bytes int64
+	}{}
+	for rows.Next() {
+		var kind string
+		var v struct {
+			Count int
+			Bytes int64
+		}
+		if err := rows.Scan(&kind, &v.Count, &v.Bytes); err != nil {
+			return nil, err
+		}
+		out[kind] = v
+	}
+	return out, rows.Err()
+}
+
 // PhotoStatsForUser: backup posture for one member (user detail page).
 func (r *ReadStore) PhotoStatsForUser(ctx context.Context, userID string) (n int, bytes, lastAt int64, err error) {
 	err = r.db.QueryRowContext(ctx, `

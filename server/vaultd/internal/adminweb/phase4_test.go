@@ -36,12 +36,22 @@ func TestInsightsPageAggregatesListens(t *testing.T) {
 	}
 	_ = e.store.Write().InsertListen(ctx, maya.ID, id, 30000, "search")
 
+	// One backed-up original → the Photo backup section aggregates it.
+	if _, err := e.store.Write().InsertPhoto(ctx, venu.ID, store.Photo{
+		RelPath: "2025/07/IMG_1.jpg", Hash: "h1", Size: 2 << 20,
+		Mime: "image/jpeg", Kind: "photo", TakenAt: 1752000000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	page = e.doGet(t, session, "/insights")
 	html := page.Body.String()
 	for _, want := range []string{
 		"Yeh Shaam Mastani", "Kishore Kumar", // top track with artist
 		"Most active listeners", "venu", "maya", // both listeners ranked
 		"Recent listens", "search", // feed with source tag
+		"Photo backup", "Per member", // photo analytics section
+		"Library by capture year", "2025",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("insights missing %q", want)
