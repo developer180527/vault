@@ -3,97 +3,118 @@
 {{template "nav" .}}
 <main class="content">
   <h1>Insights</h1>
-  <p class="sub">What the household actually plays — aggregated live from the
-  raw listen log, last {{.Window}} days.</p>
+  <p class="sub">Aggregated live from the raw event logs. Music figures cover
+  the last {{.Window}} days.</p>
   {{template "flash" .}}
 
-  {{if not .Tracks}}
+  {{if and (not .HasMusic) (not .HasPhotos)}}
   <div class="panel">
-    <p class="muted">No listens recorded in the window yet. Play some music in
-    the app and this page fills itself in.</p>
+    <p class="muted">Nothing to show yet. Once the household plays music or
+    backs up photos, this dashboard fills itself in.</p>
   </div>
   {{else}}
 
-  <h2>Listens per day (14d)</h2>
-  <div class="panel">
-    {{range .Days}}
-    <div class="bar-row">
-      <span class="bar-label mono">{{.Day}}</span>
-      <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
-      <span class="bar-val">{{.Plays}}</span>
-    </div>
-    {{end}}
+  <!-- KPI summary strip -->
+  <div class="cards">
+    <div class="card"><div class="num">{{.SumPlays}}</div>
+      <div class="label">Plays · {{.Window}}d</div></div>
+    <div class="card"><div class="num">{{.SumListeners}}</div>
+      <div class="label">Active listeners</div></div>
+    <div class="card"><div class="num">{{.SumMedia}}</div>
+      <div class="label">Photos &amp; videos</div></div>
+    <div class="card"><div class="num">{{fmtBytes .SumMediaBytes}}</div>
+      <div class="label">Backed up</div></div>
   </div>
 
-  <h2>Top tracks</h2>
-  <div class="panel">
-    {{range .Tracks}}
-    <div class="bar-row">
-      <span class="bar-label" title="{{.Label}}{{if .Sub}} — {{.Sub}}{{end}}">
-        {{.Label}}{{if .Sub}} <span class="muted">· {{.Sub}}</span>{{end}}
-      </span>
-      <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
-      <span class="bar-val">{{.Plays}}× · {{.Mins}}m</span>
-    </div>
-    {{end}}
+  <!-- section jump pills -->
+  <div class="pillnav">
+    {{if .HasMusic}}<a href="#music" class="pill">🎵 Music</a>{{end}}
+    {{if .HasPhotos}}<a href="#photos" class="pill">🖼 Photos</a>{{end}}
   </div>
 
-  <div class="row2">
-    <div>
-      <h2>Top artists</h2>
+  {{if .HasMusic}}
+  <section id="music">
+    <h2 class="sechead">Music</h2>
+
+    <div class="row2">
       <div class="panel">
-        {{range .Artists}}
+        <div class="panel-title">Top tracks</div>
+        {{range .Tracks}}
         <div class="bar-row">
-          <span class="bar-label">{{.Label}}</span>
-          <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
-          <span class="bar-val">{{.Plays}}×</span>
-        </div>
-        {{end}}
-      </div>
-    </div>
-    <div>
-      <h2>Most active listeners</h2>
-      <div class="panel">
-        {{range .Listeners}}
-        <div class="bar-row">
-          <span class="bar-label">{{.Label}}</span>
+          <span class="bar-label" title="{{.Label}}{{if .Sub}} — {{.Sub}}{{end}}">
+            {{.Label}}{{if .Sub}} <span class="muted">· {{.Sub}}</span>{{end}}
+          </span>
           <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
           <span class="bar-val">{{.Plays}}× · {{.Mins}}m</span>
         </div>
         {{end}}
       </div>
+      <div>
+        <div class="panel">
+          <div class="panel-title">Top artists</div>
+          {{range .Artists}}
+          <div class="bar-row">
+            <span class="bar-label">{{.Label}}</span>
+            <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
+            <span class="bar-val">{{.Plays}}×</span>
+          </div>
+          {{end}}
+        </div>
+        <div class="panel">
+          <div class="panel-title">Most active listeners</div>
+          {{range .Listeners}}
+          <div class="bar-row">
+            <span class="bar-label">{{.Label}}</span>
+            <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
+            <span class="bar-val">{{.Plays}}× · {{.Mins}}m</span>
+          </div>
+          {{end}}
+        </div>
+      </div>
     </div>
-  </div>
 
-  <h2>Recent listens</h2>
-  <table>
-    <tr><th>When</th><th>Who</th><th>Track</th><th>From</th></tr>
-    {{range .Recent}}
-    <tr>
-      <td class="muted" style="white-space:nowrap">{{ago .At}}</td>
-      <td><strong>{{.Username}}</strong></td>
-      <td>{{.Title}}{{if .Artist}} <span class="muted">· {{.Artist}}</span>{{end}}</td>
-      <td class="muted">{{.Source}}</td>
-    </tr>
-    {{end}}
-  </table>
+    <div class="panel">
+      <div class="panel-title">Listens per day · 14d</div>
+      {{range .Days}}
+      <div class="bar-row">
+        <span class="bar-label mono">{{.Day}}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
+        <span class="bar-val">{{.Plays}}</span>
+      </div>
+      {{end}}
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Recent listens</div>
+      <table class="flush">
+        <tr><th>When</th><th>Who</th><th>Track</th><th>From</th></tr>
+        {{range .Recent}}
+        <tr>
+          <td class="muted" style="white-space:nowrap">{{ago .At}}</td>
+          <td><strong>{{.Username}}</strong></td>
+          <td>{{.Title}}{{if .Artist}} <span class="muted">· {{.Artist}}</span>{{end}}</td>
+          <td class="muted">{{.Source}}</td>
+        </tr>
+        {{end}}
+      </table>
+    </div>
+  </section>
   {{end}}
 
-  <h1 style="margin-top:34px">Photo backup</h1>
-  {{if not .PhotoUsers}}
-  <div class="panel"><p class="muted">Nothing backed up yet.</p></div>
-  {{else}}
-  <div class="cards">
-    <div class="card"><div class="num">{{.PhotoCount}}</div>
-      <div class="label">Photos ({{fmtBytes .PhotoBytes}})</div></div>
-    <div class="card"><div class="num">{{.VideoCount}}</div>
-      <div class="label">Videos ({{fmtBytes .VideoBytes}})</div></div>
-  </div>
+  {{if .HasPhotos}}
+  <section id="photos">
+    <h2 class="sechead">Photo backup</h2>
 
-  <div class="row2">
-    <div>
-      <h2>Per member</h2>
+    <div class="cards">
+      <div class="card"><div class="num">{{.PhotoCount}}</div>
+        <div class="label">Photos ({{fmtBytes .PhotoBytes}})</div></div>
+      <div class="card"><div class="num">{{.VideoCount}}</div>
+        <div class="label">Videos ({{fmtBytes .VideoBytes}})</div></div>
+    </div>
+
+    <div class="row2">
       <div class="panel">
+        <div class="panel-title">Per member</div>
         {{range .PhotoUsers}}
         <div class="bar-row">
           <span class="bar-label">{{.Label}}</span>
@@ -102,10 +123,8 @@
         </div>
         {{end}}
       </div>
-    </div>
-    <div>
-      <h2>Library by capture year</h2>
       <div class="panel">
+        <div class="panel-title">Library by capture year</div>
         {{range .PhotoYears}}
         <div class="bar-row">
           <span class="bar-label mono">{{.Day}}</span>
@@ -115,19 +134,20 @@
         {{end}}
       </div>
     </div>
-  </div>
 
-  {{if .PhotoDays}}
-  <h2>Uploads per day (14d)</h2>
-  <div class="panel">
-    {{range .PhotoDays}}
-    <div class="bar-row">
-      <span class="bar-label mono">{{.Day}}</span>
-      <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
-      <span class="bar-val">{{.Plays}}</span>
+    {{if .PhotoDays}}
+    <div class="panel">
+      <div class="panel-title">Uploads per day · 14d</div>
+      {{range .PhotoDays}}
+      <div class="bar-row">
+        <span class="bar-label mono">{{.Day}}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:{{.Pct}}%"></span></span>
+        <span class="bar-val">{{.Plays}}</span>
+      </div>
+      {{end}}
     </div>
     {{end}}
-  </div>
+  </section>
   {{end}}
   {{end}}
 </main>

@@ -27,6 +27,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/developer180527/vault/vaultd/internal/auth"
+	"github.com/developer180527/vault/vaultd/internal/movies"
 	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
@@ -38,6 +39,9 @@ type Options struct {
 
 	// Music powers the catalog manager (scan / artwork / trash-delete).
 	Music *music.Service
+
+	// Movies powers the movie catalog manager (scan / metadata / poster).
+	Movies *movies.Service
 
 	// PhotosRoot is the camera-backup store (the HDD pool in prod). Its
 	// volume shows on the System page beside the data volume. Empty = same
@@ -63,6 +67,7 @@ type Server struct {
 	log        *slog.Logger
 	store      *store.Store
 	music      *music.Service
+	movies     *movies.Service
 	photosRoot string
 	flow       OAuthFlow
 	external   *url.URL
@@ -75,7 +80,7 @@ func New(o Options) (http.Handler, error) {
 		return nil, err
 	}
 	s := &Server{
-		log: o.Log, store: o.Store, music: o.Music,
+		log: o.Log, store: o.Store, music: o.Music, movies: o.Movies,
 		photosRoot: o.PhotosRoot, flow: o.Flow, external: ext,
 	}
 
@@ -111,6 +116,16 @@ func New(o Options) (http.Handler, error) {
 		r.Post("/catalog/{id}/delete", s.handleTrackDelete)
 		r.Get("/catalog/{id}/art", s.handleTrackArt)
 		r.Post("/catalog/{id}/art", s.handleTrackArtUpload)
+
+		// Movie catalog manager (docs/MOVIES.md). No browser upload — movie
+		// files are large; copy to /srv/vault/movies then Scan.
+		r.Get("/movies", s.handleMovieCatalog)
+		r.Post("/movies/scan", s.handleMovieCatalogScan)
+		r.Get("/movies/{id}", s.handleMovieEditPage)
+		r.Post("/movies/{id}", s.handleMovieSave)
+		r.Post("/movies/{id}/delete", s.handleMovieDelete)
+		r.Get("/movies/{id}/art", s.handleMoviePoster)
+		r.Post("/movies/{id}/art", s.handleMoviePosterUpload)
 
 		// Phase 4 — Insights (listen analytics, read-only).
 		r.Get("/insights", s.handleInsights)

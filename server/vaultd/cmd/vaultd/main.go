@@ -21,6 +21,7 @@ import (
 	"github.com/developer180527/vault/vaultd/internal/config"
 	"github.com/developer180527/vault/vaultd/internal/httpapi"
 	"github.com/developer180527/vault/vaultd/internal/jobs"
+	"github.com/developer180527/vault/vaultd/internal/movies"
 	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
@@ -125,6 +126,10 @@ func main() {
 			Store: st,
 			Music: &music.Service{
 				DataRoot: cfg.DataRoot, Store: st, Log: log},
+			Movies: &movies.Service{
+				Root: cfg.MoviesRoot, Store: st, Log: log,
+				Prober:     movies.FFprobe{Bin: cfg.FFprobeBinary},
+				FFmpegPath: cfg.FFmpegBinary},
 			PhotosRoot:  cfg.PhotosRoot,
 			ExternalURL: cfg.AdminExternalURL,
 			Flow: adminweb.NewOIDCFlow(cfg.OIDCIssuer, cfg.OIDCClientID,

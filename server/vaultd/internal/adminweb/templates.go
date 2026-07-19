@@ -29,6 +29,8 @@ var funcs = template.FuncMap{
 		}
 		return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 	},
+	// durationMin: milliseconds → whole minutes, for movie runtimes.
+	"durationMin": func(ms int64) int64 { return ms / 60000 },
 	// ago: compact relative time for feeds. Accepts time.Time OR a unix
 	// seconds int64 (store rows carry raw integers); zero = "never".
 	"ago": func(v any) string {

@@ -264,4 +264,27 @@ func (s *Service) SidecarSubPath(rel string) string {
 	return filepath.Join(s.Root, filepath.FromSlash(rel))
 }
 
+// Trash removes a movie: the FILE moves into `.trash/` (never hard-deleted;
+// the scan skips dot-dirs so it won't be re-indexed), then the row is deleted
+// (cascading out of watches). A missing file is fine — the row still goes.
+func (s *Service) Trash(ctx context.Context, m *store.CatalogMovie) error {
+	src := s.MoviePath(m)
+	dst := filepath.Join(s.Root, ".trash", filepath.FromSlash(m.RelPath))
+	if _, err := os.Stat(src); err == nil {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o770); err != nil {
+			return err
+		}
+		if err := os.Rename(src, dst); err != nil {
+			return err
+		}
+	}
+	s.RemoveThumbArt(m.ID)
+	return s.Store.Write().DeleteMovies(ctx, []string{m.ID})
+}
+
+// RemoveThumbArt drops a movie's poster override on delete.
+func (s *Service) RemoveThumbArt(id string) {
+	_ = os.Remove(s.artOverridePath(id))
+}
+
 func atoiSafe(s string) int { n, _ := strconv.Atoi(s); return n }

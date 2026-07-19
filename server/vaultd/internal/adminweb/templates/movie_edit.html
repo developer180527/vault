@@ -1,0 +1,120 @@
+{{template "head" .}}
+<div class="layout">
+{{template "nav" .}}
+<main class="content">
+  <p class="sub"><a href="/movies">← Movie catalog</a></p>
+  <h1>Edit title</h1>
+  <p class="sub">The database is authoritative: your edits survive rescans.
+  Filenames only seed brand-new titles.</p>
+  {{template "flash" .}}
+
+  <div class="panel">
+    <div class="row" style="align-items:start">
+      {{if .M.HasArt}}
+      <div class="tight">
+        <img src="/movies/{{.M.ID}}/art" alt="Poster"
+             style="width:120px;height:180px;border-radius:8px;object-fit:cover">
+      </div>
+      {{end}}
+      <form method="post" action="/movies/{{.M.ID}}">
+        <label class="field" for="f-title">Title</label>
+        <input id="f-title" type="text" name="title" value="{{.M.Title}}" required>
+
+        <label class="field" for="f-kind">Kind</label>
+        <select id="f-kind" name="kind">
+          <option value="movie"{{if ne .M.Kind "episode"}} selected{{end}}>Movie</option>
+          <option value="episode"{{if eq .M.Kind "episode"}} selected{{end}}>Episode</option>
+        </select>
+
+        <div class="row">
+          <div>
+            <label class="field" for="f-series">Series (episodes)</label>
+            <input id="f-series" type="text" name="series" value="{{.M.Series}}">
+          </div>
+          <div>
+            <label class="field" for="f-year">Year</label>
+            <input id="f-year" type="number" name="year" min="0"
+                   value="{{if .M.Year}}{{.M.Year}}{{end}}">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label class="field" for="f-season">Season</label>
+            <input id="f-season" type="number" name="season" min="0"
+                   value="{{if .M.Season}}{{.M.Season}}{{end}}">
+          </div>
+          <div>
+            <label class="field" for="f-episode">Episode</label>
+            <input id="f-episode" type="number" name="episode" min="0"
+                   value="{{if .M.Episode}}{{.M.Episode}}{{end}}">
+          </div>
+        </div>
+
+        <label class="field" for="f-overview">Overview</label>
+        <textarea id="f-overview" name="overview" rows="4">{{.M.Overview}}</textarea>
+
+        <div style="margin-top:16px">
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <h2>Media</h2>
+  <div class="panel">
+    <p class="muted" style="margin:0 0 6px">
+      {{if .M.DurationMs}}{{durationMin .M.DurationMs}}&nbsp;min · {{end}}
+      {{if .M.Height}}{{.M.Height}}p · {{end}}{{.M.VCodec}} · {{.M.Container}}
+    </p>
+    {{if .M.Streams.Audio}}
+    <p style="margin:6px 0 0"><strong>Audio</strong></p>
+    <ul style="margin:4px 0">
+      {{range .M.Streams.Audio}}
+      <li class="muted">{{if .Title}}{{.Title}}{{else if .Lang}}{{.Lang}}{{else}}Track {{.Index}}{{end}}
+        — {{.Codec}}{{if .Channels}} · {{.Channels}}ch{{end}}{{if .Default}} · default{{end}}</li>
+      {{end}}
+    </ul>
+    {{end}}
+    {{if .M.Streams.Subs}}
+    <p style="margin:6px 0 0"><strong>Subtitles</strong></p>
+    <ul style="margin:4px 0">
+      {{range .M.Streams.Subs}}
+      <li class="muted">{{if .Lang}}{{.Lang}}{{else}}Track {{.Index}}{{end}}
+        — {{.Codec}}{{if .External}} · sidecar{{end}}{{if not .Text}} · image (no OCR){{end}}</li>
+      {{end}}
+    </ul>
+    {{end}}
+  </div>
+
+  <h2>Poster</h2>
+  <div class="panel">
+    <form method="post" action="/movies/{{.M.ID}}/art" enctype="multipart/form-data">
+      <label class="field" for="f-art">Upload a poster (JPEG/PNG, 10&nbsp;MB max)</label>
+      <div class="row">
+        <input id="f-art" type="file" name="art" accept="image/*" required>
+        <div class="tight"><button type="submit">Set poster</button></div>
+      </div>
+      <p class="muted" style="margin-top:6px">Overrides folder.jpg / embedded art
+      everywhere — apps included. Survives rescans (keyed by title UUID).</p>
+    </form>
+  </div>
+
+  <h2>Danger zone</h2>
+  <div class="panel">
+    <form method="post" action="/movies/{{.M.ID}}/delete">
+      <label class="field" for="f-confirm">
+        Type the exact title (<strong>{{.M.Title}}</strong>) to delete this
+        title. The file moves to the catalog trash on disk.
+      </label>
+      <div class="row">
+        <input id="f-confirm" type="text" name="confirm"
+               placeholder="{{.M.Title}}" autocomplete="off">
+        <div class="tight">
+          <button type="submit" class="danger">Delete title</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</main>
+</div>
+{{template "foot" .}}

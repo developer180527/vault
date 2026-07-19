@@ -1,0 +1,55 @@
+{{template "head" .}}
+<div class="layout">
+{{template "nav" .}}
+<main class="content">
+  <h1>Movie catalog</h1>
+  <p class="sub">The shared movie &amp; show library. Copy files into
+  <code>/srv/vault/movies/</code> on the server (scp/rsync — they're large),
+  then scan. Filenames like <code>Movie (2019).mkv</code> and
+  <code>Show/S01E03 - Title.mkv</code> seed the metadata.</p>
+  {{template "flash" .}}
+
+  <div class="panel">
+    <div class="row">
+      <form method="get" action="/movies">
+        <input type="search" name="q" value="{{.Query}}"
+               placeholder="Search title or series…" aria-label="Search catalog">
+      </form>
+      <form class="tight" method="post" action="/movies/scan">
+        <button type="submit">Scan for new titles</button>
+      </form>
+    </div>
+  </div>
+
+  {{if .Movies}}
+  <table>
+    <tr><th></th><th>Title</th><th>Series</th><th class="num">Year</th>
+        <th>Tracks</th><th></th></tr>
+    {{range .Movies}}
+    <tr>
+      <td style="width:40px">
+        {{if .HasArt}}<img class="art" src="/movies/{{.ID}}/art" alt="">{{else}}
+        <span class="art" style="display:inline-block"></span>{{end}}
+      </td>
+      <td>
+        <a href="/movies/{{.ID}}"><strong>{{.Title}}</strong></a>
+        {{if eq .Kind "episode"}}<span class="pill">S{{.Season}}E{{.Episode}}</span>{{end}}
+      </td>
+      <td class="muted">{{.Series}}</td>
+      <td class="num muted">{{if .Year}}{{.Year}}{{end}}</td>
+      <td class="muted">
+        {{len .Streams.Audio}}&nbsp;audio{{if .Streams.Subs}} · {{len .Streams.Subs}}&nbsp;sub{{end}}
+      </td>
+      <td><a href="/movies/{{.ID}}">Edit →</a></td>
+    </tr>
+    {{end}}
+  </table>
+  {{else if .Query}}
+  <p class="muted">No matches for “{{.Query}}”.</p>
+  {{else}}
+  <p class="muted">The catalog is empty — copy videos to the server and hit
+  “Scan for new titles”.</p>
+  {{end}}
+</main>
+</div>
+{{template "foot" .}}

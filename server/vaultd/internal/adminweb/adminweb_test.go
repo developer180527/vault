@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/developer180527/vault/vaultd/internal/auth"
+	"github.com/developer180527/vault/vaultd/internal/movies"
 	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
@@ -53,6 +54,7 @@ type env struct {
 	store   *store.Store
 	flow    *fakeFlow
 	music   *music.Service
+	movies  *movies.Service
 }
 
 func newEnv(t *testing.T) *env {
@@ -73,17 +75,23 @@ func newEnv(t *testing.T) *env {
 		Store:    st,
 		Log:      slog.New(slog.DiscardHandler),
 	}
+	mvsvc := &movies.Service{
+		Root:  t.TempDir(),
+		Store: st,
+		Log:   slog.New(slog.DiscardHandler),
+	}
 	h, err := New(Options{
 		Log:         slog.New(slog.DiscardHandler),
 		Store:       st,
 		Music:       svc,
+		Movies:      mvsvc,
 		ExternalURL: "https://vault.example:8444",
 		Flow:        flow,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &env{handler: h, store: st, flow: flow, music: svc}
+	return &env{handler: h, store: st, flow: flow, music: svc, movies: mvsvc}
 }
 
 func (e *env) seedUser(t *testing.T, username, role, subject string) *store.User {

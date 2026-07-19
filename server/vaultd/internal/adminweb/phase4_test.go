@@ -15,7 +15,7 @@ func TestInsightsPageAggregatesListens(t *testing.T) {
 
 	// Empty state first.
 	page := e.doGet(t, session, "/insights")
-	if page.Code != 200 || !strings.Contains(page.Body.String(), "No listens recorded") {
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "Nothing to show yet") {
 		t.Fatalf("empty insights = %d", page.Code)
 	}
 

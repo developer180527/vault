@@ -150,6 +150,13 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 			Pct: pct(y.Plays, photoYearMax)}
 	}
 
+	// Summary KPIs for the header strip — cheap sums over what we already have.
+	totalPlays := 0
+	for _, l := range listeners {
+		totalPlays += l.Plays
+	}
+	photoBytes := kinds["photo"].Bytes + kinds["video"].Bytes
+
 	s.render(w, "insights.html", map[string]any{
 		"User": userFrom(r), "Active": "insights",
 		"Window":    insightsWindowDays,
@@ -163,6 +170,13 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 		"PhotoYears": photoYearRows,
 		"PhotoCount": kinds["photo"].Count, "PhotoBytes": kinds["photo"].Bytes,
 		"VideoCount": kinds["video"].Count, "VideoBytes": kinds["video"].Bytes,
-		"Msg": r.URL.Query().Get("msg"),
+		// Header summary.
+		"SumPlays":      totalPlays,
+		"SumListeners":  len(listeners),
+		"SumMedia":      kinds["photo"].Count + kinds["video"].Count,
+		"SumMediaBytes": photoBytes,
+		"HasMusic":      len(trackRows) > 0,
+		"HasPhotos":     len(photoUserRows) > 0,
+		"Msg":           r.URL.Query().Get("msg"),
 	})
 }
