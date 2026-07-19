@@ -4,9 +4,9 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 47;
-  static const String commit = '40ef6cf';
-  static const String commitSubject = '1. Extracted a headless core (backup_core.dart): runBackupCore is now a provider-free function that both the foreground engine and the background isolate call, so the logic is identical and there\'s no duplication. The foreground engine (backup_engine.dart) became a thin wrapper mapping progress to the status UI. Foreground behavior is unchanged.';
+  static const int build = 49;
+  static const String commit = '39f91f8';
+  static const String commitSubject = 'Music streaming: The client and server code are both correct end-to-end (I traced the full signed-URL path). But there was a genuine bug: both stream handlers returned 401 immediately on an expired/invalid signature, with no fallback to the bearer token the client still attaches. Because the content cache snapshots listings and signed URLs expire in 24h, a track played from a cached listing older than a day → expired sig → 401 → silent failure, even though a valid fresh token was right there in the request headers. Fixed both handleCatalogStream and handleStreamTrack (catalog.go, music.go) to fall through to the bearer+grant path when the signature is missing/stale — 401 only when neither proof holds. Added a regression test (expired sig + valid bearer → 200). UI polish: Collapse is now one-way and mini-player-only: scrolling down collapses the dock only while a track is playing; scrolling back up no longer restores it — only tapping the 4-box does. Collapsed buttons shrink to 44pt (the mini-player\'s height), so the 4-box, pill, and You circle read as one consistent row instead of the oversized circles. The AnimatedSize + AnimatedSwitcher now morph the height (116→44) as it collapses, giving the transition. Music dividers centered — changed from indent: 72 (touching the right edge) to symmetric indent: 16, endIndent: 16, so they sit centered with equal gaps at both screen edges.';
   static const String date = '2026-07-19';
 
   static String get label =>
