@@ -125,6 +125,22 @@ class BackupLedger {
     if (++_dirty >= 25) await flush();
   }
 
+  /// Drops entries whose content the server no longer holds, and reports how
+  /// many were dropped. The ledger is a cache of "already uploaded" — if the
+  /// server lost a file (or its row), the ledger's claim is stale and the
+  /// item must be eligible for upload again. Without this, one lost row
+  /// meant one photo silently never backed up again.
+  int reconcile(Set<String> serverHashes) {
+    final stale = [
+      for (final e in _entries.entries)
+        if (!serverHashes.contains(e.value)) e.key,
+    ];
+    for (final k in stale) {
+      _entries.remove(k);
+    }
+    return stale.length;
+  }
+
   Future<void> flush() async {
     _dirty = 0;
     try {
@@ -193,6 +209,30 @@ class BackupEngine extends Notifier<BackupState> {
     final api = ref.read(vaultClientProvider).photos;
 
     state = const BackupState(phase: BackupPhase.scanning);
+
+    // Reconcile the ledger against what the server ACTUALLY holds before
+    // trusting it to skip anything. Cheap (a couple of paginated reads) and
+    // it makes the whole backup self-healing: any item the server lost
+    // becomes eligible for upload again on the very next run.
+    try {
+      final serverHashes = <String>{};
+      for (var offset = 0;; offset += 500) {
+        final page = await api.list(limit: 500, offset: offset);
+        serverHashes.addAll(page.photos.map((p) => p.hash));
+        if (page.photos.length < 500) break;
+      }
+      final dropped = ledger.reconcile(serverHashes);
+      if (dropped > 0) {
+        await ledger.flush();
+        _log.warn('ledger reconciled — server is missing items we thought '
+            'were backed up; they will re-upload',
+            fields: {'dropped': dropped, 'server_has': serverHashes.length});
+      }
+    } catch (e) {
+      // Reconciliation is an optimization guard, not a gate: if the listing
+      // fails, fall through and back up with the ledger as-is.
+      _log.debug('ledger reconcile skipped', fields: {'err': '$e'});
+    }
 
     // Full enumeration, newest first — page until a short page.
     final todo = <MediaItem>[];

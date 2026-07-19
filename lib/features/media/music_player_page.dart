@@ -368,25 +368,24 @@ class _ScrubberState extends State<_Scrubber> {
   }
 }
 
-class _Controls extends StatelessWidget {
+class _Controls extends ConsumerWidget {
   const _Controls({required this.controller, required this.player});
   final PlaybackController controller;
   final AudioPlayer player;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Shuffle/repeat are QUEUE state (the engine holds a single source), so
+    // they come from the controller, not the player's streams.
+    final shuffle = ref.watch(playbackProvider.select((s) => s.shuffle));
+    final repeat = ref.watch(playbackProvider.select((s) => s.repeat));
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        StreamBuilder<bool>(
-          stream: player.shuffleModeEnabledStream,
-          builder: (context, snap) => IconButton(
-            icon: const Icon(Icons.shuffle),
-            color: (snap.data ?? false)
-                ? Theme.of(context).colorScheme.primary
-                : null,
-            onPressed: () => controller.setShuffle(!(snap.data ?? false)),
-          ),
+        IconButton(
+          icon: const Icon(Icons.shuffle),
+          color: shuffle ? Theme.of(context).colorScheme.primary : null,
+          onPressed: () => controller.setShuffle(!shuffle),
         ),
         IconButton(
           iconSize: 40,
@@ -412,20 +411,14 @@ class _Controls extends StatelessWidget {
           icon: const Icon(Icons.skip_next),
           onPressed: controller.next,
         ),
-        StreamBuilder<LoopMode>(
-          stream: player.loopModeStream,
-          builder: (context, snap) {
-            final mode = snap.data ?? LoopMode.off;
-            return IconButton(
-              icon: Icon(
-                mode == LoopMode.one ? Icons.repeat_one : Icons.repeat,
-              ),
-              color: mode != LoopMode.off
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
-              onPressed: controller.cycleRepeat,
-            );
-          },
+        IconButton(
+          icon: Icon(
+            repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
+          ),
+          color: repeat != LoopMode.off
+              ? Theme.of(context).colorScheme.primary
+              : null,
+          onPressed: controller.cycleRepeat,
         ),
       ],
     );

@@ -6,6 +6,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"mime"
 	"net/http"
@@ -23,6 +24,35 @@ import (
 // maxPhotoUpload caps one original. Videos dominate: 6 GiB covers long 4K
 // clips without letting a runaway request eat the disk.
 const maxPhotoUpload = 6 << 30
+
+// checkPhotoIntegrity verifies at boot that every row's file is actually on
+// disk (a stat per row — cheap). It REPORTS ONLY, deliberately: deleting
+// rows from filesystem state would wipe the whole index if the pool ever
+// failed to mount. Clients self-heal instead — the backup engine reconciles
+// its ledger against the server's real listing, so anything reported here
+// re-uploads on the next run.
+func (s *Server) checkPhotoIntegrity(ctx context.Context) {
+	files, err := s.store.Read().AllPhotoFiles(ctx)
+	if err != nil || len(files) == 0 {
+		return
+	}
+	var missing, wrongSize int
+	for _, f := range files {
+		present, sizeOK := s.photos.Exists(f.Username, f.RelPath, f.Size)
+		switch {
+		case !present:
+			missing++
+			s.log.Warn("photo integrity: file missing for row",
+				"user", f.Username, "rel", f.RelPath, "id", f.ID)
+		case !sizeOK:
+			wrongSize++
+			s.log.Warn("photo integrity: size mismatch",
+				"user", f.Username, "rel", f.RelPath, "id", f.ID)
+		}
+	}
+	s.log.Info("photo integrity check",
+		"rows", len(files), "missing", missing, "size_mismatch", wrongSize)
+}
 
 // POST /v1/photos/check {hashes:[...]}  (photos:sync)
 // → {missing:[...]} — the subset the client still needs to upload.

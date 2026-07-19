@@ -27,11 +27,19 @@ class PlaybackState {
   const PlaybackState({
     this.queue = const [],
     this.index = 0,
+    this.shuffle = false,
+    this.repeat = LoopMode.off,
     this.video,
   });
 
   final List<Playable> queue;
   final int index;
+
+  /// Queue-level shuffle/repeat live HERE, not in the engine: the platform
+  /// player only ever holds ONE source (see [PlaybackController]), so the
+  /// Dart queue is the single source of truth for ordering.
+  final bool shuffle;
+  final LoopMode repeat;
 
   /// The active video, when a video session is open.
   final Playable? video;
@@ -43,11 +51,15 @@ class PlaybackState {
   PlaybackState copyWith({
     List<Playable>? queue,
     int? index,
+    bool? shuffle,
+    LoopMode? repeat,
     Playable? Function()? video,
   }) =>
       PlaybackState(
         queue: queue ?? this.queue,
         index: index ?? this.index,
+        shuffle: shuffle ?? this.shuffle,
+        repeat: repeat ?? this.repeat,
         video: video != null ? video() : this.video,
       );
 }
@@ -76,6 +88,13 @@ class PlaybackController extends Notifier<PlaybackState> {
   /// Registry instance id of the live video controller (leak accounting).
   int? _videoInstance;
 
+  /// Playback order over queue indices (shuffled when shuffle is on).
+  List<int> _order = const [];
+
+  /// Monotonic id per _setAndPlay call: a slow source load that finishes
+  /// after the user already skipped must not clobber the newer track.
+  int _loadSeq = 0;
+
   @override
   PlaybackState build() {
     // Pause VIDEO when the app leaves the foreground; audio deliberately keeps
@@ -90,79 +109,158 @@ class PlaybackController extends Notifier<PlaybackState> {
       _player.dispose();
       _video?.dispose();
     });
-    // Keep our index in sync when the player advances the queue itself.
-    final sub = _player.currentIndexStream.listen((i) {
-      if (i != null && i != state.index && i < state.queue.length) {
-        state = state.copyWith(index: i);
-      }
+    // The engine holds ONE source; when it completes, WE advance the queue.
+    final sub = _player.processingStateStream.listen((ps) {
+      if (ps == ProcessingState.completed) unawaited(_autoAdvance());
     });
     ref.onDispose(sub.cancel);
     return const PlaybackState();
   }
 
   // ---- audio ----
+  //
+  // The platform player is only ever given the CURRENT track. Handing it the
+  // whole queue (the old setAudioSources path) made iOS's AVQueuePlayer probe
+  // every queued network URL up front — on a 60-track catalog queue that was
+  // dozens of TLS round-trips through the tailnet before the first note
+  // (missing music for 1–2 minutes), while single-URL file previews played
+  // instantly. Same engine, same server; the difference was queue feeding.
+  // Ordering, shuffle, and repeat therefore live in Dart, where changing them
+  // costs nothing.
 
   /// Start an audio queue at [startIndex]. Sources may be local files or
   /// authenticated network streams — the engine doesn't care.
   Future<void> playAudioQueue(List<Playable> items, int startIndex) async {
     assert(items.every((p) => p.kind == PlayableKind.audio));
     state = state.copyWith(queue: items, index: startIndex);
+    _rebuildOrder(anchor: startIndex);
+    _log.info('audio queue set',
+        fields: {'count': items.length, 'start': startIndex});
+    await _setAndPlay(startIndex);
+  }
+
+  /// Load exactly one track into the engine and play it.
+  Future<void> _setAndPlay(int index) async {
+    final q = state.queue;
+    if (q.isEmpty) return;
+    final i = index.clamp(0, q.length - 1);
+    final p = q[i];
+    state = state.copyWith(index: i);
+    final seq = ++_loadSeq;
     try {
-      await _player.setAudioSources(
-        [
-          for (final p in items)
-            AudioSource.uri(
-              p.uri,
-              headers: p.headers.isEmpty ? null : p.headers,
-              // Drives lock-screen / notification metadata.
-              tag: MediaItem(
-                id: p.id,
-                title: p.title,
-                artist: p.subtitle.isEmpty ? null : p.subtitle,
-                album: p.album.isEmpty ? 'Vault' : p.album,
-                // Lock-screen artwork for server streams (bearer-fetched).
-                artUri: p.artworkUri,
-                artHeaders: p.artworkUri != null && p.headers.isNotEmpty
-                    ? p.headers
-                    : null,
-              ),
-            ),
-        ],
-        initialIndex: startIndex,
-        initialPosition: Duration.zero,
+      await _player.setAudioSource(
+        AudioSource.uri(
+          p.uri,
+          headers: p.headers.isEmpty ? null : p.headers,
+          // Drives lock-screen / notification metadata.
+          tag: MediaItem(
+            id: p.id,
+            title: p.title,
+            artist: p.subtitle.isEmpty ? null : p.subtitle,
+            album: p.album.isEmpty ? 'Vault' : p.album,
+            // Lock-screen artwork for server streams (bearer-fetched).
+            artUri: p.artworkUri,
+            artHeaders: p.artworkUri != null && p.headers.isNotEmpty
+                ? p.headers
+                : null,
+          ),
+        ),
       );
+      if (seq != _loadSeq) return; // user skipped while this was loading
       await _player.play();
-      _log.info('audio queue playing',
-          fields: {'count': items.length, 'start': startIndex});
     } catch (e, s) {
+      if (seq != _loadSeq) return;
       _log.error('audio playback failed', error: e, stackTrace: s);
     }
+  }
+
+  /// Rebuild the playback order (identity, or shuffled with [anchor] first so
+  /// "shuffle from this song" behaves like every music app).
+  void _rebuildOrder({required int anchor}) {
+    final n = state.queue.length;
+    final order = [for (var i = 0; i < n; i++) i];
+    if (state.shuffle && n > 1) {
+      order
+        ..remove(anchor)
+        ..shuffle()
+        ..insert(0, anchor);
+    }
+    _order = order;
+  }
+
+  /// The queue index [steps] away in playback order, honoring repeat-all
+  /// wrap. Null = end of queue with repeat off.
+  int? _step(int steps) {
+    if (_order.isEmpty) return null;
+    final pos = _order.indexOf(state.index);
+    if (pos < 0) return null;
+    final next = pos + steps;
+    if (next >= 0 && next < _order.length) return _order[next];
+    if (state.repeat == LoopMode.all) {
+      return _order[(next % _order.length + _order.length) % _order.length];
+    }
+    return null;
+  }
+
+  Future<void> _autoAdvance() async {
+    if (state.repeat == LoopMode.one) {
+      await _player.seek(Duration.zero);
+      await _player.play();
+      return;
+    }
+    final next = _step(1);
+    if (next == null) {
+      await _player.pause();
+      return; // queue finished, repeat off — leave the last track loaded
+    }
+    await _setAndPlay(next);
   }
 
   Future<void> togglePlay() async {
     _player.playing ? await _player.pause() : await _player.play();
   }
 
-  Future<void> next() => _player.seekToNext();
-  Future<void> previous() => _player.seekToPrevious();
+  Future<void> next() async {
+    final n = _step(1);
+    if (n != null) await _setAndPlay(n);
+  }
+
+  Future<void> previous() async {
+    // Convention: past 3 seconds, "previous" means restart this track.
+    if (_player.position > const Duration(seconds: 3)) {
+      await _player.seek(Duration.zero);
+      return;
+    }
+    final p = _step(-1);
+    if (p != null) {
+      await _setAndPlay(p);
+    } else {
+      await _player.seek(Duration.zero);
+    }
+  }
+
   Future<void> seek(Duration position) => _player.seek(position);
   Future<void> setVolume(double v) => _player.setVolume(v);
 
-  Future<void> setShuffle(bool on) => _player.setShuffleModeEnabled(on);
+  Future<void> setShuffle(bool on) async {
+    state = state.copyWith(shuffle: on);
+    _rebuildOrder(anchor: state.index);
+  }
 
   Future<void> cycleRepeat() async {
-    final next = switch (_player.loopMode) {
+    state = state.copyWith(repeat: switch (state.repeat) {
       LoopMode.off => LoopMode.all,
       LoopMode.all => LoopMode.one,
       LoopMode.one => LoopMode.off,
-    };
-    await _player.setLoopMode(next);
+    });
   }
 
   /// Stop audio and clear the queue (dismisses the mini-player).
   Future<void> stopAudio() async {
+    _loadSeq++; // invalidate any in-flight source load
     await _player.stop();
     state = state.copyWith(queue: const [], index: 0);
+    _order = const [];
     _log.info('audio stopped, queue cleared');
   }
 

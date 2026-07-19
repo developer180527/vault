@@ -4,6 +4,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -97,6 +98,7 @@ func New(o Options) http.Handler {
 	if n := s.photos.SweepPartials(); n > 0 {
 		o.Log.Info("swept stale partial uploads", "count", n)
 	}
+	go s.checkPhotoIntegrity(context.Background())
 	// The shared catalog directory must exist before the admin's first drop.
 	if err := s.music.EnsureCatalog(); err != nil {
 		o.Log.Warn("catalog dir", "err", err)

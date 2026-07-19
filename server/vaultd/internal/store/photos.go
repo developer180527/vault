@@ -146,6 +146,35 @@ func (r *ReadStore) CountPhotos(ctx context.Context, userID string) (n int, byte
 	return n, bytes, err
 }
 
+// PhotoFile is the minimum needed to check a stored original against disk.
+type PhotoFile struct {
+	ID       string
+	Username string
+	RelPath  string
+	Size     int64
+}
+
+// AllPhotoFiles lists every stored original with its owner, for integrity
+// checks (does the file the DB promises actually exist?).
+func (r *ReadStore) AllPhotoFiles(ctx context.Context) ([]PhotoFile, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT p.id, u.username, p.rel_path, p.size
+		FROM photos p JOIN users u ON u.id = p.user_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PhotoFile
+	for rows.Next() {
+		var f PhotoFile
+		if err := rows.Scan(&f.ID, &f.Username, &f.RelPath, &f.Size); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // CountAllPhotos totals the whole backup store — the admin System card.
 func (r *ReadStore) CountAllPhotos(ctx context.Context) (n int, bytes int64, err error) {
 	err = r.db.QueryRowContext(ctx,

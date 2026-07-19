@@ -154,6 +154,16 @@ func (s *Service) Remove(username, relPath string) error {
 	return os.Remove(s.PhotoPath(username, relPath))
 }
 
+// Exists reports whether a stored original is actually on disk, and whether
+// its size matches what the DB recorded.
+func (s *Service) Exists(username, relPath string, size int64) (present, sizeOK bool) {
+	fi, err := os.Stat(s.PhotoPath(username, relPath))
+	if err != nil {
+		return false, false
+	}
+	return true, fi.Size() == size
+}
+
 // SweepPartials deletes leftover .part files — uploads killed mid-stream by
 // a dropped connection or a server restart (a redeploy during an active
 // backup run orphans whatever was in flight). Safe at boot: no upload can be

@@ -116,6 +116,10 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
     int index, {
     required MusicSource source,
   }) async {
+    // Open the player IMMEDIATELY — it renders from playback state and fills
+    // in as the queue lands. Awaiting auth + source setup before pushing the
+    // page held the tap hostage for seconds on a slow link.
+    _openPlayer(context);
     final music = ref.read(vaultClientProvider).music;
     final personal = source is PersonalSource;
     final playables = personal
@@ -134,7 +138,6 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
         ),
       );
     }
-    if (mounted) _openPlayer(context);
   }
 
   // ---- playlist management ----
