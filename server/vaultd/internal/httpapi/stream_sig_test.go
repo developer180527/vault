@@ -81,4 +81,18 @@ func TestSignedStreamURLs(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("bearer stream = %d, want 200", rec.Code)
 	}
+
+	// The key robustness case: an EXPIRED/tampered sig but a valid bearer
+	// (a >24h cached listing played with a fresh token) must fall through and
+	// stream, not 401.
+	q = parsed.Query()
+	q.Set("exp", "1000000000")
+	parsed.RawQuery = q.Encode()
+	req = httptest.NewRequest("GET", parsed.String(), nil)
+	req.Header.Set("Authorization", "Bearer "+access)
+	rec = httptest.NewRecorder()
+	e.handler.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("expired sig + valid bearer = %d, want 200 (fallthrough)", rec.Code)
+	}
 }

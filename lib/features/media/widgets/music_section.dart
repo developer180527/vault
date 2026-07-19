@@ -843,7 +843,10 @@ class _RowDivider extends StatelessWidget {
     return Divider(
       height: 1,
       thickness: 1,
-      indent: 72,
+      // Centered with equal gaps at both screen edges (not indented to align
+      // with the text — that left one edge touching and looked lopsided).
+      indent: 16,
+      endIndent: 16,
       color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.14),
     );
   }

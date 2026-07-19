@@ -99,43 +99,35 @@ func (s *Server) handleStreamTrack(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	q := r.URL.Query()
 
+	// Signed URL (username carried in `u`, verified by the signature) OR a
+	// bearer with music:read. A stale/expired sig falls THROUGH to the bearer
+	// the client still attaches, so a >24h cached listing keeps streaming;
+	// 401 only when neither proof holds.
+	var username, userID string
 	if sig := q.Get("sig"); sig != "" && s.signer != nil {
-		username := q.Get("u")
-		if !s.signer.Verify(
-			"stream:user:"+username+":"+id, q.Get("exp"), sig, time.Now()) {
-			writeErr(w, http.StatusUnauthorized, "invalid or expired stream URL")
+		u := q.Get("u")
+		if s.signer.Verify(
+			"stream:user:"+u+":"+id, q.Get("exp"), sig, time.Now()) {
+			if user, err := s.store.Read().UserByUsername(ctx, u); err == nil {
+				username, userID = user.Username, user.ID
+			}
+		}
+	}
+	if userID == "" {
+		p := s.bearerPrincipal(r)
+		if p == nil || !s.hasGrant(r, p, "music", "read") {
+			writeErr(w, http.StatusUnauthorized,
+				"stream needs a valid signed URL or an authorized token")
 			return
 		}
-		user, err := s.store.Read().UserByUsername(ctx, username)
-		if err != nil {
-			writeErr(w, http.StatusNotFound, "not found")
-			return
-		}
-		t, err := s.store.Read().TrackByID(ctx, user.ID, id)
-		if err != nil {
-			s.filesErr(w, r, err)
-			return
-		}
-		http.ServeFile(w, r, s.music.TrackPath(username, t))
-		return
+		username, userID = p.Username, p.UserID
 	}
-
-	// Bearer path — same checks the middleware chain used to make.
-	p := s.bearerPrincipal(r)
-	if p == nil {
-		writeErr(w, http.StatusUnauthorized, "missing or invalid token")
-		return
-	}
-	if !s.hasGrant(r, p, "music", "read") {
-		writeErr(w, http.StatusForbidden, "music access not granted")
-		return
-	}
-	t, err := s.store.Read().TrackByID(ctx, p.UserID, id)
+	t, err := s.store.Read().TrackByID(ctx, userID, id)
 	if err != nil {
 		s.filesErr(w, r, err)
 		return
 	}
-	http.ServeFile(w, r, s.music.TrackPath(p.Username, t))
+	http.ServeFile(w, r, s.music.TrackPath(username, t))
 }
 
 // GET /v1/music/tracks/{id}/art — embedded artwork, lazily parsed, ETag'd so

@@ -70,19 +70,18 @@ class MobileShell extends ConsumerWidget {
       // doesn't re-rasterize the chrome — which matters extra here because
       // the chrome holds platform views (hybrid-composition layer splits).
       //
-      // Scroll direction drives the chrome, Apple Music-style: scrolling
-      // DOWN through content tucks the dock into the collapsed cluster,
-      // scrolling back up restores it. Only vertical, user-initiated
-      // scrolls count — horizontal shelves and section swipes must not
-      // toggle the chrome.
+      // Chrome collapse is a ONE-WAY, mini-player-only gesture: scrolling DOWN
+      // into content tucks the dock away — but ONLY while a track is playing
+      // (there's no point collapsing to a bare 4-box with nothing to show).
+      // Scrolling back UP does NOT restore it; only tapping the collapsed
+      // 4-box does. Only vertical, user-initiated scrolls count — horizontal
+      // shelves and section swipes must not toggle the chrome.
       body: NotificationListener<UserScrollNotification>(
         onNotification: (n) {
           if (n.metrics.axis != Axis.vertical) return false;
-          final collapse = ref.read(dockCollapsedProvider.notifier);
-          if (n.direction == ScrollDirection.reverse) {
-            collapse.set(true);
-          } else if (n.direction == ScrollDirection.forward) {
-            collapse.set(false);
+          if (n.direction == ScrollDirection.reverse &&
+              ref.read(playbackProvider).currentAudio != null) {
+            ref.read(dockCollapsedProvider.notifier).set(true);
           }
           return false; // observe only — never eat the notification
         },
@@ -327,40 +326,33 @@ class _CollapsedChrome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Collapsed, everything shrinks to the mini-player's height so the 4-box,
+    // the pill, and the You circle read as one consistent 44pt row.
+    const h = _kMiniPlayerHeight;
     return NativeGlassPanel(
-      size: Size(width, _kDockHeight),
+      size: Size(width, h),
       regions: [
         GlassRegion(
-          rect: const Rect.fromLTWH(0, 0, _kDockHeight, _kDockHeight),
-          radius: _kDockHeight / 2,
+          rect: const Rect.fromLTWH(0, 0, h, h),
+          radius: h / 2,
         ),
         if (hasTrack)
           GlassRegion(
-            rect: Rect.fromLTWH(
-              _kDockHeight + 8,
-              (_kDockHeight - _kMiniPlayerHeight) / 2,
-              width - 2 * (_kDockHeight + 8),
-              _kMiniPlayerHeight,
-            ),
-            radius: _kMiniPlayerHeight / 2,
+            rect: Rect.fromLTWH(h + 8, 0, width - 2 * (h + 8), h),
+            radius: h / 2,
           ),
         GlassRegion(
-          rect: Rect.fromLTWH(
-            width - _kDockHeight,
-            0,
-            _kDockHeight,
-            _kDockHeight,
-          ),
-          radius: _kDockHeight / 2,
+          rect: Rect.fromLTWH(width - h, 0, h, h),
+          radius: h / 2,
         ),
       ],
       child: SizedBox(
-        height: _kDockHeight,
+        height: h,
         child: Row(
           children: [
             // The 4-box: tap to bring the full dock back.
             NativeGlassSurface(
-              radius: _kDockHeight / 2,
+              radius: h / 2,
               child: Semantics(
                 button: true,
                 label: 'Show navigation',
@@ -368,11 +360,11 @@ class _CollapsedChrome extends StatelessWidget {
                   behavior: HitTestBehavior.opaque,
                   onTap: onExpand,
                   child: SizedBox(
-                    width: _kDockHeight,
-                    height: _kDockHeight,
+                    width: h,
+                    height: h,
                     child: Icon(
                       Icons.grid_view_rounded,
-                      size: 22,
+                      size: 18,
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
@@ -386,7 +378,7 @@ class _CollapsedChrome extends StatelessWidget {
                   : const SizedBox.shrink(),
             ),
             const SizedBox(width: 8),
-            _YouCircle(selected: onUserPage, onTap: onYou),
+            _YouCircle(selected: onUserPage, onTap: onYou, size: h),
           ],
         ),
       ),
@@ -395,26 +387,32 @@ class _CollapsedChrome extends StatelessWidget {
 }
 
 /// The detached You circle, Apple Music-style — shared by both chrome states.
+/// [size] shrinks it in the collapsed row to match the mini player.
 class _YouCircle extends ConsumerWidget {
-  const _YouCircle({required this.selected, required this.onTap});
+  const _YouCircle({
+    required this.selected,
+    required this.onTap,
+    this.size = _kDockHeight,
+  });
 
   final bool selected;
   final VoidCallback onTap;
+  final double size;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     return NativeGlassSurface(
-      radius: _kDockHeight / 2,
+      radius: size / 2,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: SizedBox(
-          width: _kDockHeight,
-          height: _kDockHeight,
+          width: size,
+          height: size,
           child: Center(
             child: CircleAvatar(
-              radius: 17,
+              radius: size * 0.27,
               backgroundColor: selected
                   ? scheme.primaryContainer
                   : scheme.surfaceContainerHighest,
@@ -427,7 +425,7 @@ class _YouCircle extends ConsumerWidget {
               child: AdaptiveIcon(
                 VaultIcons.user,
                 selected: selected,
-                size: 20,
+                size: size * 0.31,
                 color: selected
                     ? scheme.onPrimaryContainer
                     : scheme.onSurfaceVariant,

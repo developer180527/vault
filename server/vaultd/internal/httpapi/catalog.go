@@ -59,28 +59,19 @@ func (s *Server) handleCatalogStream(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	q := r.URL.Query()
 
-	if sig := q.Get("sig"); sig != "" && s.signer != nil {
-		if !s.signer.Verify("stream:catalog:"+id, q.Get("exp"), sig, time.Now()) {
-			writeErr(w, http.StatusUnauthorized, "invalid or expired stream URL")
+	// Accept a valid signed URL OR a bearer with music:read. A stale/expired
+	// signature (e.g. a >24h cached listing) falls THROUGH to the bearer that
+	// the client still attaches — 401 only when NEITHER proof holds. Without
+	// this fallthrough, a cached listing silently stopped streaming after a day.
+	authed := q.Get("sig") != "" && s.signer != nil &&
+		s.signer.Verify("stream:catalog:"+id, q.Get("exp"), q.Get("sig"), time.Now())
+	if !authed {
+		p := s.bearerPrincipal(r)
+		if p == nil || !s.hasGrant(r, p, "music", "read") {
+			writeErr(w, http.StatusUnauthorized,
+				"stream needs a valid signed URL or an authorized token")
 			return
 		}
-		t, err := s.store.Read().CatalogTrackByID(ctx, id)
-		if err != nil {
-			s.filesErr(w, r, err)
-			return
-		}
-		http.ServeFile(w, r, s.music.CatalogTrackPath(t))
-		return
-	}
-
-	p := s.bearerPrincipal(r)
-	if p == nil {
-		writeErr(w, http.StatusUnauthorized, "missing or invalid token")
-		return
-	}
-	if !s.hasGrant(r, p, "music", "read") {
-		writeErr(w, http.StatusForbidden, "music access not granted")
-		return
 	}
 	t, err := s.store.Read().CatalogTrackByID(ctx, id)
 	if err != nil {

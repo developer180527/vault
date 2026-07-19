@@ -8,9 +8,14 @@
 	<string>Vault shows your photos and videos so you can browse and back them up to your home server.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Vault saves media you download from your home server back to your photo library.</string>
+	<!-- audio: background music (just_audio_background). processing/fetch:
+	     background photo backup (BGProcessingTask). ONE array — duplicate
+	     UIBackgroundModes keys make the plist ambiguous and drop `audio`. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>fetch</string>
+		<string>processing</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
@@ -93,11 +98,6 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>dev.vault.backup.processing</string>
-	</array>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>fetch</string>
-		<string>processing</string>
 	</array>
 </dict>
 </plist>
