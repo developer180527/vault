@@ -4,9 +4,9 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 44;
-  static const String commit = '2e85f2c';
-  static const String commitSubject = 'The platform player now only ever holds the current track. The queue, ordering, shuffle, and repeat live in Dart where they cost nothing. Track completes → we load the next single source. Tap-to-play now costs exactly one connection — identical to the files path, at any queue size. Manual transport done properly: next/previous walk the Dart order; \'previous\' past 3 seconds restarts the track (standard convention); repeat-one loops the engine, repeat-all wraps the queue; shuffle reorders from the current song (\'shuffle from here\'). A guard sequence ensures a slow load that finishes after you\'ve already skipped can\'t clobber the newer track. The full-screen player opens instantly on tap — it renders from playback state and fills in as the stream connects, instead of holding the tap hostage behind auth + source setup. The shuffle/repeat buttons now read controller state (the engine streams no longer carry queue semantics).';
+  static const int build = 47;
+  static const String commit = '40ef6cf';
+  static const String commitSubject = '1. Extracted a headless core (backup_core.dart): runBackupCore is now a provider-free function that both the foreground engine and the background isolate call, so the logic is identical and there\'s no duplication. The foreground engine (backup_engine.dart) became a thin wrapper mapping progress to the status UI. Foreground behavior is unchanged.';
   static const String date = '2026-07-19';
 
   static String get label =>
