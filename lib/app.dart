@@ -14,6 +14,7 @@ import 'features/jobs/jobs_page.dart';
 import 'features/media/media_library_page.dart';
 import 'features/media/widgets/media_filter_dropdown.dart';
 import 'features/media/widgets/music_section.dart';
+import 'features/movies/movies_section.dart';
 import 'features/placeholder_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/user/user_page.dart';
@@ -72,6 +73,17 @@ final vaultServices = <ServiceDefinition>[
     category: ServiceCategory.tools,
     actions: downloadsServiceActions,
     builder: (_) => const JobsPage(kind: JobKind.download),
+  ),
+  // Movies registers here (after the core dock services) so it never
+  // displaces the established Media/Files/Music/Torrent dock pins; category
+  // 'media' still groups it with music in the desktop sidebar, and the
+  // server manifest decides who actually sees it (movies:read).
+  ServiceDefinition(
+    id: 'movies',
+    label: 'Movies',
+    icon: VaultIcons.playVideo,
+    category: ServiceCategory.media,
+    builder: (_) => const MoviesSection(),
   ),
   // NOTE: photo BACKUP is deliberately not a service tab — it's a property
   // of the media library: the cloud button in the Media toolbar opens the

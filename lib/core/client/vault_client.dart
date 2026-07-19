@@ -7,6 +7,7 @@ import '../capability/capability.dart';
 import '../jobs/job.dart';
 import '../models/file_node.dart';
 import '../models/playlist.dart';
+import '../models/server_movie.dart';
 import '../models/server_photo.dart';
 import '../models/server_track.dart';
 import '../services/service_registry.dart';
@@ -41,6 +42,9 @@ abstract interface class VaultClient {
   /// Camera-roll backup: hash-check + upload originals, list what's stored.
   /// Standalone mode has no server to back up to and never calls this.
   PhotosApi get photos;
+
+  /// The shared movie/show catalog (browse/stream — docs/MOVIES.md).
+  MoviesApi get movies;
 
   /// The caller's profile picture, or null when none is set (or standalone).
   Future<Uint8List?> myAvatar();
@@ -179,6 +183,43 @@ abstract interface class PhotosApi {
   Future<void> setThumb(String id, Uint8List jpeg);
 
   /// Bearer headers for thumb/content fetches from image widgets.
+  Future<Map<String, String>> authHeaders();
+}
+
+/// The shared movie/show catalog (docs/MOVIES.md). Mirrors [MusicApi]: list/
+/// search + signed stream URLs, plus movie-specific multi-track streaming
+/// (audio selection, WebVTT subtitles) and server-side resume.
+abstract interface class MoviesApi {
+  /// The whole catalog (or FTS search results).
+  Future<List<ServerMovie>> list({String query = ''});
+
+  /// Titles the caller started but hasn't finished — the resume shelf.
+  Future<List<ServerMovie>> continueWatching();
+
+  /// One title with the caller's resume position + full stream list.
+  Future<ServerMovie> movie(String id);
+
+  /// Report playback progress (resume point + finished detection). Fire-and-
+  /// forget: playback never stalls on telemetry.
+  Future<void> reportWatch(String id, {required int positionMs, required int durationMs});
+
+  /// Stream URL for a title. [audio] > 0 selects a non-default track (server
+  /// remuxes); [startSec] server-seeks (a remuxed pipe can't Range-seek).
+  Uri streamUri(String id, {int audio = 0, int startSec = 0});
+
+  /// Resolve a server-provided signed stream path (bearer-free playback).
+  Uri resolveStreamUrl(String pathWithQuery);
+
+  Uri artUri(String id);
+
+  /// A subtitle track as WebVTT. [track] is `e<N>` (embedded) or `x<N>`
+  /// (sidecar), matching [ServerMovie.subs] ordering.
+  Uri subUri(String id, String track);
+
+  /// Fetch a subtitle track's WebVTT text (authed) for the caption overlay.
+  Future<String> subtitleVtt(String id, String track);
+
+  /// Bearer headers for art/stream fetches.
   Future<Map<String, String>> authHeaders();
 }
 
