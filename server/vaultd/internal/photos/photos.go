@@ -154,6 +154,39 @@ func (s *Service) Remove(username, relPath string) error {
 	return os.Remove(s.PhotoPath(username, relPath))
 }
 
+// --- thumbnails ---
+//
+// Thumbs are CLIENT-generated (the phone decodes HEIC for free and already
+// has a thumbnail engine); the server just stores small JPEGs. They live in
+// a dot-dir SIBLING of users/ — deliberately outside the originals tree, so
+// `rsync .../users` copies exactly the irreplaceable bytes and none of the
+// regenerable derivatives.
+
+// ThumbPath is where a photo's thumbnail lives, keyed by row id.
+func (s *Service) ThumbPath(id string) string {
+	return filepath.Join(s.Root, ".thumbs", filepath.Base(id)+".jpg")
+}
+
+// HasThumb reports whether a thumbnail exists for the row.
+func (s *Service) HasThumb(id string) bool {
+	_, err := os.Stat(s.ThumbPath(id))
+	return err == nil
+}
+
+// SetThumb stores a thumbnail (already validated by the caller).
+func (s *Service) SetThumb(id string, data []byte) error {
+	p := s.ThumbPath(id)
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+		return err
+	}
+	return os.WriteFile(p, data, 0o640)
+}
+
+// RemoveThumb drops a thumbnail (row deletion cleanup; missing is fine).
+func (s *Service) RemoveThumb(id string) {
+	_ = os.Remove(s.ThumbPath(id))
+}
+
 // Exists reports whether a stored original is actually on disk, and whether
 // its size matches what the DB recorded.
 func (s *Service) Exists(username, relPath string, size int64) (present, sizeOK bool) {

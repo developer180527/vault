@@ -16,6 +16,7 @@ import (
 	"github.com/developer180527/vault/vaultd/internal/auth"
 	"github.com/developer180527/vault/vaultd/internal/files"
 	"github.com/developer180527/vault/vaultd/internal/jobs"
+	"github.com/developer180527/vault/vaultd/internal/movies"
 	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/photos"
 	"github.com/developer180527/vault/vaultd/internal/store"
@@ -47,6 +48,11 @@ type Options struct {
 	// the HDD pool). Empty → defaults under DataRoot.
 	PhotosRoot string
 
+	// MoviesRoot / FFmpeg paths drive the movie catalog (scan + streaming).
+	MoviesRoot    string
+	FFmpegBinary  string
+	FFprobeBinary string
+
 	// Jobs is the background-work engine (nil disables the jobs API).
 	Jobs *jobs.Engine
 
@@ -69,6 +75,7 @@ type Server struct {
 	files        *files.Service
 	music        *music.Service
 	photos       *photos.Service
+	movies       *movies.Service
 	signer       *auth.StreamSigner
 }
 
@@ -99,6 +106,19 @@ func New(o Options) http.Handler {
 		o.Log.Info("swept stale partial uploads", "count", n)
 	}
 	go s.checkPhotoIntegrity(context.Background())
+
+	moviesRoot := o.MoviesRoot
+	if moviesRoot == "" {
+		moviesRoot = filepath.Join(o.DataRoot, "catalog", "movies")
+	}
+	s.movies = &movies.Service{
+		Root: moviesRoot, Store: o.Store, Log: o.Log,
+		Prober:     movies.FFprobe{Bin: o.FFprobeBinary},
+		FFmpegPath: o.FFmpegBinary,
+	}
+	if err := s.movies.EnsureRoot(); err != nil {
+		o.Log.Warn("movies dir", "err", err)
+	}
 	// The shared catalog directory must exist before the admin's first drop.
 	if err := s.music.EnsureCatalog(); err != nil {
 		o.Log.Warn("catalog dir", "err", err)
@@ -122,6 +142,8 @@ func New(o Options) http.Handler {
 		// bearer) or fall back to bearer + grant inside the handler.
 		r.Get("/music/tracks/{id}/stream", s.handleStreamTrack)
 		r.Get("/music/catalog/{id}/stream", s.handleCatalogStream)
+		// Movie stream: signed-URL or bearer inside the handler (like music).
+		r.Get("/movies/{id}/stream", s.handleMovieStream)
 
 		// Authenticated.
 		r.Group(func(r chi.Router) {
@@ -202,11 +224,31 @@ func New(o Options) http.Handler {
 				r.Use(s.RequireGrant("photos", "sync"))
 				r.Post("/photos/check", s.handlePhotosCheck)
 				r.Post("/photos", s.handlePhotoUpload)
+				r.Get("/photos/missing-thumbs", s.handleMissingThumbs)
+				r.Put("/photos/{id}/thumb", s.handleSetPhotoThumb)
 			})
 			r.Group(func(r chi.Router) {
 				r.Use(s.RequireGrant("photos", "read"))
 				r.Get("/photos", s.handleListPhotos)
 				r.Get("/photos/{id}/content", s.handlePhotoContent)
+				r.Get("/photos/{id}/thumb", s.handlePhotoThumb)
+			})
+
+			// Movies — shared catalog (docs/MOVIES.md). Members browse/stream
+			// on movies:read; only movies:write (admin) scans and edits.
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("movies", "read"))
+				r.Get("/movies", s.handleMovies)
+				r.Get("/movies/continue", s.handleContinueWatching)
+				r.Get("/movies/{id}", s.handleMovieDetail)
+				r.Get("/movies/{id}/art", s.handleMovieArt)
+				r.Get("/movies/{id}/subs/{track}", s.handleMovieSubs)
+				r.Post("/movies/{id}/watches", s.handleRecordWatch)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("movies", "write"))
+				r.Patch("/movies/{id}", s.handleMovieEdit)
+				r.Post("/movies/scan", s.handleMovieScan)
 			})
 			// backup (M4) lands here.
 		})

@@ -21,6 +21,10 @@ type Photo struct {
 	TakenAt    int64  `json:"taken_at"`
 	UploadedAt int64  `json:"uploaded_at"`
 	Name       string `json:"name"` // display name (base of rel_path)
+
+	// HasThumb is TRANSIENT (never stored): stat'ed against the thumbs dir
+	// by the list handler so the client knows which grid cells can load.
+	HasThumb bool `json:"has_thumb"`
 }
 
 // InsertPhoto records one uploaded original.

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -51,6 +52,7 @@ class HttpPhotosApi implements PhotosApi {
     required String name,
     required String hash,
     DateTime? takenAt,
+    Uint8List? thumb,
   }) async {
     final req = http.MultipartRequest('POST', _session.api('/v1/photos'))
       ..headers.addAll(await _authHeaders())
@@ -58,6 +60,10 @@ class HttpPhotosApi implements PhotosApi {
     if (takenAt != null) {
       req.fields['taken_at'] =
           (takenAt.millisecondsSinceEpoch ~/ 1000).toString();
+    }
+    if (thumb != null) {
+      req.files.add(http.MultipartFile.fromBytes('thumb', thumb,
+          filename: 'thumb.jpg'));
     }
     // Streamed from disk: a multi-GB video never sits in memory.
     final file = File(path);
@@ -73,6 +79,41 @@ class HttpPhotosApi implements PhotosApi {
     }
     return ServerPhoto.fromJson(jsonDecode(res.body) as Map<String, Object?>);
   }
+
+  @override
+  Uri thumbUri(String id) => _session.api('/v1/photos/$id/thumb');
+
+  @override
+  Uri contentUri(String id) => _session.api('/v1/photos/$id/content');
+
+  @override
+  Future<List<(String, String)>> missingThumbs() async {
+    final res = await http.get(_session.api('/v1/photos/missing-thumbs'),
+        headers: await _authHeaders());
+    if (res.statusCode != 200) {
+      throw Exception('missing-thumbs failed: HTTP ${res.statusCode}');
+    }
+    final body = jsonDecode(res.body) as Map<String, Object?>;
+    return [
+      for (final it in (body['items'] as List?) ?? const [])
+        (
+          (it as Map<String, Object?>)['id'] as String,
+          it['hash'] as String,
+        ),
+    ];
+  }
+
+  @override
+  Future<void> setThumb(String id, Uint8List jpeg) async {
+    final res = await http.put(_session.api('/v1/photos/$id/thumb'),
+        headers: await _authHeaders(), body: jpeg);
+    if (res.statusCode != 200) {
+      throw Exception('set thumb failed: HTTP ${res.statusCode}');
+    }
+  }
+
+  @override
+  Future<Map<String, String>> authHeaders() => _authHeaders();
 
   @override
   Future<PhotoBackupListing> list({int limit = 200, int offset = 0}) async {

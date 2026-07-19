@@ -26,6 +26,15 @@ type Config struct {
 	// DataRoot so dev and tests need no extra setup.
 	PhotosRoot string
 
+	// MoviesRoot is the shared movie/show catalog. Belongs on the HDD pool in
+	// production (big files); defaults under DataRoot for dev.
+	MoviesRoot string
+
+	// FFmpegBinary / FFprobeBinary drive movie scan (ffprobe) and audio-track
+	// remux + subtitle extraction (ffmpeg). Baked into the container image.
+	FFmpegBinary  string
+	FFprobeBinary string
+
 	// OIDCIssuer is Pocket ID's issuer URL, e.g.
 	// https://vault-server.<tailnet>.ts.net:9443 — used to fetch JWKS and to
 	// validate the `iss` claim.
@@ -82,6 +91,10 @@ func Load() (*Config, error) {
 	}
 	c.PhotosRoot = getenv("VAULT_PHOTOS_ROOT",
 		filepath.Join(c.DataRoot, "photos"))
+	c.MoviesRoot = getenv("VAULT_MOVIES_ROOT",
+		filepath.Join(c.DataRoot, "catalog", "movies"))
+	c.FFmpegBinary = getenv("VAULTD_FFMPEG_BIN", "ffmpeg")
+	c.FFprobeBinary = getenv("VAULTD_FFPROBE_BIN", "ffprobe")
 
 	// OIDC + token secret are required for auth, but the skeleton (health +
 	// migrations) must run without them so M2 can be brought up incrementally.

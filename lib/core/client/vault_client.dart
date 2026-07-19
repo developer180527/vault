@@ -153,16 +153,33 @@ abstract interface class PhotosApi {
   /// Upload one original from a local file path (streamed — videos never load
   /// into memory). [hash] is verified server-side; a corrupted transfer is
   /// rejected rather than stored. Idempotent: re-uploading returns the
-  /// existing row.
+  /// existing row. [thumb] is an optional client-generated JPEG preview —
+  /// the phone decodes HEIC for free, the server never needs image codecs.
   Future<ServerPhoto> upload({
     required String path,
     required String name,
     required String hash,
     DateTime? takenAt,
+    Uint8List? thumb,
   });
 
   /// One page of the backed-up listing, newest capture first, with totals.
   Future<PhotoBackupListing> list({int limit = 200, int offset = 0});
+
+  /// Timeline/viewer URLs (fetched with [MusicApi.authHeaders]-style bearer
+  /// via the content cache).
+  Uri thumbUri(String id);
+  Uri contentUri(String id);
+
+  /// Rows still lacking a thumbnail, as (id, contentHash) pairs — the client
+  /// maps hash → local asset through its ledger and backfills.
+  Future<List<(String id, String hash)>> missingThumbs();
+
+  /// Store a thumbnail for an already-backed-up original.
+  Future<void> setThumb(String id, Uint8List jpeg);
+
+  /// Bearer headers for thumb/content fetches from image widgets.
+  Future<Map<String, String>> authHeaders();
 }
 
 /// The jobs pipeline. Submitting hands work to the scheduler; [watch] streams

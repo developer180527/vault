@@ -124,6 +124,78 @@ func TestPhotoBackupUploadDedupeAndServe(t *testing.T) {
 	}
 }
 
+func TestPhotoThumbnails(t *testing.T) {
+	e := newTestEnv(t)
+	member := mintPhotosMember(t, e)
+
+	// A tiny "JPEG": DetectContentType sniffs image/jpeg from the magic bytes.
+	thumbBytes := append([]byte{0xff, 0xd8, 0xff, 0xe0}, bytes.Repeat([]byte{1}, 32)...)
+
+	// 1) Upload WITHOUT a thumb → listed as has_thumb=false, appears in
+	// missing-thumbs.
+	code, ph := e.uploadPhoto(t, member, "old.jpg", 0, []byte("old-bytes"))
+	if code != 201 || ph["has_thumb"] != false {
+		t.Fatalf("upload = %d %v", code, ph)
+	}
+	oldID := ph["id"].(string)
+	code, body := e.call(t, "GET", "/v1/photos/missing-thumbs", member, nil)
+	if code != 200 || len(body["items"].([]any)) != 1 {
+		t.Fatalf("missing-thumbs = %d %v", code, body)
+	}
+
+	// 2) Backfill via PUT → served back, has_thumb flips, missing empties.
+	req := httptest.NewRequest("PUT", "/v1/photos/"+oldID+"/thumb",
+		bytes.NewReader(thumbBytes))
+	req.Header.Set("Authorization", "Bearer "+member)
+	rec := httptest.NewRecorder()
+	e.handler.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("put thumb = %d", rec.Code)
+	}
+	req = httptest.NewRequest("GET", "/v1/photos/"+oldID+"/thumb", nil)
+	req.Header.Set("Authorization", "Bearer "+member)
+	rec = httptest.NewRecorder()
+	e.handler.ServeHTTP(rec, req)
+	if rec.Code != 200 || !bytes.Equal(rec.Body.Bytes(), thumbBytes) {
+		t.Fatalf("get thumb = %d (%d bytes)", rec.Code, rec.Body.Len())
+	}
+	_, body = e.call(t, "GET", "/v1/photos/missing-thumbs", member, nil)
+	if len(body["items"].([]any)) != 0 {
+		t.Fatalf("missing-thumbs after backfill: %v", body)
+	}
+
+	// 3) Upload WITH an inline thumb part → has_thumb from the start.
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	sum := sha256.Sum256([]byte("new-bytes"))
+	_ = mw.WriteField("hash", hex.EncodeToString(sum[:]))
+	tw, _ := mw.CreateFormFile("thumb", "t.jpg")
+	_, _ = tw.Write(thumbBytes)
+	fw, _ := mw.CreateFormFile("file", "new.jpg")
+	_, _ = fw.Write([]byte("new-bytes"))
+	_ = mw.Close()
+	req = httptest.NewRequest("POST", "/v1/photos", &buf)
+	req.Header.Set("Authorization", "Bearer "+member)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec = httptest.NewRecorder()
+	e.handler.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.NewDecoder(rec.Body).Decode(&out)
+	if rec.Code != 201 || out["has_thumb"] != true {
+		t.Fatalf("upload+thumb = %d %v", rec.Code, out)
+	}
+
+	// Non-image thumb bytes are refused on backfill.
+	req = httptest.NewRequest("PUT", "/v1/photos/"+oldID+"/thumb",
+		bytes.NewReader([]byte("plain text, definitely not an image")))
+	req.Header.Set("Authorization", "Bearer "+member)
+	rec = httptest.NewRecorder()
+	e.handler.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("text thumb accepted: %d", rec.Code)
+	}
+}
+
 func TestPhotoUploadRejectsBadInput(t *testing.T) {
 	e := newTestEnv(t)
 	member := mintPhotosMember(t, e)

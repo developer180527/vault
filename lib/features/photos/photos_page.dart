@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../media/data/local_media_library.dart';
 import '../media/data/media_providers.dart';
 import 'data/backup_engine.dart';
+import 'photos_timeline_page.dart';
 
 /// Opens the backup sheet over the whole shell — backup is a PROPERTY of the
 /// media library (a cloud button beside trash), not a destination tab.
@@ -145,6 +146,22 @@ class BackupSheet extends ConsumerWidget {
                   ],
                 ],
               ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // ---- browse the backed-up library ----
+          Card(
+            margin: EdgeInsets.zero,
+            child: ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Browse library'),
+              subtitle: const Text('Everything backed up, as a timeline.'),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+              onTap: () {
+                Navigator.of(context).pop(); // close the sheet first
+                openPhotoTimeline(context);
+              },
             ),
           ),
           const SizedBox(height: 12),

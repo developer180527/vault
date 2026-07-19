@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
@@ -83,8 +84,17 @@ class BackupLedger {
 
   bool contains(String assetId) => _entries.containsKey(assetId);
 
+  /// Reverse lookup for thumbnail backfill: which local asset produced this
+  /// content hash? Built lazily; invalidated by record/reconcile.
+  Map<String, String>? _byHash;
+  String? assetIdForHash(String hash) {
+    _byHash ??= {for (final e in _entries.entries) e.value: e.key};
+    return _byHash![hash];
+  }
+
   Future<void> record(String assetId, String hash) async {
     _entries[assetId] = hash;
+    _byHash = null;
     // Write-behind: persist every 25 records; the run flushes at the end.
     if (++_dirty >= 25) await flush();
   }
@@ -102,6 +112,7 @@ class BackupLedger {
     for (final k in stale) {
       _entries.remove(k);
     }
+    if (stale.isNotEmpty) _byHash = null;
     return stale.length;
   }
 
@@ -178,14 +189,19 @@ Future<BackupOutcome> runBackupCore({
     log.debug('ledger reconcile skipped', fields: {'err': '$e'});
   }
 
-  // Full enumeration, newest first — page until a short page.
+  // Full enumeration, newest first — page until a short page. [byId] keeps
+  // every item addressable for the thumbnail backfill below.
   final todo = <MediaItem>[];
+  final byId = <String, MediaItem>{};
   var found = 0;
   for (var page = 0;; page++) {
     const pageSize = 120;
     final items = await library.loadPage(
         filter: MediaFilter.all, page: page, pageSize: pageSize);
     found += items.length;
+    for (final i in items) {
+      byId[i.id] = i;
+    }
     todo.addAll(items.where((i) => !ledger.contains(i.id)));
     onTick?.call(BackupTick(
         phase: BackupPhase.scanning, found: found, done: found - todo.length));
@@ -270,12 +286,21 @@ Future<BackupOutcome> runBackupCore({
           current: name));
       if (beforeUpload != null) await beforeUpload();
 
+      // Thumb generated ON DEVICE (HEIC decode is free here, and the server
+      // deliberately has no image codecs). Best-effort — never blocks the
+      // original.
+      Uint8List? thumb;
+      try {
+        thumb = await library.thumbnail(item, size: 400);
+      } catch (_) {}
+
       try {
         final ack = await photos.upload(
             path: file.path,
             name: name,
             hash: hash,
-            takenAt: item.asset.createDateTime);
+            takenAt: item.asset.createDateTime,
+            thumb: thumb);
         log.info('backed up', fields: {
           'name': name,
           'bytes': ack.size,
@@ -293,6 +318,39 @@ Future<BackupOutcome> runBackupCore({
           found: found,
           done: done,
           failed: failed));
+    }
+  }
+
+  // Thumbnail backfill: items backed up before thumbs existed. The server
+  // says which (id, hash) pairs lack one; the ledger maps hash → local asset,
+  // so no re-hashing — just generate and push small JPEGs. Budget-aware.
+  if (!budgetHit) {
+    try {
+      final missingT = await photos.missingThumbs();
+      var filled = 0;
+      for (final (id, hash) in missingT) {
+        if (overBudget()) {
+          budgetHit = true;
+          break;
+        }
+        final assetId = ledger.assetIdForHash(hash);
+        final item = assetId == null ? null : byId[assetId];
+        if (item == null) continue; // not on this device — another will fill it
+        try {
+          final thumb = await library.thumbnail(item, size: 400);
+          if (thumb == null) continue;
+          await photos.setThumb(id, thumb);
+          filled++;
+        } catch (e) {
+          log.debug('thumb backfill failed', fields: {'id': id, 'err': '$e'});
+        }
+      }
+      if (filled > 0) {
+        log.info('thumbnails backfilled', fields: {'count': filled});
+        onBatch?.call();
+      }
+    } catch (e) {
+      log.debug('thumb backfill skipped', fields: {'err': '$e'});
     }
   }
 

@@ -13,6 +13,7 @@ class ServerPhoto {
     this.kind = 'photo',
     this.takenAt = 0,
     this.uploadedAt = 0,
+    this.hasThumb = false,
   });
 
   final String id;
@@ -23,6 +24,7 @@ class ServerPhoto {
   final String kind; // photo | video
   final int takenAt; // unix seconds, 0 = unknown
   final int uploadedAt;
+  final bool hasThumb;
 
   factory ServerPhoto.fromJson(Map<String, Object?> j) => ServerPhoto(
     id: j['id'] as String,
@@ -33,7 +35,12 @@ class ServerPhoto {
     kind: (j['kind'] as String?) ?? 'photo',
     takenAt: (j['taken_at'] as num?)?.toInt() ?? 0,
     uploadedAt: (j['uploaded_at'] as num?)?.toInt() ?? 0,
+    hasThumb: (j['has_thumb'] as bool?) ?? false,
   );
+
+  /// Best display date: capture time, else upload time.
+  DateTime get when => DateTime.fromMillisecondsSinceEpoch(
+      (takenAt > 0 ? takenAt : uploadedAt) * 1000);
 }
 
 /// One page of the server-side backup listing plus whole-store totals.
