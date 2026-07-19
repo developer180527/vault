@@ -4,10 +4,10 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 39;
-  static const String commit = 'e3aa957';
-  static const String commitSubject = 'What changed: The Ref used after dispose error (both devices, every launch) turned out to be self-inflicted rather than a mere race: fetchManifest reports the username back to the session (noteUsername), that session mutation rebuilt vaultClientProvider (which watched the whole session object), and the rebuild disposed the exact client that was still mid-fetch. Three changes kill the whole class of problem: vault_client.dart — the client provider now selects only connectedness, so token refreshes and username updates no longer dispose a client mid-request; it rebuilds only on actual login/logout. manifest_providers.dart — the manifest controller keys off server+device identity instead of the session object, so it refetches when you switch servers, not on every session tick (this also removes the wasteful double-fetch your logs showed). If a build does go stale mid-fetch, it no longer logs the scary \'failing closed\' error — that message is now reserved for real failures.';
-  static const String date = '2026-07-18';
+  static const int build = 44;
+  static const String commit = '2e85f2c';
+  static const String commitSubject = 'The platform player now only ever holds the current track. The queue, ordering, shuffle, and repeat live in Dart where they cost nothing. Track completes → we load the next single source. Tap-to-play now costs exactly one connection — identical to the files path, at any queue size. Manual transport done properly: next/previous walk the Dart order; \'previous\' past 3 seconds restarts the track (standard convention); repeat-one loops the engine, repeat-all wraps the queue; shuffle reorders from the current song (\'shuffle from here\'). A guard sequence ensures a slow load that finishes after you\'ve already skipped can\'t clobber the newer track. The full-screen player opens instantly on tap — it renders from playback state and fills in as the stream connects, instead of holding the tap hostage behind auth + source setup. The shuffle/repeat buttons now read controller state (the engine streams no longer carry queue semantics).';
+  static const String date = '2026-07-19';
 
   static String get label =>
       build == 0 ? '$version (dev)' : '$version (build $build)';
