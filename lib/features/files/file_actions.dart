@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/actions/vault_action.dart';
+import '../../core/auth/session.dart';
 import '../../core/capability/capability.dart';
 import '../../core/capability/manifest_providers.dart';
 import '../../core/logging/vault_log.dart';
 import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/platform/platform_services.dart';
 import 'data/file_browser_controller.dart';
+import 'data/file_download.dart';
 import '../../core/models/file_node.dart';
 import 'data/files_view.dart';
 import 'synced_folders_page.dart';
@@ -133,6 +135,17 @@ List<VaultAction> _kindActions(FileNode node) {
 
 /// Actions every node gets, regardless of kind.
 List<VaultAction> _commonActions(FileNode node) => [
+      if (!node.isFolder)
+        VaultAction(
+          id: 'file.download',
+          label: 'Download',
+          icon: VaultIcons.downloads,
+          // Server files only: needs a connected session to fetch the bytes.
+          isEnabled: (ref) =>
+              ref.read(sessionProvider).asData?.value != null,
+          onInvoke: (context, ref) =>
+              downloadFileToLocal(context, ref, node),
+        ),
       if (!node.isFolder)
         VaultAction(
           id: 'file.pin',
