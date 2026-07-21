@@ -14,18 +14,22 @@ import '../../../core/platform/platform_info.dart';
 final _log = VaultLog.tag('files.download');
 
 /// Download a server file to a user-chosen local location, with a NATIVE
-/// destination picker on every platform:
+/// destination picker that appears BEFORE the transfer wherever the platform
+/// allows it:
 ///
-/// - **Desktop** (macOS/Windows/Linux): the native Save panel picks the exact
-///   path, then the bytes stream straight there — no whole-file buffering.
-/// - **Mobile** (iOS/Android): the native document picker (Files on iOS, the
-///   SAF folder browser on Android) chooses where it lands. The picker needs
-///   the bytes, so the transfer streams to a temp file first, then hands them
-///   to the picker and the temp copy is removed.
+/// - **Desktop** (macOS/Windows/Linux): the native Save panel names the file
+///   and picks the path first; the bytes then stream straight there.
+/// - **iOS**: the native folder picker chooses a destination first, then the
+///   file streams directly into it — no waiting on a full download before the
+///   picker shows. If iOS blocks writing into the picked (security-scoped)
+///   folder, it falls back to the Save-to-Files export below.
+/// - **Android**: the Storage Access Framework can't be streamed to via
+///   dart:io, so the file streams to a temp copy and the native document
+///   picker (which needs the finished bytes) places it.
 ///
-/// The download itself is always STREAMED (response piped to disk); only the
-/// mobile picker step materializes bytes, which is unavoidable for SAF/iOS
-/// export. Bearer auth, refreshed up front if the token is stale.
+/// The transfer is always STREAMED (response piped to disk); only the Android /
+/// fallback path materializes bytes for the OS export API. Bearer auth,
+/// refreshed up front if the token is stale.
 Future<void> downloadFileToLocal(
     BuildContext context, WidgetRef ref, FileNode node) async {
   final messenger = ScaffoldMessenger.of(context);
@@ -46,58 +50,74 @@ Future<void> downloadFileToLocal(
     }
   }
 
-  if (isAndroidOrIOS) {
-    await _downloadMobile(session, node, messenger);
+  if (isIOS) {
+    await _downloadIntoPickedFolder(session, node, messenger);
+  } else if (isAndroidOrIOS) {
+    await _downloadViaExport(session, node, messenger); // Android (SAF)
   } else {
     await _downloadDesktop(session, node, messenger);
   }
 }
 
-/// Desktop: choose the path first (native Save panel), then stream to it — so
-/// a cancelled dialog costs no bytes.
+/// Desktop: name + locate the file first (native Save panel), then stream to
+/// it — a cancelled dialog costs no bytes.
 Future<void> _downloadDesktop(Session session, FileNode node,
     ScaffoldMessengerState messenger) async {
   final path = await FilePicker.saveFile(
     dialogTitle: 'Save “${node.name}”',
     fileName: node.name,
   );
-  if (path == null) return; // user cancelled
-
-  messenger.showSnackBar(SnackBar(
-      content: Text('Downloading “${node.name}”…'),
-      duration: const Duration(seconds: 2)));
-  final ok = await _stream(session, node, path, messenger);
-  if (ok) {
-    messenger.showSnackBar(SnackBar(content: Text('Saved “${node.name}”.')));
+  if (path == null) return; // cancelled
+  _downloading(messenger, node);
+  try {
+    await _downloadTo(session, node, path);
+    _saved(messenger, node);
+  } catch (e) {
+    _failed(messenger, node, e);
   }
 }
 
-/// Mobile: stream to a temp file, then let the native document picker place it
-/// (Files / SAF). The temp copy is always cleaned up.
-Future<void> _downloadMobile(Session session, FileNode node,
+/// iOS: pick the destination FOLDER first, then stream the file straight into
+/// it. If the scoped-folder write is blocked, fall back to the export sheet so
+/// the download still lands somewhere.
+Future<void> _downloadIntoPickedFolder(Session session, FileNode node,
+    ScaffoldMessengerState messenger) async {
+  final dir = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Choose where to save “${node.name}”');
+  if (dir == null) return; // cancelled
+  _downloading(messenger, node);
+  try {
+    await _downloadTo(session, node, '$dir/${_safeName(node.name)}');
+    _saved(messenger, node);
+  } on FileSystemException catch (e) {
+    // The picked folder wasn't writable (iOS security scope) — recover via the
+    // Save-to-Files export rather than losing the download.
+    _log.info('scoped-folder write blocked, exporting instead',
+        fields: {'err': '$e'});
+    await _downloadViaExport(session, node, messenger);
+  } catch (e) {
+    _failed(messenger, node, e);
+  }
+}
+
+/// Android / fallback: stream to a temp copy, then hand the bytes to the native
+/// document picker (Files / SAF). The temp copy is always cleaned up.
+Future<void> _downloadViaExport(Session session, FileNode node,
     ScaffoldMessengerState messenger) async {
   final tmpDir = await getTemporaryDirectory();
   final tmpPath = '${tmpDir.path}/${_safeName(node.name)}';
-
-  messenger.showSnackBar(SnackBar(
-      content: Text('Downloading “${node.name}”…'),
-      duration: const Duration(seconds: 2)));
-  final ok = await _stream(session, node, tmpPath, messenger);
-  if (!ok) return;
-
+  _downloading(messenger, node);
   try {
+    await _downloadTo(session, node, tmpPath);
     final bytes = await File(tmpPath).readAsBytes(); // Uint8List
     final saved = await FilePicker.saveFile(
       dialogTitle: 'Save “${node.name}”',
       fileName: node.name,
       bytes: bytes,
     );
-    if (saved != null) {
-      messenger.showSnackBar(SnackBar(content: Text('Saved “${node.name}”.')));
-    }
+    if (saved != null) _saved(messenger, node);
   } catch (e) {
-    _log.warn('save-to failed', fields: {'name': node.name, 'err': '$e'});
-    messenger.showSnackBar(SnackBar(content: Text('Could not save: $e')));
+    _failed(messenger, node, e);
   } finally {
     try {
       final f = File(tmpPath);
@@ -106,10 +126,11 @@ Future<void> _downloadMobile(Session session, FileNode node,
   }
 }
 
-/// Streams GET /v1/files/{id}/content to [destPath]. Returns false (and shows a
-/// snackbar, deleting any torn partial) on failure.
-Future<bool> _stream(Session session, FileNode node, String destPath,
-    ScaffoldMessengerState messenger) async {
+/// Streams GET /v1/files/{id}/content to [destPath]. Throws on any failure
+/// (HTTP error or local write), deleting any torn partial first so a failed
+/// download never leaves a half-written file behind.
+Future<void> _downloadTo(
+    Session session, FileNode node, String destPath) async {
   final client = http.Client();
   try {
     final req = http.Request('GET', session.api('/v1/files/${node.id}/content'))
@@ -119,25 +140,37 @@ Future<bool> _stream(Session session, FileNode node, String destPath,
       throw Exception('HTTP ${resp.statusCode}');
     }
     final sink = File(destPath).openWrite();
-    await resp.stream.pipe(sink); // streamed → disk, never whole-file in RAM
-    await sink.flush();
-    await sink.close();
+    try {
+      await resp.stream.pipe(sink); // streamed → disk, never whole-file in RAM
+    } finally {
+      await sink.close();
+    }
     _log.info('downloaded', fields: {'name': node.name, 'to': destPath});
-    return true;
   } catch (e) {
-    _log.warn('download failed', fields: {'name': node.name, 'err': '$e'});
     try {
       final f = File(destPath);
-      if (await f.exists()) await f.delete(); // don't leave a torn partial
+      if (await f.exists()) await f.delete();
     } catch (_) {}
-    messenger.showSnackBar(SnackBar(content: Text('Download failed: $e')));
-    return false;
+    rethrow;
   } finally {
     client.close();
   }
 }
 
-/// Strip path separators so a crafted server name can't escape the temp dir.
+void _downloading(ScaffoldMessengerState m, FileNode node) =>
+    m.showSnackBar(SnackBar(
+        content: Text('Downloading “${node.name}”…'),
+        duration: const Duration(seconds: 2)));
+
+void _saved(ScaffoldMessengerState m, FileNode node) =>
+    m.showSnackBar(SnackBar(content: Text('Saved “${node.name}”.')));
+
+void _failed(ScaffoldMessengerState m, FileNode node, Object e) {
+  _log.warn('download failed', fields: {'name': node.name, 'err': '$e'});
+  m.showSnackBar(SnackBar(content: Text('Download failed: $e')));
+}
+
+/// Strip path separators so a crafted server name can't escape the target dir.
 String _safeName(String name) =>
     name.replaceAll(RegExp(r'[/\\]'), '_').trim().isEmpty
         ? 'download'
