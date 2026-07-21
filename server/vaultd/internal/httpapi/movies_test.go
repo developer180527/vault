@@ -125,6 +125,24 @@ func TestMoviesListSearchDetailAndWatches(t *testing.T) {
 		t.Fatalf("finished movie still in continue: %v", body)
 	}
 
+	// A past-the-end position is clamped to the duration, never stored raw
+	// (resume_ms is omitempty, so read it nil-safe).
+	e.call(t, "POST", "/v1/movies/"+arrivalID+"/watches", member,
+		map[string]any{"position_ms": 99999999, "duration_ms": 6000000})
+	_, body = e.call(t, "GET", "/v1/movies/"+arrivalID, member, nil)
+	resume, _ := body["resume_ms"].(float64)
+	if resume > 6000000 {
+		t.Fatalf("over-duration position not clamped: %v", resume)
+	}
+	// Negative → 0.
+	e.call(t, "POST", "/v1/movies/"+arrivalID+"/watches", member,
+		map[string]any{"position_ms": -5000, "duration_ms": 6000000})
+	_, body = e.call(t, "GET", "/v1/movies/"+arrivalID, member, nil)
+	resume, _ = body["resume_ms"].(float64)
+	if resume != 0 {
+		t.Fatalf("negative position not clamped: %v", resume)
+	}
+
 	// Members can't scan; admin can.
 	if code, _ := e.call(t, "POST", "/v1/movies/scan", member, nil); code != 403 {
 		t.Fatalf("member scan = %d, want 403", code)

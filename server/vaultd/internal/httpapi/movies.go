@@ -17,16 +17,20 @@ import (
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
-// signMovieStreams attaches signed, bearer-free stream URLs (like music).
-func (s *Server) signMovieStreams(movies []store.CatalogMovie) {
+// signMovieStream attaches a signed, bearer-free stream URL to one movie
+// (no-op without a signer). The list and detail paths share this.
+func (s *Server) signMovieStream(m *store.CatalogMovie) {
 	if s.signer == nil {
 		return
 	}
-	now := time.Now()
+	exp, sig := s.signer.Sign("stream:movie:"+m.ID, time.Now())
+	m.StreamURL = "/v1/movies/" + m.ID + "/stream?exp=" + exp + "&sig=" + sig
+}
+
+// signMovieStreams signs a whole listing in place.
+func (s *Server) signMovieStreams(movies []store.CatalogMovie) {
 	for i := range movies {
-		exp, sig := s.signer.Sign("stream:movie:"+movies[i].ID, now)
-		movies[i].StreamURL = "/v1/movies/" + movies[i].ID +
-			"/stream?exp=" + exp + "&sig=" + sig
+		s.signMovieStream(&movies[i])
 	}
 }
 
@@ -86,12 +90,7 @@ func (s *Server) handleMovieDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	p := PrincipalFrom(r.Context())
 	m.ResumeMs, _ = s.store.Read().ResumeFor(r.Context(), p.UserID, m.ID)
-	s.signMovieStreams([]store.CatalogMovie{*m})
-	// signMovieStreams took a copy; re-sign this pointer.
-	if s.signer != nil {
-		exp, sig := s.signer.Sign("stream:movie:"+m.ID, time.Now())
-		m.StreamURL = "/v1/movies/" + m.ID + "/stream?exp=" + exp + "&sig=" + sig
-	}
+	s.signMovieStream(m)
 	writeJSON(w, http.StatusOK, m)
 }
 
@@ -104,20 +103,18 @@ func (s *Server) handleMovieStream(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	q := r.URL.Query()
 
-	// Auth: signed URL OR bearer + grant, same as music.
-	if sig := q.Get("sig"); sig != "" && s.signer != nil {
-		if !s.signer.Verify("stream:movie:"+id, q.Get("exp"), sig, time.Now()) {
-			writeErr(w, http.StatusUnauthorized, "invalid or expired stream URL")
-			return
-		}
-	} else {
+	// Auth: valid signed URL OR bearer + movies:read. A stale/expired sig
+	// (e.g. a >24h cached listing) falls THROUGH to the bearer the client
+	// still attaches — 401 only when NEITHER holds. Without this fallthrough a
+	// cached movie listing silently stopped streaming after a day (the same
+	// bug fixed for music streams).
+	authed := q.Get("sig") != "" && s.signer != nil &&
+		s.signer.Verify("stream:movie:"+id, q.Get("exp"), q.Get("sig"), time.Now())
+	if !authed {
 		p := s.bearerPrincipal(r)
-		if p == nil {
-			writeErr(w, http.StatusUnauthorized, "missing or invalid token")
-			return
-		}
-		if !s.hasGrant(r, p, "movies", "read") {
-			writeErr(w, http.StatusForbidden, "movies access not granted")
+		if p == nil || !s.hasGrant(r, p, "movies", "read") {
+			writeErr(w, http.StatusUnauthorized,
+				"stream needs a valid signed URL or an authorized token")
 			return
 		}
 	}
@@ -219,6 +216,18 @@ func (s *Server) handleRecordWatch(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
+	}
+	// Clamp to a sane range so a buggy/hostile client can't poison Continue
+	// Watching (negative → resume errors; past-the-end → "resume" that skips
+	// the movie). Own data only, but cheap to keep honest.
+	if req.DurationMs < 0 {
+		req.DurationMs = 0
+	}
+	if req.PositionMs < 0 {
+		req.PositionMs = 0
+	}
+	if req.DurationMs > 0 && req.PositionMs > req.DurationMs {
+		req.PositionMs = req.DurationMs
 	}
 	p := PrincipalFrom(r.Context())
 	id := chi.URLParam(r, "id")

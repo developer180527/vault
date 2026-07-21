@@ -1,121 +1,139 @@
-# M4 — Movie & Show Streaming
+# Movies — Shared Video Catalog
 
-**Status:** design (Jul 2026). Mirrors the music service deliberately — the
-signed-URL streaming, catalog-scan, and central-playback machinery music
-built IS the movie machinery; this doc mostly maps names. Read
-`docs/MUSIC.md` first.
+Status: **Phase A shipped** (catalog + direct-play + audio/subtitle switching
+via zero-CPU remux). Phase B (real transcode for incompatible codecs) is
+designed but not built — see the end. This doc is written retroactively from
+the shipped code; treat it as the spec of record.
 
-## What music already proved (reused as-is)
-
-| Music piece | Movies reuse |
-|---|---|
-| Shared catalog zone (`catalog/music/`) + incremental scan | `catalog/movies/` + same stat-walk scan |
-| DB-authoritative metadata (tags seed, admin edits win) | identical (`ffprobe` seeds instead of ID3 tags) |
-| Signed stream URLs (`auth.StreamSigner`, 24h HMAC, bearer fallback) | same signer, `stream:movie:<id>` payload |
-| `http.ServeFile` Range/seek streaming | identical — video IS range requests |
-| Single-source central playback (`PlaybackController`) | already video-shaped: `openVideoPlayback(Playable)` |
-| Resume positions (`playbackPositionStore`, client-side) | already works for any Playable id |
-| Grant model (`music:read` / `music:write`) | new service `movies`: read streams, write curates |
-| Admin panel catalog manager (upload/edit/trash) | same pages, movies flavor |
-| Listen events (`listens`) | `watches` events (raw facts, ML later) |
+Movies deliberately **mirror the music catalog** (docs/MUSIC.md): admin-curated,
+shared, `movies:read` streams / `movies:write` administers, signed stream URLs,
+snapshot-first client cache, FTS5 search. The differences are all downstream of
+one fact: **video files are big, multi-track, and long.**
 
 ## Source of truth
 
-`catalog/movies/` — admin-curated, shared, like the music catalog. Files
-arrive by disk copy, torrent/ytdlp job hand-off, or admin-panel upload.
-Optional per-user zone (`users/<name>/videos/`) can come later; the shared
-catalog is the product.
+`catalog/movies/` on disk — in production its own ZFS dataset
+(`vaultdata/movies` mounted at `/srv/vault/movies`), kept separate from the
+`users/` photo/file boundary so rsync/scp workflows don't cross. Files arrive
+by scp/rsync (fast, resumable) or the admin-panel browser upload (streamed to
+disk, 8 GB/batch) — never a client upload; movies are gigabytes.
 
-Layout stays human/rsync-first (the photos rule): plain video files, optional
-one-level folders (`Movies/`, `Shows/<name>/Season 1/`). Dot-dirs are
-service-internal (`.trash/`, `.art/` for posters — same conventions as
-music).
+## Index (migration 0008)
 
-## Index
+`catalog_movies` — one row per file (uuid PK, `rel_path` unique), with parsed
+metadata (kind movie|episode, title, year, series, season, episode, overview)
+and probed facts (duration, container, vcodec, width/height). Audio and
+subtitle tracks are stored as a **JSON `streams` blob**, not normalized rows:
+they're always read together with the movie and never queried into. FTS5 over
+`title + series`, same trigger pattern as music.
 
-`catalog_movies` table + FTS5 mirror, same trigger pattern:
+**Scan** (admin-triggered, like the music catalog — never per-listing):
+incremental `ffprobe` behind a `Prober` interface (so tests need no ffmpeg),
+with a nil-prober guard. It parses the filename for structure — `Movie
+(2019)`, `S01E03` / `1x05`, series name from the parent folder — discovers
+sidecar subtitles next to the file, and (size, mtime) drives change detection.
+Admin metadata edits win and survive rescans (only file facts refresh), keyed
+by the stable UUID.
 
-```
-catalog_movies(id uuid, rel_path UNIQUE, size, mtime,
-    title, year, kind photo|episode?  -- 'movie' | 'episode'
-    series, season, episode,          -- empty for movies
-    duration_ms, container, vcodec, acodec, width, height,
-    has_art, added_at)
-```
-
-- **Scan** = walk + `ffprobe -print_format json` (ffmpeg already in the
-  container) for new/changed files only. Filename conventions seed
-  title/year/series/season/episode (`Movie (2019).mkv`,
-  `Show/S01E03 - Name.mkv`); admin edits win and survive rescans, exactly
-  like music.
-- Codec/container columns are recorded at scan so the CLIENT can decide
-  direct-play vs transcode without probing the file again.
-
-## Streaming: direct-play first, HLS only when needed
-
-**Phase A (ship first): direct play.** `GET /v1/movies/{id}/stream` —
-signed-URL or bearer, `http.ServeFile`, byte-range seeking. mp4/h264/aac
-direct-plays everywhere; most mkv/hevc plays on modern devices. The client
-already has `planPlayback(MediaTrack, support)` (media_codec.dart) deciding
-direct vs transcode — wire it to the probed codec columns.
-
-**Phase B: on-demand HLS transcode** for what can't direct-play (the Ryzen
-2600X does software x264 ~1 realtime for 1080p — one stream at a time,
-acceptable at household scale):
-
-- `GET /v1/movies/{id}/hls/master.m3u8` → starts/joins an ffmpeg session
-  (`-c:v libx264 -preset veryfast` only when vcodec unsupported, else
-  `-c:v copy` remux — remux covers the common "mkv container, h264 inside"
-  case at ~zero CPU).
-- Sessions: one per (movie), idle-killed after 60s unwatched, segments in
-  `system/transcode/<id>/` (tmpfs-sized, GC'd). Seek = new session at offset.
-- Signed-URL auth on every playlist/segment request (same signer).
-
-**Explicitly rejected:** transcoding everything (CPU death), and building a
-Plex-grade profile matrix. Direct play + one fallback ladder is the whole
-story at home scale.
+`watches` — the movie twin of music's `listens`, but **stateful**: the LATEST
+`(position_ms, duration_ms)` per `(user, movie)` is the resume point. Movies
+are long and cross-device resume is the whole point, so — unlike music, where
+positions stay client-side — the server owns them.
 
 ## Endpoints
 
-| Endpoint | Grant | Purpose |
-|---|---|---|
-| `GET /v1/movies` (`?q=`) | movies:read | listing / FTS search, signed stream URLs attached |
-| `GET /v1/movies/{id}/stream` | signed or movies:read | direct-play bytes, Range |
-| `GET /v1/movies/{id}/art` | movies:read | poster (`.art/<id>.img` override wins, else embedded/`folder.jpg`), ETag'd |
-| `POST /v1/movies/{id}/watches` | movies:read | `{position_ms, duration_ms}` raw watch events; server keeps latest as resume point |
-| `GET /v1/movies/continue` | movies:read | resume shelf (latest unfinished per title) |
-| `PATCH /v1/movies/{id}` | movies:write | admin metadata edit |
-| `POST /v1/movies/scan` | movies:write | admin rescan |
-| *(Phase B)* `GET /v1/movies/{id}/hls/*` | signed | transcode/remux sessions |
+All under `movies:read` except scan/edit (`movies:write`). Streams sit OUTSIDE
+the auth middleware (signed URL, see below).
 
-Server-side resume (unlike music's client-only positions) because movies are
-long and cross-device resume is the point: watch events land in a `watches`
-table; `continue` derives the shelf.
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/movies?q=` | list / FTS search (signed `stream_url` attached) |
+| `GET /v1/movies/continue` | Continue Watching shelf (server resume, >95% drops off) |
+| `GET /v1/movies/{id}` | detail + this user's `resume_ms` |
+| `GET /v1/movies/{id}/stream` | the video (signed URL or bearer) |
+| `GET /v1/movies/{id}/art` | poster, ETag'd |
+| `GET /v1/movies/{id}/subs/{track}.vtt` | one subtitle track as WebVTT |
+| `POST /v1/movies/{id}/watches` | report `{position_ms, duration_ms}` (clamped) |
+| `PATCH /v1/movies/{id}` | admin metadata edit `[movies:write]` |
+| `POST /v1/movies/scan` | index the drop directory `[movies:write]` |
+
+## Streaming — the interesting part
+
+The client reports its decode capability; `planPlayback` (shared, in
+`media_codec.dart`) picks **direct-play vs transcode**. Today Phase A only
+serves codecs the client can already decode, with one twist for multi-track:
+
+- **Default audio, no seek** → `http.ServeFile` of the original bytes: full
+  HTTP Range, perfect client-side seeking, zero server work.
+- **Non-default audio track** (`?audio=N`) → **zero-CPU remux**: ffmpeg
+  `-c copy` rewrites the container to fragmented MP4 with the chosen audio
+  track mapped in. No re-encode — it's a container rewrite, ~free. This is how
+  "play the English dub" works. A remuxed pipe can't serve Range, so seeking is
+  done by **re-requesting with `?start=SEC`** (ffmpeg fast-seeks before the
+  copy).
+- **Subtitles** — embedded text tracks (`e<N>`) and sidecars (`x<N>`) are
+  converted to **WebVTT** on demand (`ffmpeg -f webvtt`) and fed to the
+  player's caption overlay. Image subs (PGS/VOBSUB) are hidden — they'd need
+  OCR.
+
+**ffmpeg lifecycle:** every ffmpeg call is `exec.CommandContext(r.Context())`,
+so the subprocess is killed the instant the client disconnects — no orphaned
+transcodes pinning CPU (the classic media-server footgun, avoided).
+
+### Signed stream URLs (+ the fallthrough)
+
+Listings carry a signed, bearer-free `stream_url` (HMAC over `stream:movie:<id>`
++ expiry, 24h TTL) — same mechanism as music, so playback outlives the 15-min
+access token. The stream handler accepts a **valid signature OR a bearer with
+`movies:read`**, and a stale/expired signature **falls through to the bearer
+the client still attaches** — 401 only when neither holds. This matters because
+the client snapshot-caches listings: without the fallthrough, a movie played
+from a >24h cached listing 401'd silently. (This was a real bug, fixed in
+review; there's a regression test.)
+
+### Watch reporting
+
+The player posts progress every 20s and on exit. The server **clamps**
+`position_ms` to `[0, duration_ms]` so a buggy/hostile client can't poison
+Continue Watching with negative or past-the-end positions.
 
 ## Client
 
-- New `movies` service tab (manifest-gated), browse: poster grid, Continue
-  Watching shelf on top, search field — same section pattern as Music.
-- Playback: `openVideoPlayback(Playable)` **unchanged** — network Playable
-  with signed URL. Resume prompt from server position. Report watch progress
-  every ~30s + on pause/close (fire-and-forget like listens).
-- Codec plan: probed columns + `planPlayback` → direct URL or (Phase B) HLS
-  URL. No client probing.
+- **Movies tab** — search, a Continue Watching shelf (resume progress bars),
+  then a responsive poster grid (`SliverGridDelegateWithMaxCrossAxisExtent`,
+  3-cols-on-phone → fills a desktop window). Posters flow through the content
+  cache with a film-glyph placeholder; snapshot-first so the grid paints on
+  cold start.
+- **Detail** — responsive (poster beside metadata wide, stacked on phone);
+  title/year/runtime/resolution, a track summary, overview, Play / Resume-from
+  / Start-over.
+- **Player** — landscape-locked immersive fullscreen on the central
+  `PlaybackController` (so native PiP attaches later with no rework). Audio-track
+  picker re-opens the stream through the remux at the current position;
+  subtitle picker fetches WebVTT and overlays it. The client always attaches
+  the bearer header even when using the signed URL, which is what makes the
+  server fallthrough work.
+- Service is manifest-gated (`movies:read`), grouped under Media, registered
+  after the core dock services so it never bumps the dock.
 
-## Admin
+## Admin (the panel)
 
-- Catalog manager clone: upload (big files — the job pipeline's staging mount
-  is the better path for >4GB; panel upload capped), metadata edit
-  (title/year/series/season/episode), poster override, trash-delete.
-- Insights: watches/day, top titles, per-member viewing — same bar pattern.
+Mirrors the music catalog manager: list (poster, title with SxxExx pill,
+series, year, a "2 audio · 1 sub" tracks column), an edit page (metadata + a
+read-only probed-media panel + poster override), browser upload + Scan, and a
+typed-confirmation delete that trashes the file to `.trash/` (never hard-
+deletes; the scan skips dot-dirs). Every mutation audits
+(`movie.edit/delete/art`, `movies.scan/upload`) into the Activity feed.
 
-## Build order
+## Phase B — real transcode (designed, not built)
 
-1. **Server Phase A** (one session): migration, scan+ffprobe, list/search/
-   stream/art/watches/continue, `movies` in KnownServices, tests. ~mirrors
-   the music catalog diff.
-2. **Client** (one session): Movies tab (grid + continue shelf + search),
-   playback wiring with resume + progress reporting.
-3. **Admin** catalog pages (half session).
-4. **Phase B HLS** when a file that won't direct-play actually annoys someone
-   — not before.
+Phase A only plays codecs the client already decodes. The remaining ~10% —
+HEVC-in-MKV, VP9, AV1, AC3/DTS audio on iOS AVPlayer — needs a real transcode
+to H.264/AAC, ideally segmented as **HLS** for smooth seeking + bitrate
+adaptation. That work is CPU-heavy and bursty, so it belongs in its **own
+container** (the transcoder) that vaultd delegates to over the shared library
+volume, hardware-accelerated where the host allows. `planPlayback` already
+returns `NeedsTranscode('hls-h264-aac-720p')` for those files; wiring it to an
+HLS `.m3u8` from the transcoder is the Phase B build. This is Vault's first
+real service split — and the reason it's worth splitting: transcode is the one
+workload with a fundamentally different resource profile from the API.
