@@ -3,12 +3,50 @@ package adminweb
 import (
 	"bytes"
 	"context"
+	"mime/multipart"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
+
+// TestMovieUploadStreamsToDisk covers the browser upload path: a video part
+// lands in the movies root under a sanitized name; a non-video is skipped.
+func TestMovieUploadStreamsToDisk(t *testing.T) {
+	e := newEnv(t)
+	e.seedUser(t, "venu", "admin", "sub-venu")
+	session := e.login(t)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("files", "The Matrix (1999).mkv")
+	_, _ = fw.Write([]byte("fake-video-bytes"))
+	tw, _ := mw.CreateFormFile("files", "notes.txt")
+	_, _ = tw.Write([]byte("not video"))
+	_ = mw.Close()
+
+	rec := e.doPost(t, session, "/movies/upload", mw.FormDataContentType(), &buf)
+	if rec.Code != 303 {
+		t.Fatalf("upload = %d, want 303", rec.Code)
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.Contains(loc, "Uploaded+1") || !strings.Contains(loc, "1+skipped") {
+		t.Fatalf("flash = %q, want 1 uploaded / 1 skipped", loc)
+	}
+	// The video landed on disk under the movies root.
+	onDisk := filepath.Join(e.movies.Root, "The Matrix (1999).mkv")
+	if _, err := os.Stat(onDisk); err != nil {
+		t.Fatalf("video not on disk at %s: %v", onDisk, err)
+	}
+	// Audited.
+	entries, _ := e.store.Read().ListAudit(context.Background(), 5)
+	if len(entries) == 0 || entries[0].Action != "movies.upload" {
+		t.Fatalf("audit = %v", entries)
+	}
+}
 
 func TestMovieCatalogEditAndAudit(t *testing.T) {
 	e := newEnv(t)

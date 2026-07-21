@@ -170,12 +170,18 @@ func New(o Options) http.Handler {
 				r.Get("/files", s.handleListFiles)
 				r.Get("/files/path", s.handleFilePath)
 				r.Get("/files/{id}/content", s.handleFileContent)
+				r.Get("/synced-folders", s.handleListSyncedFolders)
 			})
 			r.Group(func(r chi.Router) {
 				r.Use(s.RequireGrant("files", "write"))
 				r.Post("/files/folder", s.handleMkdir)
 				r.Post("/files/rename", s.handleRenameFile)
 				r.Post("/files/upload", s.handleUpload)
+				// Sync folders — a folder pushed from a device, browsable
+				// everywhere (files land via the upload path above).
+				r.Post("/synced-folders", s.handleCreateSyncedFolder)
+				r.Post("/synced-folders/{id}/touch", s.handleTouchSyncedFolder)
+				r.Delete("/synced-folders/{id}", s.handleDeleteSyncedFolder)
 			})
 			r.Group(func(r chi.Router) {
 				r.Use(s.RequireGrant("files", "delete"))

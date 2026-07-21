@@ -11,6 +11,9 @@ package movies
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -143,11 +146,15 @@ func (s *Service) probeToMovie(path, rel string, size, mtime int64) store.Catalo
 	}
 	parseFilename(rel, &m)
 
-	pr, err := s.Prober.Probe(path)
-	if err != nil {
-		s.Log.Warn("ffprobe failed", "rel", rel, "err", err)
-	} else {
-		applyProbe(pr, &m)
+	// Prober is nil only in tests that don't exercise probing; skip rather
+	// than crash the scan.
+	if s.Prober != nil {
+		pr, err := s.Prober.Probe(path)
+		if err != nil {
+			s.Log.Warn("ffprobe failed", "rel", rel, "err", err)
+		} else {
+			applyProbe(pr, &m)
+		}
 	}
 	// Sidecar subtitles: <video basename>*.srt/.vtt/.ass beside the file.
 	m.Streams.Subs = append(m.Streams.Subs, s.discoverSidecarSubs(path, rel)...)
@@ -262,6 +269,73 @@ func (s *Service) Artwork(m *store.CatalogMovie) ([]byte, string, bool) {
 // to the catalog root by the caller via rel path from the DB).
 func (s *Service) SidecarSubPath(rel string) string {
 	return filepath.Join(s.Root, filepath.FromSlash(rel))
+}
+
+// videoOK reports whether a filename is a supported video container.
+func videoOK(name string) bool { return videoExt[strings.ToLower(filepath.Ext(name))] }
+
+// SaveUploadStream streams one uploaded video into the catalog root under a
+// sanitized name, atomically (.part + rename), never buffering in memory —
+// movie files are gigabytes. Returns the final base name; the caller scans to
+// index it. A collision gets a " (2)" suffix so nothing is overwritten.
+func (s *Service) SaveUploadStream(filename string, r io.Reader) (string, error) {
+	if !videoOK(filename) {
+		return "", ErrNotVideo
+	}
+	if err := s.EnsureRoot(); err != nil {
+		return "", err
+	}
+	ext := filepath.Ext(filename)
+	base := sanitizeName(strings.TrimSuffix(filepath.Base(filename), ext))
+	name := base + ext
+	dst := filepath.Join(s.Root, name)
+	for i := 2; ; i++ {
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			break
+		}
+		name = fmt.Sprintf("%s (%d)%s", base, i, ext)
+		dst = filepath.Join(s.Root, name)
+	}
+	tmp := dst + ".part"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+	if err != nil {
+		return "", err
+	}
+	_, err = io.Copy(f, r)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return name, nil
+}
+
+// ErrNotVideo rejects uploads whose extension isn't a known video container.
+var ErrNotVideo = errors.New("not a video file")
+
+// sanitizeName keeps a human title (spaces/unicode/case), stripping only
+// path-hostile characters — same policy as the music/photos uploaders.
+func sanitizeName(raw string) string {
+	out := make([]rune, 0, len(raw))
+	for _, r := range raw {
+		switch {
+		case r < 0x20, r == 0x7f:
+		case strings.ContainsRune("/\\:*?\"<>|", r):
+		default:
+			out = append(out, r)
+		}
+	}
+	s := strings.Trim(strings.TrimSpace(string(out)), ".")
+	if s == "" {
+		return "movie"
+	}
+	return s
 }
 
 // Trash removes a movie: the FILE moves into `.trash/` (never hard-deleted;

@@ -46,6 +46,10 @@ abstract interface class VaultClient {
   /// The shared movie/show catalog (browse/stream — docs/MOVIES.md).
   MoviesApi get movies;
 
+  /// Sync folders: push a local folder into the vault (browsable everywhere)
+  /// and read its provenance. Standalone has no server and never calls this.
+  SyncApi get sync;
+
   /// The caller's profile picture, or null when none is set (or standalone).
   Future<Uint8List?> myAvatar();
 
@@ -221,6 +225,72 @@ abstract interface class MoviesApi {
 
   /// Bearer headers for art/stream fetches.
   Future<Map<String, String>> authHeaders();
+}
+
+/// Provenance of a folder a device pushed into the vault.
+class SyncedFolderInfo {
+  const SyncedFolderInfo({
+    required this.id,
+    required this.name,
+    required this.relPath,
+    this.originDevice = '',
+    this.originPlatform = '',
+    this.createdAt = 0,
+    this.lastSyncAt = 0,
+    this.fileCount = 0,
+    this.totalBytes = 0,
+  });
+
+  final String id;
+  final String name;
+  final String relPath;
+  final String originDevice;
+  final String originPlatform;
+  final int createdAt;
+  final int lastSyncAt;
+  final int fileCount;
+  final int totalBytes;
+
+  factory SyncedFolderInfo.fromJson(Map<String, Object?> j) => SyncedFolderInfo(
+    id: j['id'] as String,
+    name: (j['name'] as String?) ?? '',
+    relPath: (j['rel_path'] as String?) ?? '',
+    originDevice: (j['origin_device'] as String?) ?? '',
+    originPlatform: (j['origin_platform'] as String?) ?? '',
+    createdAt: (j['created_at'] as num?)?.toInt() ?? 0,
+    lastSyncAt: (j['last_sync_at'] as num?)?.toInt() ?? 0,
+    fileCount: (j['file_count'] as num?)?.toInt() ?? 0,
+    totalBytes: (j['total_bytes'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// Sync a device folder into the vault so any device can reach it, plus the
+/// provenance the app surfaces. Files themselves land through the Files
+/// service's upload path (a synced folder IS a Files-zone folder).
+abstract interface class SyncApi {
+  /// The caller's synced folders with provenance.
+  Future<List<SyncedFolderInfo>> list();
+
+  /// Create a synced folder; returns its record and the Files node id to
+  /// upload into.
+  Future<(SyncedFolderInfo info, String nodeId)> create({
+    required String name,
+    required String originDevice,
+    required String originPlatform,
+  });
+
+  /// Stream one file's bytes into a folder node (reuses the Files upload path).
+  /// Returns the created file node id.
+  Future<String> uploadInto(String parentNodeId, String name, Stream<List<int>> bytes, int length);
+
+  /// Create a subfolder under a folder node; returns its node id.
+  Future<String> makeSubfolder(String parentNodeId, String name);
+
+  /// Record the tally after a push completes (drives the info panel).
+  Future<void> touch(String id, {required int fileCount, required int totalBytes});
+
+  /// Drop the provenance record (files stay in the Files zone).
+  Future<void> delete(String id);
 }
 
 /// The jobs pipeline. Submitting hands work to the scheduler; [watch] streams

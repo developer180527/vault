@@ -121,6 +121,7 @@ func New(o Options) (http.Handler, error) {
 		// files are large; copy to /srv/vault/movies then Scan.
 		r.Get("/movies", s.handleMovieCatalog)
 		r.Post("/movies/scan", s.handleMovieCatalogScan)
+		r.Post("/movies/upload", s.handleMovieUpload)
 		r.Get("/movies/{id}", s.handleMovieEditPage)
 		r.Post("/movies/{id}", s.handleMovieSave)
 		r.Post("/movies/{id}/delete", s.handleMovieDelete)

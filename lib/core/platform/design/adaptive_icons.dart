@@ -172,6 +172,11 @@ abstract final class VaultIcons {
     sfSymbol: 'square.and.arrow.up',
   );
 
+  static const sync = AdaptiveIconData(
+    material: Icons.sync,
+    sfSymbol: 'arrow.triangle.2.circlepath',
+  );
+
   static const toggleView = AdaptiveIconData(
     material: Icons.grid_view_outlined,
     sfSymbol: 'square.grid.2x2',

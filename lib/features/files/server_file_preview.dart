@@ -5,6 +5,7 @@ import '../../core/models/file_node.dart';
 import '../../core/playback/playable.dart';
 import '../../core/playback/playback_controller.dart';
 import '../media/video_playback_page.dart';
+import 'document_viewer_page.dart';
 
 /// Opens the right preview for a tapped server file, routing through the
 /// centralized playback machinery:
@@ -60,7 +61,18 @@ Future<void> openServerFile(
       return;
     case FileMediaKind.document:
     case FileMediaKind.none:
+      // PDFs, markdown, code, and text files get the in-app document viewer;
+      // the media_kind heuristic misses some, so route on the filename too.
       if (!context.mounted) return;
+      if (isViewableDocument(node.name)) {
+        await openDocument(
+          context,
+          name: node.name,
+          uri: contentUri,
+          headers: headers,
+        );
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No preview for "${node.name}" yet')),
       );

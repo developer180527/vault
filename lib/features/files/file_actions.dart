@@ -10,6 +10,7 @@ import '../../core/platform/platform_services.dart';
 import 'data/file_browser_controller.dart';
 import '../../core/models/file_node.dart';
 import 'data/files_view.dart';
+import 'synced_folders_page.dart';
 
 final _log = VaultLog.tag('files');
 
@@ -28,6 +29,13 @@ void _refresh(WidgetRef ref) {
 
 /// Service-level actions for the Files toolbar + palette.
 final filesServiceActions = <VaultAction>[
+  VaultAction(
+    id: 'files.sync-folder',
+    label: 'Synced folders',
+    icon: VaultIcons.sync,
+    isEnabled: _canWrite,
+    onInvoke: (context, ref) async => openSyncedFolders(context),
+  ),
   VaultAction(
     id: 'files.new-folder',
     label: 'New Folder',

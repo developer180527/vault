@@ -51,6 +51,53 @@ func (s *Server) handleMovieCatalogScan(w http.ResponseWriter, r *http.Request) 
 		fmt.Sprintf("Scan done: %d changed, %d pruned.", added, pruned))
 }
 
+// maxMovieUpload caps a single browser upload. Big enough for a 1080p feature
+// or a season pack; genuinely huge libraries still want scp/rsync + Scan.
+const maxMovieUpload = 8 << 30 // 8 GiB
+
+// handleMovieUpload streams uploaded video files straight to the catalog (no
+// buffering — they're gigabytes), then scans so they appear immediately.
+// Multi-file. The browser has no progress bar (zero-JS panel); the tally is
+// reported on redirect.
+func (s *Server) handleMovieUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMovieUpload+(8<<20))
+	mr, err := r.MultipartReader()
+	if err != nil {
+		redirectMsg(w, r, "/movies", "Upload malformed or too large (8GB max).")
+		return
+	}
+	var saved, skipped int
+	for {
+		part, err := mr.NextPart()
+		if err != nil {
+			break // end of parts
+		}
+		if part.FormName() != "files" || part.FileName() == "" {
+			continue
+		}
+		if _, err := s.movies.SaveUploadStream(part.FileName(), part); err != nil {
+			s.log.Warn("movie upload part failed", "name", part.FileName(), "err", err)
+			skipped++
+			continue
+		}
+		saved++
+	}
+	if saved > 0 {
+		if _, _, err := s.movies.Scan(r.Context()); err != nil {
+			s.log.Warn("post-upload movie scan failed", "err", err)
+		}
+	}
+	s.log.Info("admin: movie upload", "saved", saved, "skipped", skipped,
+		"by", userFrom(r).Username)
+	s.audit(r, "movies.upload", "movies", "",
+		fmt.Sprintf("%d uploaded, %d skipped", saved, skipped))
+	msg := fmt.Sprintf("Uploaded %d file(s).", saved)
+	if skipped > 0 {
+		msg += fmt.Sprintf(" %d skipped (not video, or failed).", skipped)
+	}
+	redirectMsg(w, r, "/movies", msg)
+}
+
 func (s *Server) targetMovie(w http.ResponseWriter, r *http.Request) (*store.CatalogMovie, bool) {
 	m, err := s.store.Read().MovieByID(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {

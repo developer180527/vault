@@ -21,6 +21,25 @@
     </div>
   </div>
 
+  <div class="panel">
+    <form method="post" action="/movies/upload" enctype="multipart/form-data">
+      <div class="row">
+        <div>
+          <label class="field" for="files">Upload video (mp4, mkv, mov… — 8&nbsp;GB per batch)</label>
+          <input type="file" id="files" name="files" multiple
+                 accept=".mp4,.mkv,.m4v,.mov,.avi,.webm,.ts,video/*">
+        </div>
+        <div class="tight">
+          <button type="submit" class="primary">Upload &amp; index</button>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:8px">Streamed straight to the movies
+      pool and indexed. For very large libraries, scp/rsync into
+      <code>/srv/vault/movies/</code> then Scan is faster (no browser upload
+      limit, resumable).</p>
+    </form>
+  </div>
+
   {{if .Movies}}
   <table>
     <tr><th></th><th>Title</th><th>Series</th><th class="num">Year</th>

@@ -48,6 +48,10 @@ class MockVaultClient implements VaultClient {
   MoviesApi get movies =>
       throw UnsupportedError('server movies require a connected session');
 
+  @override
+  SyncApi get sync =>
+      throw UnsupportedError('folder sync requires a connected session');
+
   // Standalone devices have no server-side profile.
   @override
   Future<Uint8List?> myAvatar() async => null;
