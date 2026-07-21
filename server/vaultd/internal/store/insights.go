@@ -73,6 +73,33 @@ func (r *ReadStore) TopTracks(ctx context.Context, days, limit int) ([]TrackPlay
 	return out, rows.Err()
 }
 
+// TopCatalogTrackIDs returns the IDs of the most-played catalog tracks over
+// the last [days], most-played first. Powers the server-side warm cache
+// (hottest tracks kept in RAM). Only tracks still present in the catalog are
+// returned (the JOIN drops rows for deleted tracks).
+func (r *ReadStore) TopCatalogTrackIDs(ctx context.Context, days, limit int) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT l.track_id
+		FROM listens l JOIN catalog_tracks c ON c.id = l.track_id
+		WHERE l.started_at >= ?
+		GROUP BY l.track_id
+		ORDER BY COUNT(1) DESC, SUM(l.ms_played) DESC
+		LIMIT ?`, sinceUnix(days), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // TopArtists ranks artists by play count over the last [days]. Combined
 // credits ("A, B") count as written — the admin sees what the tags say.
 func (r *ReadStore) TopArtists(ctx context.Context, days, limit int) ([]ArtistPlays, error) {

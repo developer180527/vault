@@ -115,6 +115,11 @@ abstract interface class MusicApi {
   /// own auth, so playback outlives the 15-minute bearer.
   Uri resolveStreamUrl(String pathWithQuery);
 
+  /// Mints a fresh signed stream URL for one track ([catalog] picks the shared
+  /// endpoint). Used as a one-shot retry when a cached listing's signature has
+  /// gone stale; null when unavailable (old server / not connected).
+  Future<Uri?> freshStreamUrl(String id, {bool catalog = false});
+
   /// The shared catalog: full list when [query] is empty, FTS prefix search
   /// otherwise. Pure server-DB read — the admin curates and scans.
   Future<List<ServerTrack>> catalog({String query = ''});

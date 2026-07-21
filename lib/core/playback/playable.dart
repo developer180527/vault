@@ -22,6 +22,8 @@ class Playable {
     this.artwork,
     this.artworkUri,
     this.headers = const {},
+    this.artHeaders = const {},
+    this.refreshUri,
   });
 
   /// Stable identity for "is this the current item" checks. For local music
@@ -47,8 +49,23 @@ class Playable {
   /// and lock-screen metadata use whichever of the two art fields is set.
   final Uri? artworkUri;
 
-  /// Auth headers for network sources (server streams carry the bearer).
+  /// Auth headers for the STREAM request. Empty for a signed (bearer-free)
+  /// URL — and empty is what matters: passing headers to `AudioSource.uri`
+  /// forces just_audio's localhost header-injection proxy, which serializes
+  /// Range and makes streaming sluggish. A signed URL needs none, so the
+  /// native player (AVPlayer/ExoPlayer) streams the origin directly.
   final Map<String, String> headers;
+
+  /// Auth headers for the ARTWORK request only (lock-screen/notification art).
+  /// Kept separate from [headers] so a bearer-free stream can still fetch
+  /// bearer-gated art without dragging the stream back through the proxy.
+  final Map<String, String> artHeaders;
+
+  /// Optional: fetch a FRESH source URI for this item. Called once as a
+  /// retry if the initial load fails — the escape hatch for a signed URL that
+  /// went stale (>24h cached listing), so playback re-signs instead of
+  /// silently 401'ing. Null when there's nothing fresher to fetch.
+  final Future<Uri?> Function()? refreshUri;
 
   bool get isNetwork => uri.scheme == 'http' || uri.scheme == 'https';
 }

@@ -147,30 +147,61 @@ class PlaybackController extends Notifier<PlaybackState> {
     final p = q[i];
     state = state.copyWith(index: i);
     final seq = ++_loadSeq;
+    // Lock-screen / notification metadata (art fetched with its own bearer,
+    // never the stream headers — see Playable.artHeaders).
+    final tag = MediaItem(
+      id: p.id,
+      title: p.title,
+      artist: p.subtitle.isEmpty ? null : p.subtitle,
+      album: p.album.isEmpty ? 'Vault' : p.album,
+      artUri: p.artworkUri,
+      artHeaders: p.artworkUri != null && p.artHeaders.isNotEmpty
+          ? p.artHeaders
+          : null,
+    );
     try {
-      await _player.setAudioSource(
-        AudioSource.uri(
-          p.uri,
-          headers: p.headers.isEmpty ? null : p.headers,
-          // Drives lock-screen / notification metadata.
-          tag: MediaItem(
-            id: p.id,
-            title: p.title,
-            artist: p.subtitle.isEmpty ? null : p.subtitle,
-            album: p.album.isEmpty ? 'Vault' : p.album,
-            // Lock-screen artwork for server streams (bearer-fetched).
-            artUri: p.artworkUri,
-            artHeaders: p.artworkUri != null && p.headers.isNotEmpty
-                ? p.headers
-                : null,
-          ),
-        ),
-      );
+      await _loadSource(p.uri, p.headers, tag);
       if (seq != _loadSeq) return; // user skipped while this was loading
       await _player.play();
     } catch (e, s) {
       if (seq != _loadSeq) return;
+      // A signed stream URL may have gone stale (>24h cached listing). Fetch a
+      // fresh one and retry ONCE before surfacing failure — so a stale sig
+      // re-signs instead of silently dropping playback.
+      final fresh = await _tryRefresh(p);
+      if (seq != _loadSeq) return;
+      if (fresh != null) {
+        try {
+          await _loadSource(fresh, p.headers, tag);
+          if (seq != _loadSeq) return;
+          await _player.play();
+          return;
+        } catch (e2, s2) {
+          if (seq != _loadSeq) return;
+          _log.error('audio playback failed after refresh',
+              error: e2, stackTrace: s2);
+          return;
+        }
+      }
       _log.error('audio playback failed', error: e, stackTrace: s);
+    }
+  }
+
+  Future<void> _loadSource(
+      Uri uri, Map<String, String> headers, MediaItem tag) {
+    return _player.setAudioSource(
+      AudioSource.uri(uri, headers: headers.isEmpty ? null : headers, tag: tag),
+    );
+  }
+
+  Future<Uri?> _tryRefresh(Playable p) async {
+    final hook = p.refreshUri;
+    if (hook == null) return null;
+    try {
+      return await hook();
+    } catch (e) {
+      _log.debug('stream url refresh failed', fields: {'err': '$e'});
+      return null;
     }
   }
 

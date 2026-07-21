@@ -25,9 +25,12 @@ var audioExt = map[string]bool{
 
 // Service scans and resolves one-user music zones.
 type Service struct {
-	DataRoot string
-	Store    *store.Store
-	Log      *slog.Logger
+	DataRoot   string
+	Store      *store.Store
+	Log        *slog.Logger
+	FFmpegPath string // ffmpeg for the +faststart optimize pass ("" → PATH)
+
+	warm *warmCache // hottest catalog tracks kept in RAM (nil = disabled)
 }
 
 // zone returns the absolute path of a user's music zone.

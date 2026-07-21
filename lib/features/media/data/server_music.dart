@@ -69,7 +69,13 @@ Future<List<Playable>> serverPlayables(
         subtitle: t.artist,
         album: t.album,
         artworkUri: t.hasArt ? music.artUri(t.id) : null,
-        headers: headers,
+        // A signed URL carries its own auth: send NO stream headers so the
+        // native player streams directly (Range/206) instead of through
+        // just_audio's header-injection proxy. Art keeps its own bearer.
+        // Without a signed URL we still need the bearer on the stream itself.
+        headers: t.streamUrl != null ? const {} : headers,
+        artHeaders: headers,
+        refreshUri: () => music.freshStreamUrl(t.id),
       ),
   ];
 }
@@ -368,7 +374,10 @@ Future<List<Playable>> catalogPlayables(
         subtitle: t.artist,
         album: t.album,
         artworkUri: t.hasArt ? music.catalogArtUri(t.id) : null,
-        headers: headers,
+        // Signed → bare stream (native, no proxy); art keeps the bearer.
+        headers: t.streamUrl != null ? const {} : headers,
+        artHeaders: headers,
+        refreshUri: () => music.freshStreamUrl(t.id, catalog: true),
       ),
   ];
 }

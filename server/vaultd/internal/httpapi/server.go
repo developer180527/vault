@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -53,6 +54,10 @@ type Options struct {
 	FFmpegBinary  string
 	FFprobeBinary string
 
+	// WarmTrackCount is how many of the hottest catalog tracks to keep in RAM
+	// for instant, disk-free streaming (0 → disabled). Default 5.
+	WarmTrackCount int
+
 	// Jobs is the background-work engine (nil disables the jobs API).
 	Jobs *jobs.Engine
 
@@ -93,7 +98,8 @@ func New(o Options) http.Handler {
 		signer:       o.Signer,
 		files:        &files.Service{DataRoot: o.DataRoot},
 		music: &music.Service{
-			DataRoot: o.DataRoot, Store: o.Store, Log: o.Log},
+			DataRoot: o.DataRoot, Store: o.Store, Log: o.Log,
+			FFmpegPath: o.FFmpegBinary},
 	}
 	photosRoot := o.PhotosRoot
 	if photosRoot == "" {
@@ -123,6 +129,14 @@ func New(o Options) http.Handler {
 	if err := s.music.EnsureCatalog(); err != nil {
 		o.Log.Warn("catalog dir", "err", err)
 	}
+	// Keep the household's hottest tracks warm in RAM (default top 5). Cheap —
+	// a handful of ~10 MB files — and it makes the songs everyone replays start
+	// instantly. Best-effort; a miss just serves from disk.
+	warmCount := o.WarmTrackCount
+	if warmCount == 0 {
+		warmCount = 5
+	}
+	s.music.StartWarmCache(context.Background(), warmCount, 15*time.Minute)
 
 	r := chi.NewRouter()
 	r.Use(RequestID)
@@ -198,9 +212,11 @@ func New(o Options) http.Handler {
 				r.Get("/music/tracks", s.handleListTracks)
 				r.Get("/music/search", s.handleSearchTracks)
 				r.Get("/music/tracks/{id}/art", s.handleTrackArt)
+				r.Get("/music/tracks/{id}/stream-url", s.handleTrackStreamURL)
 
 				r.Get("/music/catalog", s.handleCatalog)
 				r.Get("/music/catalog/{id}/art", s.handleCatalogArt)
+				r.Get("/music/catalog/{id}/stream-url", s.handleCatalogStreamURL)
 
 				r.Get("/music/playlists", s.handleListPlaylists)
 				r.Post("/music/playlists", s.handleCreatePlaylist)
@@ -221,6 +237,7 @@ func New(o Options) http.Handler {
 				r.Use(s.RequireGrant("music", "write"))
 				r.Patch("/music/catalog/{id}", s.handleCatalogEdit)
 				r.Post("/music/catalog/scan", s.handleCatalogScan)
+				r.Post("/music/catalog/optimize", s.handleCatalogOptimize)
 			})
 
 			// Photos — camera-roll backup (M3 simple phase). The sync action

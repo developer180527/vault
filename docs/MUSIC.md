@@ -76,6 +76,44 @@ auth middleware and accept a valid signature OR the bearer+grant path
 leaks one track for a bounded time. Clients prefer `stream_url` when
 present and fall back to the bearer route against old servers.
 
+## Streaming performance (native path + warm cache)
+
+Three things keep server audio feeling instant rather than sluggish:
+
+1. **Bearer-free (native) streaming — the big one.** just_audio can't set
+   request headers on iOS/macOS, so passing `headers:` to `AudioSource.uri`
+   makes it spin up a **localhost header-injection proxy** that fetches the
+   origin on the player's behalf — and that proxy, not vaultd, was serializing
+   Range and stalling playback. The signed `stream_url` needs no headers, so
+   the client now hands the player a **bare** signed URL (`Playable.headers`
+   empty) and AVPlayer/ExoPlayer stream the origin **directly** with real
+   Range/206. Artwork keeps its own bearer via `Playable.artHeaders` (a
+   separate field) so lock-screen art still loads. Because a bare source can't
+   fall through to a bearer, a >24h-stale signature would 401 — so the player
+   fetches a **fresh** signed URL (`GET /v1/music/{tracks,catalog}/{id}/stream-url`)
+   and retries **once** before surfacing failure (`Playable.refreshUri`). No
+   silent drop, no proxy.
+
+2. **`+faststart`.** Uploaded `.m4a/.mp4` can carry their `moov` atom after the
+   media, forcing a player to fetch the tail before it can start. `POST
+   /v1/music/catalog/optimize` (admin, music:write, also a button on the
+   catalog page) detects that layout with a cheap top-level atom walk (no
+   ffprobe) and rewrites `-c copy -movflags +faststart` in place, atomically.
+   Lossless and idempotent — a second run is all skips.
+
+3. **Warm RAM cache.** The household's top-N most-played catalog tracks (from
+   the listen analytics, `TopCatalogTrackIDs`, default N=5) are held in memory
+   and served with `http.ServeContent` — full Range/206 from RAM, zero disk
+   I/O — so the songs everyone replays start instantly. Refreshed on a 15-min
+   ticker; a miss just falls back to `ServeFile`, so it's a pure accelerator
+   with no correctness impact. Capped at 32 MB/track (songs are ~5–12 MB).
+
+**What was already fine (measured, not assumed):** the backend already serves
+206/`Accept-Ranges` via `ServeFile`/`ServeContent`, no compression middleware
+strips it, and Caddy has no `encode` directive — Range passes clean through
+tailscale serve. HTTP/2 and keep-alive live at tailscale serve. So the fix was
+the client proxy + file layout, not the transport.
+
 ## The shared catalog (migration 0003)
 
 **Ownership model:** the music service owns `catalog/music/` — no user library

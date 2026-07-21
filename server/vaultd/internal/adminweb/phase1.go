@@ -305,6 +305,24 @@ func (s *Server) handleCatalogScan(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("Scan done: %d changed, %d pruned.", added, pruned))
 }
 
+// handleCatalogOptimize runs the +faststart pass over the catalog so tracks
+// with a trailing moov atom start streaming without a whole-file prefetch.
+// Lossless (-c copy) and idempotent — safe to click anytime.
+func (s *Server) handleCatalogOptimize(w http.ResponseWriter, r *http.Request) {
+	optimized, skipped, err := s.music.OptimizeFaststart(r.Context())
+	if err != nil {
+		redirectMsg(w, r, "/catalog", "Optimize failed — check the logs.")
+		return
+	}
+	s.log.Info("admin: catalog faststart optimize",
+		"optimized", optimized, "skipped", skipped, "by", userFrom(r).Username)
+	s.audit(r, "catalog.optimize", "catalog", "",
+		fmt.Sprintf("%d optimized, %d already fast", optimized, skipped))
+	redirectMsg(w, r, "/catalog",
+		fmt.Sprintf("Optimize done: %d re-laid for fast start, %d already fast.",
+			optimized, skipped))
+}
+
 // maxUpload caps a single multipart request. Music files are a few MB (lossy)
 // to ~100MB (lossless); 200MB leaves headroom without inviting abuse.
 const maxUpload = 200 << 20

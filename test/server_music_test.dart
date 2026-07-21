@@ -24,6 +24,10 @@ class _FakeMusicApi implements MusicApi {
       Uri.parse('https://vault$pathWithQuery');
 
   @override
+  Future<Uri?> freshStreamUrl(String id, {bool catalog = false}) async =>
+      Uri.parse('https://vault/v1/music/${catalog ? 'catalog' : 'tracks'}/$id/stream?sig=fresh');
+
+  @override
   Future<List<ServerTrack>> tracks() async => const [];
 
   @override

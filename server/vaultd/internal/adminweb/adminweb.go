@@ -110,6 +110,7 @@ func New(o Options) (http.Handler, error) {
 		// Phase 1 — Catalog manager.
 		r.Get("/catalog", s.handleCatalog)
 		r.Post("/catalog/scan", s.handleCatalogScan)
+		r.Post("/catalog/optimize", s.handleCatalogOptimize)
 		r.Post("/catalog/upload", s.handleCatalogUpload)
 		r.Get("/catalog/{id}", s.handleTrackEditPage)
 		r.Post("/catalog/{id}", s.handleTrackSave)

@@ -50,6 +50,22 @@ class HttpMusicApi implements MusicApi {
   }
 
   @override
+  Future<Uri?> freshStreamUrl(String id, {bool catalog = false}) async {
+    // Mint a freshly-signed, bearer-free stream URL for ONE track — the retry
+    // path when a cached listing's signature went stale.
+    final path = catalog
+        ? '/v1/music/catalog/$id/stream-url'
+        : '/v1/music/tracks/$id/stream-url';
+    try {
+      final body = await _json('GET', path);
+      final signed = body['stream_url'] as String?;
+      return signed == null ? null : resolveStreamUrl(signed);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<List<ServerTrack>> tracks() => _fetch(_session.api('/v1/music/tracks'));
 
   @override

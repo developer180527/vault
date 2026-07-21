@@ -73,6 +73,11 @@ func (s *Server) handleCatalogStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Hottest tracks are served from RAM (Range from memory, no disk I/O);
+	// a miss falls through to the file. The warm path needs no DB row.
+	if s.music.ServeWarm(w, r, id) {
+		return
+	}
 	t, err := s.store.Read().CatalogTrackByID(ctx, id)
 	if err != nil {
 		s.filesErr(w, r, err)
@@ -159,6 +164,20 @@ func (s *Server) handleCatalogScan(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"changed": changed, "pruned": pruned,
+	})
+}
+
+// POST /v1/music/catalog/optimize  (music:write) — one-shot +faststart pass:
+// rewrites catalog tracks with a trailing moov atom (lossless -c copy) so
+// playback starts without fetching the whole file. Idempotent.
+func (s *Server) handleCatalogOptimize(w http.ResponseWriter, r *http.Request) {
+	optimized, skipped, err := s.music.OptimizeFaststart(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"optimized": optimized, "skipped": skipped,
 	})
 }
 

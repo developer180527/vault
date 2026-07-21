@@ -19,12 +19,8 @@ func (s *Server) signUserStreams(username string, tracks []store.Track) {
 	if s.signer == nil {
 		return
 	}
-	now := time.Now()
 	for i := range tracks {
-		exp, sig := s.signer.Sign(
-			"stream:user:"+username+":"+tracks[i].ID, now)
-		tracks[i].StreamURL = "/v1/music/tracks/" + tracks[i].ID +
-			"/stream?u=" + url.QueryEscape(username) + "&exp=" + exp + "&sig=" + sig
+		tracks[i].StreamURL = s.userTrackStreamURL(username, tracks[i].ID, false)
 	}
 }
 
@@ -33,12 +29,49 @@ func (s *Server) signCatalogStreams(tracks []store.CatalogTrack) {
 	if s.signer == nil {
 		return
 	}
-	now := time.Now()
 	for i := range tracks {
-		exp, sig := s.signer.Sign("stream:catalog:"+tracks[i].ID, now)
-		tracks[i].StreamURL = "/v1/music/catalog/" + tracks[i].ID +
-			"/stream?exp=" + exp + "&sig=" + sig
+		tracks[i].StreamURL = s.userTrackStreamURL("", tracks[i].ID, true)
 	}
+}
+
+// userTrackStreamURL builds one freshly-signed, bearer-free stream path. For a
+// per-user track pass the owner's [username] and catalog=false; for the shared
+// catalog pass catalog=true (username ignored). Empty when unsigned.
+func (s *Server) userTrackStreamURL(username, id string, catalog bool) string {
+	if s.signer == nil {
+		return ""
+	}
+	if catalog {
+		exp, sig := s.signer.Sign("stream:catalog:"+id, time.Now())
+		return "/v1/music/catalog/" + id + "/stream?exp=" + exp + "&sig=" + sig
+	}
+	exp, sig := s.signer.Sign("stream:user:"+username+":"+id, time.Now())
+	return "/v1/music/tracks/" + id + "/stream?u=" +
+		url.QueryEscape(username) + "&exp=" + exp + "&sig=" + sig
+}
+
+// GET /v1/music/tracks/{id}/stream-url  (music:read) — a freshly-signed URL for
+// ONE of the caller's tracks. The client's retry when a cached listing's
+// signature went stale, so a bare (bearer-free) audio source re-signs instead
+// of silently 401'ing.
+func (s *Server) handleTrackStreamURL(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.trackFor(w, r)
+	if !ok {
+		return
+	}
+	p := PrincipalFrom(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"stream_url": s.userTrackStreamURL(p.Username, t.ID, false)})
+}
+
+// GET /v1/music/catalog/{id}/stream-url  (music:read) — same, shared catalog.
+func (s *Server) handleCatalogStreamURL(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.catalogTrackFor(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"stream_url": s.userTrackStreamURL("", t.ID, true)})
 }
 
 // GET /v1/music/tracks — incremental scan, then the full library. The scan on

@@ -96,3 +96,42 @@ func TestSignedStreamURLs(t *testing.T) {
 		t.Fatalf("expired sig + valid bearer = %d, want 200 (fallthrough)", rec.Code)
 	}
 }
+
+// The client's stale-sig retry: /stream-url mints a FRESH signed URL for one
+// track, which must then stream with no bearer. This is what lets a bare
+// (native, proxy-free) audio source recover instead of silently 401'ing.
+func TestFreshStreamURL(t *testing.T) {
+	e := newTestEnv(t)
+	tok := e.idp.mint(t, "sub-admin", "venu@example.com", "venu")
+	_, grant := e.call(t, "POST", "/v1/setup", "", map[string]any{
+		"code": "cafe1234", "id_token": tok})
+	access := grant["access_token"].(string)
+
+	e.seedSong(t, "song.mp3", "userbytes")
+	e.seedCatalogSong(t, "shared.mp3", "catalogbytes")
+	e.call(t, "POST", "/v1/music/catalog/scan", access, nil)
+
+	// Resolve each track's ID from its listing.
+	_, body := e.call(t, "GET", "/v1/music/tracks", access, nil)
+	userID := body["tracks"].([]any)[0].(map[string]any)["id"].(string)
+	_, body = e.call(t, "GET", "/v1/music/catalog", access, nil)
+	catID := body["tracks"].([]any)[0].(map[string]any)["id"].(string)
+
+	cases := []struct{ path string }{
+		{"/v1/music/tracks/" + userID + "/stream-url"},
+		{"/v1/music/catalog/" + catID + "/stream-url"},
+	}
+	for _, c := range cases {
+		_, out := e.call(t, "GET", c.path, access, nil)
+		fresh, _ := out["stream_url"].(string)
+		if fresh == "" || !strings.Contains(fresh, "sig=") {
+			t.Fatalf("%s returned no signed url: %v", c.path, out)
+		}
+		// The freshly-minted URL streams with NO bearer.
+		rec := httptest.NewRecorder()
+		e.handler.ServeHTTP(rec, httptest.NewRequest("GET", fresh, nil))
+		if rec.Code != 200 {
+			t.Fatalf("fresh url %s = %d %s", fresh, rec.Code, rec.Body.String())
+		}
+	}
+}
