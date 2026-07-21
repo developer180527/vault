@@ -1,11 +1,10 @@
 import 'dart:io';
 
-import 'package:file_selector/file_selector.dart' as fs;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../../core/auth/session.dart';
 import '../../../core/logging/vault_log.dart';
@@ -14,16 +13,19 @@ import '../../../core/platform/platform_info.dart';
 
 final _log = VaultLog.tag('files.download');
 
-/// Download a server file to a user-chosen local location.
+/// Download a server file to a user-chosen local location, with a NATIVE
+/// destination picker on every platform:
 ///
-/// - **Desktop** (macOS/Windows/Linux): a native Save dialog picks the exact
-///   path; the bytes stream straight there.
-/// - **Mobile** (iOS/Android): file_selector has no save dialog, so the bytes
-///   stream to a temp file and the native share/save sheet lets the user
-///   export it ("Save to Files" on iOS, a location picker on Android).
+/// - **Desktop** (macOS/Windows/Linux): the native Save panel picks the exact
+///   path, then the bytes stream straight there — no whole-file buffering.
+/// - **Mobile** (iOS/Android): the native document picker (Files on iOS, the
+///   SAF folder browser on Android) chooses where it lands. The picker needs
+///   the bytes, so the transfer streams to a temp file first, then hands them
+///   to the picker and the temp copy is removed.
 ///
-/// The transfer is STREAMED (response body piped to disk) so a multi-GB file
-/// never loads into memory. Bearer auth, refreshed if the token is stale.
+/// The download itself is always STREAMED (response piped to disk); only the
+/// mobile picker step materializes bytes, which is unavoidable for SAF/iOS
+/// export. Bearer auth, refreshed up front if the token is stale.
 Future<void> downloadFileToLocal(
     BuildContext context, WidgetRef ref, FileNode node) async {
   final messenger = ScaffoldMessenger.of(context);
@@ -44,24 +46,70 @@ Future<void> downloadFileToLocal(
     }
   }
 
-  // Pick the destination BEFORE streaming so a cancel costs nothing.
-  final String destPath;
-  final bool exportAfter;
   if (isAndroidOrIOS) {
-    final dir = await getTemporaryDirectory();
-    destPath = '${dir.path}/${_safeName(node.name)}';
-    exportAfter = true;
+    await _downloadMobile(session, node, messenger);
   } else {
-    final loc = await fs.getSaveLocation(suggestedName: node.name);
-    if (loc == null) return; // user cancelled the save dialog
-    destPath = loc.path;
-    exportAfter = false;
+    await _downloadDesktop(session, node, messenger);
   }
+}
+
+/// Desktop: choose the path first (native Save panel), then stream to it — so
+/// a cancelled dialog costs no bytes.
+Future<void> _downloadDesktop(Session session, FileNode node,
+    ScaffoldMessengerState messenger) async {
+  final path = await FilePicker.saveFile(
+    dialogTitle: 'Save “${node.name}”',
+    fileName: node.name,
+  );
+  if (path == null) return; // user cancelled
 
   messenger.showSnackBar(SnackBar(
       content: Text('Downloading “${node.name}”…'),
       duration: const Duration(seconds: 2)));
+  final ok = await _stream(session, node, path, messenger);
+  if (ok) {
+    messenger.showSnackBar(SnackBar(content: Text('Saved “${node.name}”.')));
+  }
+}
 
+/// Mobile: stream to a temp file, then let the native document picker place it
+/// (Files / SAF). The temp copy is always cleaned up.
+Future<void> _downloadMobile(Session session, FileNode node,
+    ScaffoldMessengerState messenger) async {
+  final tmpDir = await getTemporaryDirectory();
+  final tmpPath = '${tmpDir.path}/${_safeName(node.name)}';
+
+  messenger.showSnackBar(SnackBar(
+      content: Text('Downloading “${node.name}”…'),
+      duration: const Duration(seconds: 2)));
+  final ok = await _stream(session, node, tmpPath, messenger);
+  if (!ok) return;
+
+  try {
+    final bytes = await File(tmpPath).readAsBytes(); // Uint8List
+    final saved = await FilePicker.saveFile(
+      dialogTitle: 'Save “${node.name}”',
+      fileName: node.name,
+      bytes: bytes,
+    );
+    if (saved != null) {
+      messenger.showSnackBar(SnackBar(content: Text('Saved “${node.name}”.')));
+    }
+  } catch (e) {
+    _log.warn('save-to failed', fields: {'name': node.name, 'err': '$e'});
+    messenger.showSnackBar(SnackBar(content: Text('Could not save: $e')));
+  } finally {
+    try {
+      final f = File(tmpPath);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
+  }
+}
+
+/// Streams GET /v1/files/{id}/content to [destPath]. Returns false (and shows a
+/// snackbar, deleting any torn partial) on failure.
+Future<bool> _stream(Session session, FileNode node, String destPath,
+    ScaffoldMessengerState messenger) async {
   final client = http.Client();
   try {
     final req = http.Request('GET', session.api('/v1/files/${node.id}/content'))
@@ -75,30 +123,15 @@ Future<void> downloadFileToLocal(
     await sink.flush();
     await sink.close();
     _log.info('downloaded', fields: {'name': node.name, 'to': destPath});
-
-    if (!context.mounted) return;
-    if (exportAfter) {
-      // Hand the temp file to the OS sheet so the user places it themselves.
-      final box = context.findRenderObject() as RenderBox?;
-      await SharePlus.instance.share(ShareParams(
-        files: [XFile(destPath, name: node.name)],
-        sharePositionOrigin:
-            box == null ? null : box.localToGlobal(Offset.zero) & box.size,
-      ));
-    } else {
-      messenger.showSnackBar(
-          SnackBar(content: Text('Saved “${node.name}”.')));
-    }
+    return true;
   } catch (e) {
     _log.warn('download failed', fields: {'name': node.name, 'err': '$e'});
     try {
       final f = File(destPath);
       if (await f.exists()) await f.delete(); // don't leave a torn partial
     } catch (_) {}
-    if (context.mounted) {
-      messenger.showSnackBar(
-          SnackBar(content: Text('Download failed: $e')));
-    }
+    messenger.showSnackBar(SnackBar(content: Text('Download failed: $e')));
+    return false;
   } finally {
     client.close();
   }
