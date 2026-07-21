@@ -301,7 +301,10 @@ func (s *Service) SaveUploadStream(filename string, r io.Reader) (string, error)
 	if err != nil {
 		return "", err
 	}
-	_, err = io.Copy(f, r)
+	// A large copy buffer cuts syscall count on multi-GB 4K files (the default
+	// 32KB buffer means ~300k write calls for a 10GB movie).
+	buf := make([]byte, 4<<20)
+	_, err = io.CopyBuffer(f, r, buf)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}

@@ -136,6 +136,19 @@ func (w *WriteStore) UpsertMovie(ctx context.Context, m CatalogMovie, streamsJSO
 	return err
 }
 
+// SetMovieArt flips the has_art flag — called when an admin uploads a poster
+// override, so the client (which only requests art when has_art is true)
+// starts fetching it.
+func (w *WriteStore) SetMovieArt(ctx context.Context, id string, hasArt bool) error {
+	v := 0
+	if hasArt {
+		v = 1
+	}
+	_, err := w.db.ExecContext(ctx,
+		`UPDATE catalog_movies SET has_art = ? WHERE id = ?`, v, id)
+	return err
+}
+
 // DeleteMovies removes rows whose files vanished.
 func (w *WriteStore) DeleteMovies(ctx context.Context, ids []string) error {
 	for _, id := range ids {

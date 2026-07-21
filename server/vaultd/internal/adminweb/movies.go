@@ -51,9 +51,10 @@ func (s *Server) handleMovieCatalogScan(w http.ResponseWriter, r *http.Request) 
 		fmt.Sprintf("Scan done: %d changed, %d pruned.", added, pruned))
 }
 
-// maxMovieUpload caps a single browser upload. Big enough for a 1080p feature
-// or a season pack; genuinely huge libraries still want scp/rsync + Scan.
-const maxMovieUpload = 8 << 30 // 8 GiB
+// maxMovieUpload caps a single browser upload. 4K features run 20–60 GB, so
+// the cap is generous; genuinely huge libraries still want scp/rsync + Scan
+// (resumable, no proxy timeouts).
+const maxMovieUpload = 80 << 30 // 80 GiB
 
 // handleMovieUpload streams uploaded video files straight to the catalog (no
 // buffering — they're gigabytes), then scans so they appear immediately.
@@ -223,6 +224,11 @@ func (s *Server) handleMoviePosterUpload(w http.ResponseWriter, r *http.Request)
 	if err := s.movies.SetArtOverride(m.ID, data); err != nil {
 		redirectMsg(w, r, back, "Couldn’t save the poster.")
 		return
+	}
+	// Flip has_art so the client starts requesting the poster (it skips art
+	// fetches when the flag is false — that's why uploads showed blank).
+	if err := s.store.Write().SetMovieArt(r.Context(), m.ID, true); err != nil {
+		s.log.Warn("set movie has_art failed", "id", m.ID, "err", err)
 	}
 	s.log.Info("admin: movie poster set", "movie", m.ID, "by", userFrom(r).Username)
 	s.audit(r, "movie.art", "movie", m.ID, "poster: "+m.Title)
