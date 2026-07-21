@@ -8,9 +8,11 @@ import 'package:video_player/video_player.dart';
 import '../../core/client/vault_client.dart';
 import '../../core/logging/vault_log.dart';
 import '../../core/models/server_movie.dart';
+import '../../core/platform/platform_services.dart';
 import '../../core/playback/playable.dart';
 import '../../core/playback/playback_controller.dart';
 import '../media/widgets/video_surface.dart';
+import 'data/movie_playback.dart';
 
 final _log = VaultLog.tag('movieplayer');
 
@@ -72,15 +74,34 @@ class _MoviePlayerPageState extends ConsumerState<MoviePlayerPage> {
     super.dispose();
   }
 
-  /// (Re)open the video for the given audio track. Default track uses a plain
-  /// signed URL (client-side seek works); a non-default track goes through the
-  /// remux endpoint with a server start offset.
+  /// (Re)open the video for the given audio track. The stream mode is chosen
+  /// from this device's decoders + the file's codecs/container:
+  ///   * direct    — original bytes, client-side seek (the signed URL path).
+  ///   * remux     — decodable codecs in a non-native container (MKV→fMP4).
+  ///   * transcode — a codec this device can't decode (HEVC/VP9/AV1, AC-3…).
+  /// Remux/transcode are server-seeked pipes (no Range), so [startSec] is a
+  /// server-side offset for them; only direct seeks client-side.
   Future<VideoPlayerController> _open(int audio, {int startSec = 0}) async {
-    final uri = audio > 0
-        ? _api.streamUri(movie.id, audio: audio, startSec: startSec)
-        : (movie.streamUrl != null
-              ? _api.resolveStreamUrl(movie.streamUrl!)
-              : _api.streamUri(movie.id));
+    final support = await ref.read(mediaSupportProvider.future);
+    final mode = movieStreamMode(movie, support, audioIndex: audio);
+    final serverSeek = mode != MovieStreamMode.direct || audio > 0;
+
+    final Uri uri;
+    switch (mode) {
+      case MovieStreamMode.transcode:
+        uri = _api.streamUri(movie.id,
+            audio: audio, startSec: startSec, transcode: true);
+      case MovieStreamMode.remux:
+        uri = _api.streamUri(movie.id,
+            audio: audio, startSec: startSec, remux: true);
+      case MovieStreamMode.direct:
+        // Non-default audio still needs a remux even on a native container.
+        uri = audio > 0
+            ? _api.streamUri(movie.id, audio: audio, startSec: startSec)
+            : (movie.streamUrl != null
+                ? _api.resolveStreamUrl(movie.streamUrl!)
+                : _api.streamUri(movie.id));
+    }
     final headers = await _api.authHeaders();
     final c = await _playback.openVideo(
       Playable(
@@ -92,9 +113,9 @@ class _MoviePlayerPageState extends ConsumerState<MoviePlayerPage> {
       ),
       autoPlay: true,
     );
-    // Default track supports real seeking → resume client-side. (Non-default
-    // is a remux pipe; the server already started at [startSec].)
-    if (audio == 0 && startSec > 0) {
+    // Direct play supports real seeking → resume client-side. Remux/transcode
+    // (and non-default audio) are server-seeked pipes: already at [startSec].
+    if (!serverSeek && startSec > 0) {
       await c.seekTo(Duration(seconds: startSec));
     }
     if (_subKey != null) await _applySubtitle(c, _subKey!);

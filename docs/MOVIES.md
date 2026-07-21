@@ -1,9 +1,9 @@
 # Movies — Shared Video Catalog
 
-Status: **Phase A shipped** (catalog + direct-play + audio/subtitle switching
-via zero-CPU remux). Phase B (real transcode for incompatible codecs) is
-designed but not built — see the end. This doc is written retroactively from
-the shipped code; treat it as the spec of record.
+Status: **Phase A + B shipped** (catalog + direct-play + audio/subtitle
+switching via zero-CPU remux, plus on-the-fly H.264/AAC transcode for codecs
+the device can't decode). This doc is written retroactively from the shipped
+code; treat it as the spec of record.
 
 Movies deliberately **mirror the music catalog** (docs/MUSIC.md): admin-curated,
 shared, `movies:read` streams / `movies:write` administers, signed stream URLs,
@@ -59,18 +59,32 @@ the auth middleware (signed URL, see below).
 
 ## Streaming — the interesting part
 
-The client reports its decode capability; `planPlayback` (shared, in
-`media_codec.dart`) picks **direct-play vs transcode**. Today Phase A only
-serves codecs the client can already decode, with one twist for multi-track:
+The client reports its decode capability (`MediaSupport` from
+`media_codec.dart`), then `movieStreamMode` (`features/movies/data/
+movie_playback.dart`) picks one of **three** modes from the device's decoders +
+the file's codecs/container. It extends the shared `planPlayback` with container
+awareness — decodable codecs in a container the device can't open need a remux,
+not a full transcode:
 
-- **Default audio, no seek** → `http.ServeFile` of the original bytes: full
-  HTTP Range, perfect client-side seeking, zero server work.
-- **Non-default audio track** (`?audio=N`) → **zero-CPU remux**: ffmpeg
-  `-c copy` rewrites the container to fragmented MP4 with the chosen audio
-  track mapped in. No re-encode — it's a container rewrite, ~free. This is how
-  "play the English dub" works. A remuxed pipe can't serve Range, so seeking is
-  done by **re-requesting with `?start=SEC`** (ffmpeg fast-seeks before the
-  copy).
+- **Direct play** — decodable video + audio in a native container (mp4/mov/m4v)
+  → `http.ServeFile` of the original bytes: full HTTP Range, perfect client-side
+  seeking, zero server work.
+- **Remux** (`?remux=1`, or any `?audio=N`) → **zero-CPU** ffmpeg `-c copy`
+  container rewrite to fragmented MP4. Two triggers: a decodable file in a
+  non-native container (H.264/AAC in MKV → fMP4), or a **non-default audio
+  track** ("play the English dub"). No re-encode — ~free.
+- **Transcode** (`?transcode=1`) → a real **H.264/AAC re-encode** to fragmented
+  MP4 (`libx264 -preset veryfast -crf 23 -pix_fmt yuv420p`, `aac 2ch 160k`), for
+  codecs the device can't decode at all: HEVC/VP9/AV1 video, AC-3/DTS/… audio.
+  CPU-heavy, so it's **gated by a semaphore** (`MaxConcurrentTranscodes`,
+  default 2) — a full pool answers **503** and the client can retry. Cheap paths
+  (remux, subtitles) are never gated.
+
+Remux and transcode are progressive fMP4 pipes — no HTTP Range — so seeking is a
+**re-request with `?start=SEC`** (ffmpeg fast-seeks before decode). Only direct
+play seeks client-side. The client mirrors this: `movieStreamMode` decides the
+mode, and non-direct modes are server-seeked from the resume offset.
+
 - **Subtitles** — embedded text tracks (`e<N>`) and sidecars (`x<N>`) are
   converted to **WebVTT** on demand (`ffmpeg -f webvtt`) and fed to the
   player's caption overlay. Image subs (PGS/VOBSUB) are hidden — they'd need
@@ -108,11 +122,12 @@ Continue Watching with negative or past-the-end positions.
   title/year/runtime/resolution, a track summary, overview, Play / Resume-from
   / Start-over.
 - **Player** — landscape-locked immersive fullscreen on the central
-  `PlaybackController` (so native PiP attaches later with no rework). Audio-track
-  picker re-opens the stream through the remux at the current position;
-  subtitle picker fetches WebVTT and overlays it. The client always attaches
-  the bearer header even when using the signed URL, which is what makes the
-  server fallthrough work.
+  `PlaybackController` (so native PiP attaches later with no rework). On open it
+  probes device support and calls `movieStreamMode` to pick direct/remux/
+  transcode; the audio-track picker re-opens the stream (remux) at the current
+  position; the subtitle picker fetches WebVTT and overlays it. The client
+  always attaches the bearer header even when using the signed URL, which is
+  what makes the server fallthrough work.
 - Service is manifest-gated (`movies:read`), grouped under Media, registered
   after the core dock services so it never bumps the dock.
 
@@ -125,15 +140,21 @@ typed-confirmation delete that trashes the file to `.trash/` (never hard-
 deletes; the scan skips dot-dirs). Every mutation audits
 (`movie.edit/delete/art`, `movies.scan/upload`) into the Activity feed.
 
-## Phase B — real transcode (designed, not built)
+## Phase B — real transcode (shipped)
 
-Phase A only plays codecs the client already decodes. The remaining ~10% —
-HEVC-in-MKV, VP9, AV1, AC3/DTS audio on iOS AVPlayer — needs a real transcode
-to H.264/AAC, ideally segmented as **HLS** for smooth seeking + bitrate
-adaptation. That work is CPU-heavy and bursty, so it belongs in its **own
-container** (the transcoder) that vaultd delegates to over the shared library
-volume, hardware-accelerated where the host allows. `planPlayback` already
-returns `NeedsTranscode('hls-h264-aac-720p')` for those files; wiring it to an
-HLS `.m3u8` from the transcoder is the Phase B build. This is Vault's first
-real service split — and the reason it's worth splitting: transcode is the one
-workload with a fundamentally different resource profile from the API.
+The remaining ~10% of files — HEVC-in-MKV, VP9, AV1, AC-3/DTS audio the device
+can't decode — now play via an **on-the-fly H.264/AAC transcode** (`Transcode`
+in `internal/movies/stream.go`), streamed as progressive fragmented MP4 through
+the same `?start=SEC` seek model as remux. It reuses vaultd's existing ffmpeg
+(already in the container) rather than splitting a service — right for family
+scale. The only new operational surface is the concurrency cap
+(`MaxConcurrentTranscodes`, default 2) so a couple of viewers can't peg every
+core; a full pool returns 503 and the client retries.
+
+**Chosen over HLS** deliberately: progressive fMP4 reuses the exact streaming
+model remux already uses (one pipe, seek-by-re-request), so it was a small,
+well-understood addition. Segmented **HLS** (smooth in-buffer seeking + bitrate
+ladders) and **hardware encoders** (videotoolbox/vaapi/nvenc via a host tuning
+knob) remain the natural next step if transcode load ever justifies a real
+service split — the workload with a fundamentally different resource profile
+from the API.

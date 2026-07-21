@@ -209,7 +209,8 @@ abstract interface class MoviesApi {
 
   /// Stream URL for a title. [audio] > 0 selects a non-default track (server
   /// remuxes); [startSec] server-seeks (a remuxed pipe can't Range-seek).
-  Uri streamUri(String id, {int audio = 0, int startSec = 0});
+  Uri streamUri(String id,
+      {int audio = 0, int startSec = 0, bool remux = false, bool transcode = false});
 
   /// Resolve a server-provided signed stream path (bearer-free playback).
   Uri resolveStreamUrl(String pathWithQuery);

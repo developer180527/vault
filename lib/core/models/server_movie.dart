@@ -100,6 +100,7 @@ class ServerMovie {
     this.overview = '',
     this.durationMs = 0,
     this.vcodec = '',
+    this.container = '',
     this.width = 0,
     this.height = 0,
     this.hasArt = false,
@@ -119,6 +120,7 @@ class ServerMovie {
   final String overview;
   final int durationMs;
   final String vcodec;
+  final String container;
   final int width;
   final int height;
   final bool hasArt;
@@ -154,6 +156,7 @@ class ServerMovie {
       overview: (j['overview'] as String?) ?? '',
       durationMs: (j['duration_ms'] as num?)?.toInt() ?? 0,
       vcodec: (j['vcodec'] as String?) ?? '',
+      container: (j['container'] as String?) ?? '',
       width: (j['width'] as num?)?.toInt() ?? 0,
       height: (j['height'] as num?)?.toInt() ?? 0,
       hasArt: (j['has_art'] as bool?) ?? false,
@@ -182,6 +185,7 @@ class ServerMovie {
     'overview': overview,
     'duration_ms': durationMs,
     'vcodec': vcodec,
+    'container': container,
     'width': width,
     'height': height,
     'has_art': hasArt,

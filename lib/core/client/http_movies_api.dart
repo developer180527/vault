@@ -69,10 +69,13 @@ class HttpMoviesApi implements MoviesApi {
   }
 
   @override
-  Uri streamUri(String id, {int audio = 0, int startSec = 0}) {
+  Uri streamUri(String id,
+      {int audio = 0, int startSec = 0, bool remux = false, bool transcode = false}) {
     final q = <String, String>{};
     if (audio > 0) q['audio'] = '$audio';
     if (startSec > 0) q['start'] = '$startSec';
+    if (transcode) q['transcode'] = '1';
+    if (remux) q['remux'] = '1';
     final base = _session.api('/v1/movies/$id/stream');
     return q.isEmpty ? base : base.replace(queryParameters: q);
   }

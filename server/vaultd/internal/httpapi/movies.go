@@ -128,16 +128,40 @@ func (s *Server) handleMovieStream(w http.ResponseWriter, r *http.Request) {
 
 	audio, _ := strconv.Atoi(q.Get("audio"))
 	start, _ := strconv.Atoi(q.Get("start"))
-	// audio<=0 with no start = the default track: serve the file directly, so
-	// AVPlayer gets full Range seeking. Only a non-default pick needs remux.
-	if audio <= 0 && start == 0 {
-		http.ServeFile(w, r, path)
-		return
+	if audio < 0 {
+		audio = 0
 	}
-	w.Header().Set("Content-Type", "video/mp4")
-	w.WriteHeader(http.StatusOK)
-	if err := s.movies.RemuxAudio(ctx, path, audio, start, w); err != nil {
-		s.log.Warn("remux stream failed", "id", id, "audio", audio, "err", err)
+	if start < 0 {
+		start = 0
+	}
+
+	switch {
+	// Real re-encode — the codec the device can't decode. CPU-heavy, so it's
+	// gated: 503 when every transcode slot is busy (the client can retry).
+	case q.Get("transcode") == "1":
+		if !s.movies.TryAcquireTranscode() {
+			writeErr(w, http.StatusServiceUnavailable,
+				"transcoder busy — try again in a moment")
+			return
+		}
+		defer s.movies.ReleaseTranscode()
+		w.Header().Set("Content-Type", "video/mp4")
+		if err := s.movies.Transcode(ctx, path, audio, start, w); err != nil {
+			s.log.Warn("transcode stream failed", "id", id, "err", err)
+		}
+
+	// Zero-CPU container rewrite: a non-default audio track (?audio=N), a
+	// seek into a remuxed pipe (?start=), or a compatible-codec file in a
+	// container the device won't open (?remux=1, e.g. MKV → fMP4).
+	case q.Get("remux") == "1" || audio > 0 || start > 0:
+		w.Header().Set("Content-Type", "video/mp4")
+		if err := s.movies.RemuxAudio(ctx, path, audio, start, w); err != nil {
+			s.log.Warn("remux stream failed", "id", id, "audio", audio, "err", err)
+		}
+
+	// Default track, native container: raw file with full HTTP Range seeking.
+	default:
+		http.ServeFile(w, r, path)
 	}
 }
 

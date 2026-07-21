@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
@@ -49,6 +50,12 @@ type Service struct {
 	Log        *slog.Logger
 	Prober     Prober // ffprobe wrapper (injectable for tests)
 	FFmpegPath string // for remux + subtitle extraction
+
+	// MaxConcurrentTranscodes caps simultaneous real (re-encode) transcodes
+	// so viewers can't peg every core. 0 → default 2. See stream.go.
+	MaxConcurrentTranscodes int
+	semOnce                 sync.Once
+	sem                     chan struct{}
 }
 
 // EnsureRoot creates the catalog directory (idempotent; called at boot).
@@ -209,8 +216,9 @@ func (s *Service) hasArt(videoPath string) bool {
 }
 
 // parseFilename seeds title/year/series/season/episode from conventions:
-//   "Movie Name (2019).mkv"
-//   "Show Name/Season 1/S01E03 - Title.mkv"  or  "...1x03..."
+//
+//	"Movie Name (2019).mkv"
+//	"Show Name/Season 1/S01E03 - Title.mkv"  or  "...1x03..."
 func parseFilename(rel string, m *store.CatalogMovie) {
 	base := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
 	parts := strings.Split(rel, "/")
