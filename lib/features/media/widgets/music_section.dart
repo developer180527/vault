@@ -116,6 +116,13 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
     int index, {
     required MusicSource source,
   }) async {
+    // Offline: the library is browsable from cache, but streaming needs the
+    // server — say so instead of opening a player that can't load anything.
+    if (!ref.read(musicServerModeProvider)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Connect to your server to stream music.')));
+      return;
+    }
     // Open the player IMMEDIATELY — it renders from playback state and fills
     // in as the queue lands. Awaiting auth + source setup before pushing the
     // page held the tap hostage for seconds on a slow link.

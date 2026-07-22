@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/auth/session.dart';
 import '../../../core/cache/content_cache.dart';
@@ -108,11 +109,27 @@ class PlaylistSource extends MusicSource {
 // server+device so switching servers/accounts never shows someone else's
 // library.
 
-/// Scope prefix for this session's snapshots (null = not connected).
-final _snapshotScopeProvider = Provider<String?>((ref) {
-  final s = ref.watch(sessionProvider).asData?.value;
-  return s == null ? null : '${s.serverHost}/${s.deviceId}';
-});
+/// Scope prefix for snapshots (`serverHost/deviceId`). When CONNECTED it's the
+/// live session's scope, and we persist it; when DISCONNECTED we fall back to
+/// the LAST persisted scope so the cached library is still readable offline.
+class LastMusicScope extends AsyncNotifier<String?> {
+  static const _key = 'last_music_scope_v1';
+
+  @override
+  Future<String?> build() async {
+    final prefs = await SharedPreferences.getInstance();
+    final s = ref.watch(sessionProvider).asData?.value;
+    if (s != null) {
+      final scope = '${s.serverHost}/${s.deviceId}';
+      await prefs.setString(_key, scope);
+      return scope;
+    }
+    return prefs.getString(_key);
+  }
+}
+
+final lastMusicScopeProvider =
+    AsyncNotifierProvider<LastMusicScope, String?>(LastMusicScope.new);
 
 /// Shared snapshot-first fetch: cached copy now, fresh copy when it lands
 /// (via [update]). Network errors with a snapshot in hand are demoted to a
@@ -125,10 +142,28 @@ Future<List<T>> _snapshotFirst<T>({
   required T Function(Map<String, Object?>) decode,
   required void Function(List<T>) update,
 }) async {
-  final scope = ref.watch(_snapshotScopeProvider);
+  final scope = await ref.watch(lastMusicScopeProvider.future);
   if (scope == null) return const [];
+  final connected = ref.watch(musicServerModeProvider);
   final cache = ref.watch(contentCacheProvider);
   final key = '$scope/$name';
+
+  List<T> decodeSnap(String snap) => [
+        for (final t in jsonDecode(snap) as List)
+          decode(t as Map<String, Object?>),
+      ];
+
+  // OFFLINE: serve the last cached listing read-only — no fetch. This is what
+  // lets the music library still open (browse) with no server connection.
+  if (!connected) {
+    final snap = await cache.readSnapshot(key);
+    if (snap == null) return const [];
+    try {
+      return decodeSnap(snap);
+    } catch (_) {
+      return const [];
+    }
+  }
 
   Future<List<T>> refresh() async {
     final fresh = await fetch();
@@ -151,10 +186,7 @@ Future<List<T>> _snapshotFirst<T>({
     }),
   );
   try {
-    return [
-      for (final t in jsonDecode(snap) as List)
-        decode(t as Map<String, Object?>),
-    ];
+    return decodeSnap(snap);
   } catch (_) {
     return refresh(); // corrupt snapshot → straight to the network
   }

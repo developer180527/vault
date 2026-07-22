@@ -9,6 +9,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:video_player/video_player.dart';
 
+import '../auth/session.dart';
 import '../logging/vault_log.dart';
 import '../platform/media_codec.dart';
 import '../platform/platform_services.dart';
@@ -114,6 +115,19 @@ class PlaybackController extends Notifier<PlaybackState> {
       if (ps == ProcessingState.completed) unawaited(_autoAdvance());
     });
     ref.onDispose(sub.cancel);
+
+    // Stop SERVER streams the moment the session is lost (logout / revoke /
+    // failed refresh). A signed stream URL keeps working bearer-free for 24h,
+    // and buffered audio would otherwise play on — so a disconnect must halt
+    // it. Local (file://) audio and video are untouched.
+    ref.listen<AsyncValue<Session?>>(sessionProvider, (prev, next) {
+      final had = prev?.asData?.value != null;
+      // Only a SETTLED disconnect (AsyncData(null)) counts — not a transient
+      // loading state — so a token refresh never kills playback.
+      final disconnected = next is AsyncData<Session?> && next.value == null;
+      if (had && disconnected) _onDisconnected();
+    });
+
     return const PlaybackState();
   }
 
@@ -293,6 +307,21 @@ class PlaybackController extends Notifier<PlaybackState> {
     state = state.copyWith(queue: const [], index: 0);
     _order = const [];
     _log.info('audio stopped, queue cleared');
+  }
+
+  /// Session lost → tear down any SERVER (network) playback; leave local
+  /// file playback alone (offline listening to downloaded/local media is fine).
+  void _onDisconnected() {
+    final audio = state.currentAudio;
+    if (audio != null && audio.isNetwork) {
+      _log.info('session lost — stopping server stream',
+          fields: {'id': audio.id});
+      unawaited(stopAudio());
+    }
+    final video = state.video;
+    if (video != null && video.isNetwork) {
+      unawaited(closeVideo());
+    }
   }
 
   // ---- video ----
