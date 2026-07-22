@@ -21,6 +21,7 @@ class VideoSurface extends StatelessWidget {
     required this.controller,
     this.title,
     this.showControls = true,
+    this.topOverlay,
   });
 
   final VideoPlayerController controller;
@@ -29,6 +30,12 @@ class VideoSurface extends StatelessWidget {
   final String? title;
 
   final bool showControls;
+
+  /// Optional chrome pinned to the TOP (e.g. a back bar with track/subtitle
+  /// pickers). Rendered inside [VideoControls] so it fades and toggles with the
+  /// rest of the chrome under ONE tap-catcher — never a separate always-on
+  /// layer that swallows the tap-to-show-again.
+  final Widget? topOverlay;
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +52,8 @@ class VideoSurface extends StatelessWidget {
         ),
         if (showControls)
           Positioned.fill(
-            child: VideoControls(controller: controller, title: title),
+            child: VideoControls(
+                controller: controller, title: title, topOverlay: topOverlay),
           ),
         // Above the controls so a stall is visible even mid-interaction.
         ValueListenableBuilder(
@@ -64,10 +72,14 @@ class VideoSurface extends StatelessWidget {
 /// Fills its parent — place it in a [Positioned.fill] (or as [VideoSurface]'s
 /// own overlay) so it spans the full area, never the video's letterbox strip.
 class VideoControls extends StatefulWidget {
-  const VideoControls({super.key, required this.controller, this.title});
+  const VideoControls(
+      {super.key, required this.controller, this.title, this.topOverlay});
 
   final VideoPlayerController controller;
   final String? title;
+
+  /// Top chrome that fades/toggles with the controls (see [VideoSurface]).
+  final Widget? topOverlay;
 
   @override
   State<VideoControls> createState() => _VideoControlsState();
@@ -134,6 +146,15 @@ class _VideoControlsState extends State<VideoControls> {
                       color: Colors.black.withValues(alpha: 0.35),
                     ),
                   ),
+                  // Top chrome (back bar / pickers), fading with everything
+                  // else. SafeArea keeps it clear of the notch.
+                  if (widget.topOverlay != null)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: SafeArea(bottom: false, child: widget.topOverlay!),
+                    ),
                   // Center cluster: on phones thumbs land mid-screen, so the
                   // primary transport lives there.
                   Positioned.fill(

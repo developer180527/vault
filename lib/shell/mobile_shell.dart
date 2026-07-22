@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../core/platform/design/adaptive_icons.dart';
-import '../core/platform/design/native_glass.dart';
+import '../core/platform/design/glass_surface.dart';
 import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
 import '../core/playback/playable.dart';
@@ -24,9 +24,10 @@ import 'widgets/floating_app_bar.dart';
 ///
 /// A static dock pill holds the pinned services (max [kMaxDockPins]) with a
 /// capsule highlight on the active tab; the You slot is a detached circular
-/// button. Every surface renders in the platform's design language via
-/// [NativeGlassSurface] — real UIKit liquid glass on iOS, elevated Material
-/// elsewhere — and icons resolve to SF Symbols on Apple platforms.
+/// button. Every surface renders through [GlassSurface] — a Flutter-drawn
+/// glassmorphic surface (backdrop blur + translucent fill + hairline edge),
+/// chosen over a native platform view so the chrome can smoothly animate
+/// (the mini-player grows in). Icons resolve to SF Symbols on Apple platforms.
 class MobileShell extends ConsumerWidget {
   const MobileShell({super.key, required this.shell, required this.services});
 
@@ -67,8 +68,9 @@ class MobileShell extends ConsumerWidget {
       ),
       // RepaintBoundaries keep the two layers independent: mini-player /
       // capsule updates don't re-rasterize the page, and page scrolling
-      // doesn't re-rasterize the chrome — which matters extra here because
-      // the chrome holds platform views (hybrid-composition layer splits).
+      // doesn't re-rasterize the chrome — which matters extra here because the
+      // chrome runs backdrop-blur filters that would otherwise resample the
+      // whole page every frame.
       //
       // Chrome collapse is a ONE-WAY, mini-player-only gesture: scrolling DOWN
       // into content tucks the dock away — but ONLY while a track is playing
@@ -113,7 +115,7 @@ final dockCollapsedProvider =
 
 /// The floating stack at the bottom: mini-player pill above, then the dock
 /// pill and the detached You circle. Shared side margins; every surface gets
-/// the platform material from [NativeGlassSurface].
+/// the material from [GlassSurface].
 class _BottomBarArea extends ConsumerWidget {
   const _BottomBarArea({
     required this.shell,
@@ -139,9 +141,8 @@ class _BottomBarArea extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // select: this subtree hosts the native glass PANEL (platform view) — it
-    // must re-layout only when the mini-player appears/disappears, not on
-    // every playback event (track advance, video open/close).
+    // select: this subtree re-lays-out only when the mini-player appears/
+    // disappears, not on every playback event (track advance, video open).
     final hasTrack = ref.watch(
       playbackProvider.select((s) => s.currentAudio != null),
     );
@@ -157,14 +158,11 @@ class _BottomBarArea extends ConsumerWidget {
       padding: EdgeInsets.fromLTRB(16, 0, 16, bottomGap),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final width = constraints.maxWidth;
           // Two chrome layouts share one animated shell: AnimatedSize morphs
-          // the height, AnimatedSwitcher crossfades the contents. The native
-          // glass panel is rebuilt per state (its regions are static rects).
+          // the height, AnimatedSwitcher crossfades the contents.
           final child = collapsed
               ? _CollapsedChrome(
                   key: const ValueKey('collapsed'),
-                  width: width,
                   hasTrack: hasTrack,
                   onUserPage: onUserPage,
                   onExpand: () =>
@@ -173,7 +171,6 @@ class _BottomBarArea extends ConsumerWidget {
                 )
               : _ExpandedChrome(
                   key: const ValueKey('expanded'),
-                  width: width,
                   hasTrack: hasTrack,
                   onUserPage: onUserPage,
                   dock: dock,
@@ -218,7 +215,6 @@ class _BottomBarArea extends ConsumerWidget {
 class _ExpandedChrome extends StatefulWidget {
   const _ExpandedChrome({
     super.key,
-    required this.width,
     required this.hasTrack,
     required this.onUserPage,
     required this.dock,
@@ -227,7 +223,6 @@ class _ExpandedChrome extends StatefulWidget {
     required this.onCollapse,
   });
 
-  final double width;
   final bool hasTrack;
   final bool onUserPage;
   final List<ServiceDefinition> dock;
@@ -271,15 +266,12 @@ class _ExpandedChromeState extends State<_ExpandedChrome>
 
   @override
   Widget build(BuildContext context) {
-    final width = widget.width;
     final hasTrack = widget.hasTrack;
-    final dockTop = hasTrack ? _kMiniPlayerHeight + 8.0 : 0.0;
-    final height = dockTop + _kDockHeight;
 
     final dockRow = Row(
       children: [
         Expanded(
-          child: NativeGlassSurface(
+          child: GlassSurface(
             radius: _kDockHeight / 2,
             // Swipe down on the dock pill → collapsed chrome.
             child: GestureDetector(
@@ -311,57 +303,47 @@ class _ExpandedChromeState extends State<_ExpandedChrome>
       ],
     );
 
-    return NativeGlassPanel(
-      size: Size(width, height),
-      regions: [
-        if (hasTrack)
-          GlassRegion(
-            rect: Rect.fromLTWH(0, 0, width, _kMiniPlayerHeight),
-            radius: _kMiniPlayerHeight / 2,
-          ),
-        GlassRegion(
-          rect: Rect.fromLTWH(0, dockTop, width - _kDockHeight - 8, _kDockHeight),
-          radius: _kDockHeight / 2,
-        ),
-        GlassRegion(
-          rect: Rect.fromLTWH(
-              width - _kDockHeight, dockTop, _kDockHeight, _kDockHeight),
-          radius: _kDockHeight / 2,
-        ),
-      ],
-      child: AnimatedBuilder(
-        animation: _entrance,
-        builder: (context, _) {
-          final t = _entrance.value;
-          // Fade + slide-up + overshoot-scale for the pill; a gentle settle
-          // (0.96 → 1.0) for the buttons on the same curve.
-          final fade = Curves.easeOut.transform(t);
-          final rise = (1 - Curves.easeOutCubic.transform(t)) * 12.0;
-          final popScale = 0.85 + 0.15 * Curves.easeOutBack.transform(t);
-          final settle = 0.96 + 0.04 * Curves.easeOut.transform(t);
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (hasTrack) ...[
-                Opacity(
-                  opacity: fade.clamp(0.0, 1.0),
-                  child: Transform.translate(
-                    offset: Offset(0, rise),
-                    child: Transform.scale(
-                      scale: popScale,
-                      alignment: Alignment.bottomCenter,
-                      child: const _MiniPlayerPill(),
+    // Now that the glass is Flutter-drawn (not a native platform view), the
+    // mini-player's GLASS itself animates: it grows in height from behind the
+    // dock (heightFactor), fades, and eases up — while the dock + You settle
+    // (0.96 → 1.0) on the same beat. This is the smooth entrance the native
+    // panel couldn't do (a platform view can't tween).
+    return AnimatedBuilder(
+      animation: _entrance,
+      builder: (context, _) {
+        final t = _entrance.value;
+        final fade = Curves.easeOut.transform(t);
+        final grow = Curves.easeOutCubic.transform(t);
+        final rise = (1 - grow) * 10.0;
+        final settle = 0.96 + 0.04 * Curves.easeOut.transform(t);
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (hasTrack)
+              ClipRect(
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  heightFactor: grow.clamp(0.0001, 1.0),
+                  child: Opacity(
+                    opacity: fade.clamp(0.0, 1.0),
+                    child: Transform.translate(
+                      offset: Offset(0, rise),
+                      child: const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: GlassSurface(
+                          radius: _kMiniPlayerHeight / 2,
+                          child: _MiniPlayerPill(),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-              ],
-              Transform.scale(scale: settle, child: dockRow),
-            ],
-          );
-        },
-      ),
+              ),
+            Transform.scale(scale: settle, child: dockRow),
+          ],
+        );
+      },
     );
   }
 }
@@ -371,14 +353,12 @@ class _ExpandedChromeState extends State<_ExpandedChrome>
 class _CollapsedChrome extends StatelessWidget {
   const _CollapsedChrome({
     super.key,
-    required this.width,
     required this.hasTrack,
     required this.onUserPage,
     required this.onExpand,
     required this.onYou,
   });
 
-  final double width;
   final bool hasTrack;
   final bool onUserPage;
   final VoidCallback onExpand;
@@ -390,58 +370,41 @@ class _CollapsedChrome extends StatelessWidget {
     // Collapsed, everything shrinks to the mini-player's height so the 4-box,
     // the pill, and the You circle read as one consistent 44pt row.
     const h = _kMiniPlayerHeight;
-    return NativeGlassPanel(
-      size: Size(width, h),
-      regions: [
-        GlassRegion(
-          rect: const Rect.fromLTWH(0, 0, h, h),
-          radius: h / 2,
-        ),
-        if (hasTrack)
-          GlassRegion(
-            rect: Rect.fromLTWH(h + 8, 0, width - 2 * (h + 8), h),
+    return SizedBox(
+      height: h,
+      child: Row(
+        children: [
+          // The 4-box: tap to bring the full dock back.
+          GlassSurface(
             radius: h / 2,
-          ),
-        GlassRegion(
-          rect: Rect.fromLTWH(width - h, 0, h, h),
-          radius: h / 2,
-        ),
-      ],
-      child: SizedBox(
-        height: h,
-        child: Row(
-          children: [
-            // The 4-box: tap to bring the full dock back.
-            NativeGlassSurface(
-              radius: h / 2,
-              child: Semantics(
-                button: true,
-                label: 'Show navigation',
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onExpand,
-                  child: SizedBox(
-                    width: h,
-                    height: h,
-                    child: Icon(
-                      Icons.grid_view_rounded,
-                      size: 18,
-                      color: scheme.onSurfaceVariant,
-                    ),
+            child: Semantics(
+              button: true,
+              label: 'Show navigation',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onExpand,
+                child: SizedBox(
+                  width: h,
+                  height: h,
+                  child: Icon(
+                    Icons.grid_view_rounded,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: hasTrack
-                  ? const Center(child: _MiniPlayerPill())
-                  : const SizedBox.shrink(),
-            ),
-            const SizedBox(width: 8),
-            _YouCircle(selected: onUserPage, onTap: onYou, size: h),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: hasTrack
+                ? GlassSurface(
+                    radius: h / 2, child: const _MiniPlayerPill())
+                : const SizedBox.shrink(),
+          ),
+          const SizedBox(width: 8),
+          _YouCircle(selected: onUserPage, onTap: onYou, size: h),
+        ],
       ),
     );
   }
@@ -465,7 +428,7 @@ class _YouCircle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return NativeGlassSurface(
+    return GlassSurface(
       radius: size / 2,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -675,8 +638,10 @@ class _MiniPlayerPill extends ConsumerWidget {
     final track = ref.watch(playbackProvider.select((s) => s.currentAudio));
     if (track == null) return const SizedBox.shrink();
 
-    return NativeGlassSurface(
-      radius: _kMiniPlayerHeight / 2,
+    // Glass is provided by the enclosing GlassSurface; here we just add a
+    // transparent Material so the InkWell splash renders on top of it.
+    return Material(
+      type: MaterialType.transparency,
       child: InkWell(
         // Guarded opener: a pill tap while the player is already up (or a
         // double-tap) must not stack a second copy.

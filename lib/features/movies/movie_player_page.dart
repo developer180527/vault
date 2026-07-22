@@ -187,18 +187,14 @@ class _MoviePlayerPageState extends ConsumerState<MoviePlayerPage> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              // The video + tap-to-toggle transport chrome.
-              VideoSurface(controller: c, title: movie.title),
-              // Subtitle overlay, lifted above the scrubber.
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 72,
-                child: _SubtitleOverlay(controller: c),
-              ),
-              // Top bar: back + audio/subtitle pickers.
-              SafeArea(
-                child: _TopBar(
+              // The video + tap-to-toggle transport chrome. The top bar rides
+              // INSIDE the controls (topOverlay) so it fades with them and a
+              // tap anywhere reliably brings the whole chrome back — it used to
+              // be a separate always-on layer.
+              VideoSurface(
+                controller: c,
+                title: movie.title,
+                topOverlay: _TopBar(
                   movie: movie,
                   audio: _audio,
                   subKey: _subKey,
@@ -206,6 +202,14 @@ class _MoviePlayerPageState extends ConsumerState<MoviePlayerPage> {
                   onAudio: _switchAudio,
                   onSubtitle: _switchSubtitle,
                 ),
+              ),
+              // Subtitle overlay, lifted above the scrubber — stays visible
+              // even when the chrome is hidden.
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 72,
+                child: _SubtitleOverlay(controller: c),
               ),
             ],
           );

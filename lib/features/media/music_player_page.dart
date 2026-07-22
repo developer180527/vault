@@ -611,9 +611,8 @@ class _VolumeBar extends StatelessWidget {
   }
 }
 
-/// The bottom row: shuffle (left), repeat (next to the output button), and the
-/// system audio-output picker with the live device name — Apple Music's
-/// bottom cluster.
+/// The bottom row: repeat at the far LEFT, the system audio-output picker dead-
+/// centre (with the live device name below it), and shuffle at the far RIGHT.
 class _OutputRow extends ConsumerWidget {
   const _OutputRow({required this.controller});
   final PlaybackController controller;
@@ -638,11 +637,11 @@ class _OutputRow extends ConsumerWidget {
       onPressed: controller.cycleRepeat,
     );
 
-    // Non-iOS: no system route picker — just center shuffle + repeat.
+    // Non-iOS: no system route picker — repeat far left, shuffle far right.
     if (!isIOS) {
       return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [shuffleBtn, const SizedBox(width: 8), repeatBtn],
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [repeatBtn, shuffleBtn],
       );
     }
 
@@ -656,25 +655,23 @@ class _OutputRow extends ConsumerWidget {
       ),
     );
 
-    // The picker sits DEAD-CENTRE (equal Expanded flanks). Repeat is pinned
-    // right beside it (left flank, end-aligned), shuffle to repeat's left. The
-    // device name is a full-width centered line below, so it sits under the
-    // centered picker without widening the row and shoving the buttons away.
+    // Repeat pinned far LEFT, the picker dead-CENTRE (equal Expanded flanks),
+    // shuffle far RIGHT. The device name is a full-width centered line below,
+    // sitting under the centered picker.
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Row(
           children: [
             Expanded(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [shuffleBtn, const SizedBox(width: 4), repeatBtn],
-              ),
+              child: Align(alignment: Alignment.centerLeft, child: repeatBtn),
             ),
             const SizedBox(width: 10),
             picker,
             const SizedBox(width: 10),
-            const Expanded(child: SizedBox()),
+            Expanded(
+              child: Align(alignment: Alignment.centerRight, child: shuffleBtn),
+            ),
           ],
         ),
         const SizedBox(height: 2),
