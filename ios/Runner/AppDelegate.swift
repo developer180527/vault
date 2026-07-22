@@ -29,6 +29,23 @@ import workmanager_apple
       .registrar(forPlugin: "vault.route-picker")?
       .register(RoutePickerViewFactory(), withId: "vault/route-picker")
 
+    // Audio output device name (method: one-shot; event: live route changes),
+    // for the player's output-selector label.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "vault.audio-route") {
+      FlutterMethodChannel(
+        name: "vault/audio-route", binaryMessenger: registrar.messenger()
+      ).setMethodCallHandler { call, result in
+        if call.method == "currentOutput" {
+          result(currentAudioOutputName())
+        } else {
+          result(FlutterMethodNotImplemented)
+        }
+      }
+      FlutterEventChannel(
+        name: "vault/audio-route/events", binaryMessenger: registrar.messenger()
+      ).setStreamHandler(AudioRouteStreamHandler())
+    }
+
     // Real SF Symbols: renders UIImage(systemName:) to a white template PNG
     // that the Dart SfSymbolIcon widget tints and caches.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "vault.sf-symbols") {

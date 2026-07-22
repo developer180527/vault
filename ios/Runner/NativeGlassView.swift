@@ -1,6 +1,44 @@
+import AVFoundation
 import AVKit
 import Flutter
 import UIKit
+
+/// The current audio output device's display name (e.g. "Speaker",
+/// "Rockerz 551 ANC Pro"). Empty route falls back to "iPhone".
+func currentAudioOutputName() -> String {
+  let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+  return outputs.first?.portName ?? "iPhone"
+}
+
+/// Streams the output device name to Dart on every route change (Bluetooth
+/// connect/disconnect, AirPlay, headphones plug), plus once on subscribe.
+class AudioRouteStreamHandler: NSObject, FlutterStreamHandler {
+  private var sink: FlutterEventSink?
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink)
+    -> FlutterError?
+  {
+    sink = events
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(routeChanged),
+      name: AVAudioSession.routeChangeNotification, object: nil)
+    emit()
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    NotificationCenter.default.removeObserver(self)
+    sink = nil
+    return nil
+  }
+
+  @objc private func routeChanged(_ note: Notification) { emit() }
+
+  private func emit() {
+    let name = currentAudioOutputName()
+    DispatchQueue.main.async { [weak self] in self?.sink?(name) }
+  }
+}
 
 /// Shared builder: liquid glass (UIGlassEffect) on iOS 26+, system-material
 /// blur before that. Corner radius comes from Dart so the native clip matches

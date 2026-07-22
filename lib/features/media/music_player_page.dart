@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/client/vault_client.dart';
+import '../../core/platform/audio_output.dart';
 import '../../core/platform/platform_info.dart';
+import '../../core/playback/playable.dart';
 import '../../core/playback/playback_controller.dart';
 import 'data/dominant_color.dart';
 import 'data/server_music.dart';
@@ -31,200 +33,232 @@ void openMusicPlayer(BuildContext context) {
       .whenComplete(() => _playerOpen = false);
 }
 
-/// Full-screen now-playing screen, styled after Apple Music: large artwork,
-/// track title/artist, scrubber, transport controls, and a volume/output row.
-/// Reads the centralized [PlaybackController], so it shows whatever audio is
-/// playing — local music today, server music later — with no change here.
-/// The background gradient is tinted from the artwork's dominant color.
-class MusicPlayerPage extends ConsumerWidget {
+/// Full-screen now-playing screen, styled after Apple Music: large artwork
+/// (that shrinks when paused), a minimal capsule scrubber, a three-button
+/// transport, a volume capsule, and a bottom row with shuffle / repeat and the
+/// system audio-output picker labelled with the live device name. Swipe down
+/// anywhere to minimize back to the mini-player. The background gradient is
+/// tinted from the artwork's dominant color.
+class MusicPlayerPage extends ConsumerStatefulWidget {
   const MusicPlayerPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MusicPlayerPage> createState() => _MusicPlayerPageState();
+}
+
+class _MusicPlayerPageState extends ConsumerState<MusicPlayerPage>
+    with SingleTickerProviderStateMixin {
+  // Swipe-down-to-dismiss: the whole page follows the finger, then either pops
+  // (past a distance/velocity threshold) or springs back.
+  double _dragY = 0;
+  late final AnimationController _spring =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 260));
+  Animation<double> _back = const AlwaysStoppedAnimation(0);
+
+  @override
+  void initState() {
+    super.initState();
+    _spring.addListener(() => setState(() => _dragY = _back.value));
+  }
+
+  @override
+  void dispose() {
+    _spring.dispose();
+    super.dispose();
+  }
+
+  void _onDragUpdate(DragUpdateDetails d) {
+    _spring.stop();
+    setState(() => _dragY = (_dragY + d.delta.dy).clamp(0.0, double.infinity));
+  }
+
+  void _onDragEnd(DragEndDetails d) {
+    final v = d.primaryVelocity ?? 0;
+    if (_dragY > 140 || v > 800) {
+      Navigator.of(context).maybePop();
+    } else {
+      _back = Tween(begin: _dragY, end: 0.0)
+          .animate(CurvedAnimation(parent: _spring, curve: Curves.easeOutCubic));
+      _spring.forward(from: 0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final controller = ref.read(playbackProvider.notifier);
     final player = controller.player;
-    // select: rebuild per track change; other playback events don't matter.
     final track = ref.watch(playbackProvider.select((s) => s.currentAudio));
     final scheme = Theme.of(context).colorScheme;
 
-    // Tint from embedded art (local) OR fetched art (server catalog): the
-    // provider resolves either; gate only on "has any art at all".
     final hasArt = track != null &&
         (track.artwork != null || track.artworkUri != null);
     final artColor =
         hasArt ? ref.watch(artColorProvider(track.id)).asData?.value : null;
 
+    // Drag feedback: shrink + round the page as it slides down.
+    final progress = (_dragY / 320).clamp(0.0, 1.0);
+    final dragScale = 1 - 0.06 * progress;
+
     return Scaffold(
-      body: AnimatedContainer(
-        duration: const Duration(milliseconds: 400),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              // Art-tinted when available; theme container otherwise. Blend
-              // toward surface so text/controls stay readable on loud covers.
-              artColor == null
-                  ? scheme.primaryContainer
-                  : Color.lerp(artColor, scheme.surface, 0.25)!,
-              scheme.surface,
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(28, 8, 28, 20),
-            child: LayoutBuilder(builder: (context, constraints) {
-              final topBar = Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.keyboard_arrow_down, size: 32),
-                    onPressed: () => Navigator.of(context).maybePop(),
-                  ),
-                  Row(
-                    children: [
-                      // Like/unlike the playing track (server catalog only —
-                      // local files have no server-side favorites row).
-                      if (track != null) _FavoriteButton(trackId: track.id),
-                      // Stop entirely: kills playback, clears the queue, and
-                      // (via current == null) removes the mini-player pill.
-                      IconButton(
-                        tooltip: 'Stop',
-                        icon: const Icon(Icons.stop_circle_outlined, size: 30),
-                        onPressed: () async {
-                          await controller.stopAudio();
-                          if (context.mounted) {
-                            Navigator.of(context).maybePop();
-                          }
-                        },
-                      ),
+      body: GestureDetector(
+        onVerticalDragUpdate: _onDragUpdate,
+        onVerticalDragEnd: _onDragEnd,
+        child: Transform.translate(
+          offset: Offset(0, _dragY),
+          child: Transform.scale(
+            scale: dragScale,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(progress > 0 ? 28 : 0),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      artColor == null
+                          ? scheme.primaryContainer
+                          : Color.lerp(artColor, scheme.surface, 0.25)!,
+                      scheme.surface,
                     ],
                   ),
-                ],
-              );
-              final titleBlock = Column(
-                children: [
-                  Text(
-                    track?.title ?? 'Nothing playing',
-                    style: Theme.of(context).textTheme.titleLarge,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
+                ),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 6, 24, 16),
+                    child: LayoutBuilder(builder: (context, constraints) {
+                      final wide = constraints.maxWidth > 720;
+                      return wide
+                          ? _wideLayout(context, controller, player, track)
+                          : _phoneLayout(context, controller, player, track);
+                    }),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    (track?.subtitle.isEmpty ?? true)
-                        ? 'Local music'
-                        : track!.subtitle,
-                    style: TextStyle(color: scheme.onSurfaceVariant),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              );
-              final transport = Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _Scrubber(player: player),
-                  const SizedBox(height: 4),
-                  _Controls(controller: controller, player: player),
-                ],
-              );
-              final art =
-                  _Artwork(art: track?.artwork, artUri: track?.artworkUri);
-
-              // Wide (desktop/tablet): art beside the transport, centered and
-              // width-capped — the phone column stretched across a desktop
-              // window read as a blown-up mobile app.
-              if (constraints.maxWidth > 720) {
-                return Column(
-                  children: [
-                    topBar,
-                    Expanded(
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 860),
-                          child: Row(
-                            children: [
-                              Expanded(child: Center(child: art)),
-                              const SizedBox(width: 40),
-                              Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    titleBlock,
-                                    const SizedBox(height: 28),
-                                    transport,
-                                    const SizedBox(height: 28),
-                                    _VolumeRow(player: player),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              }
-
-              // Phone: the original vertical layout.
-              return Column(
-                children: [
-                  topBar,
-                  const Spacer(),
-                  art,
-                  const SizedBox(height: 32),
-                  titleBlock,
-                  const SizedBox(height: 20),
-                  transport,
-                  const Spacer(),
-                  _VolumeRow(player: player),
-                ],
-              );
-            }),
+                ),
+              ),
+            ),
           ),
         ),
       ),
     );
   }
+
+  Widget _grabber(BuildContext context) => Center(
+        child: Container(
+          width: 40,
+          height: 5,
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.onSurfaceVariant
+                .withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(2.5),
+          ),
+        ),
+      );
+
+  Widget _phoneLayout(BuildContext context, PlaybackController controller,
+      AudioPlayer player, Playable? track) {
+    return Column(
+      children: [
+        _grabber(context),
+        const Spacer(flex: 2),
+        _AnimatedArtwork(
+            player: player, art: track?.artwork, artUri: track?.artworkUri),
+        const Spacer(flex: 2),
+        _TitleRow(track: track, controller: controller),
+        const SizedBox(height: 18),
+        _SeekBar(player: player),
+        const SizedBox(height: 10),
+        _TransportControls(controller: controller, player: player),
+        const SizedBox(height: 22),
+        _VolumeBar(player: player),
+        const SizedBox(height: 14),
+        _OutputRow(controller: controller),
+      ],
+    );
+  }
+
+  Widget _wideLayout(BuildContext context, PlaybackController controller,
+      AudioPlayer player, Playable? track) {
+    return Column(
+      children: [
+        _grabber(context),
+        Expanded(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 860),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: _AnimatedArtwork(
+                          player: player,
+                          art: track?.artwork,
+                          artUri: track?.artworkUri),
+                    ),
+                  ),
+                  const SizedBox(width: 40),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _TitleRow(track: track, controller: controller),
+                        const SizedBox(height: 24),
+                        _SeekBar(player: player),
+                        const SizedBox(height: 16),
+                        _TransportControls(
+                            controller: controller, player: player),
+                        const SizedBox(height: 28),
+                        _VolumeBar(player: player),
+                        const SizedBox(height: 14),
+                        _OutputRow(controller: controller),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
-/// Heart toggle for the playing track. Only rendered while connected — local
-/// standalone playback has no server-side favorites. The liked state derives
-/// from [favoriteIdsProvider], so a toggle here also updates every list row.
-class _FavoriteButton extends ConsumerWidget {
-  const _FavoriteButton({required this.trackId});
-  final String trackId;
+/// A minimal Apple-Music capsule slider: a rounded two-tone track, no knob at
+/// rest, thickening (with a small thumb) only while [active] (being dragged).
+SliderThemeData _capsuleSlider(ColorScheme scheme, {required bool active}) {
+  return SliderThemeData(
+    trackHeight: active ? 10 : 7,
+    activeTrackColor: scheme.onSurface.withValues(alpha: 0.92),
+    inactiveTrackColor: scheme.onSurface.withValues(alpha: 0.20),
+    thumbColor: Colors.white,
+    trackShape: const RoundedRectSliderTrackShape(),
+    overlayShape: SliderComponentShape.noOverlay,
+    thumbShape: RoundSliderThumbShape(
+        enabledThumbRadius: active ? 7 : 0, elevation: active ? 2 : 0),
+  );
+}
+
+/// Album art that shrinks when paused (Apple Music), enlarges while playing.
+class _AnimatedArtwork extends StatelessWidget {
+  const _AnimatedArtwork({required this.player, this.art, this.artUri});
+
+  final AudioPlayer player;
+  final Uint8List? art;
+  final Uri? artUri;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (!ref.watch(musicServerModeProvider)) return const SizedBox.shrink();
-    final liked = ref.watch(
-      favoriteIdsProvider.select((ids) => ids.contains(trackId)),
-    );
-    return IconButton(
-      tooltip: liked ? 'Remove from Favorites' : 'Add to Favorites',
-      icon: Icon(
-        liked ? Icons.favorite : Icons.favorite_border,
-        size: 26,
-        color: liked ? Theme.of(context).colorScheme.primary : null,
-      ),
-      onPressed: () async {
-        final music = ref.read(vaultClientProvider).music;
-        try {
-          if (liked) {
-            await music.removeFavorite(trackId);
-          } else {
-            await music.addFavorite(trackId);
-          }
-          ref.invalidate(favoritesProvider);
-        } catch (_) {
-          // Personal-zone tracks aren't in the shared catalog — the server
-          // (correctly) refuses to favorite them. Quietly ignore.
-        }
+  Widget build(BuildContext context) {
+    return StreamBuilder<PlayerState>(
+      stream: player.playerStateStream,
+      builder: (context, snap) {
+        final playing = snap.data?.playing ?? false;
+        return AnimatedScale(
+          scale: playing ? 1.0 : 0.82,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
+          child: _Artwork(art: art, artUri: artUri),
+        );
       },
     );
   }
@@ -233,23 +267,16 @@ class _FavoriteButton extends ConsumerWidget {
 class _Artwork extends ConsumerWidget {
   const _Artwork({this.art, this.artUri});
 
-  /// Embedded bytes (local files) or a bearer-fetched URL (server streams).
   final Uint8List? art;
   final Uri? artUri;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final side = MediaQuery.sizeOf(context).width.clamp(200.0, 360.0) - 56;
-    final fallback = Icon(
-      Icons.music_note,
-      size: side * 0.4,
-      color: scheme.primary,
-    );
-    // Server art through the content cache: a track you've seen before shows
-    // its cover the instant the player opens, even while the stream buffers.
-    final bytes =
-        art ??
+    final side = MediaQuery.sizeOf(context).width.clamp(200.0, 380.0) - 40;
+    final fallback =
+        Icon(Icons.music_note, size: side * 0.4, color: scheme.primary);
+    final bytes = art ??
         (artUri == null
             ? null
             : ref.watch(artBytesProvider(artUri!.toString())).asData?.value);
@@ -258,12 +285,12 @@ class _Artwork extends ConsumerWidget {
       height: side,
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 40,
-            offset: const Offset(0, 20),
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 44,
+            offset: const Offset(0, 22),
           ),
         ],
       ),
@@ -275,34 +302,153 @@ class _Artwork extends ConsumerWidget {
   }
 }
 
-/// Position scrubber. While dragging, the thumb follows the finger (a local
-/// drag value) instead of snapping back to the last stream tick — and stays
-/// put after release until playback catches up to the seek target.
-class _Scrubber extends StatefulWidget {
-  const _Scrubber({required this.player});
+/// Title + artist on the left; the favorite star and a "⋯" more menu on the
+/// right — the Apple Music header. Extra actions (Stop) live in the menu.
+class _TitleRow extends ConsumerWidget {
+  const _TitleRow({required this.track, required this.controller});
+  final Playable? track;
+  final PlaybackController controller;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                track?.title ?? 'Nothing playing',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                (track?.subtitle.isEmpty ?? true)
+                    ? 'Local music'
+                    : track!.subtitle,
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 15),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+        if (track != null) _FavoriteButton(trackId: track!.id),
+        _MoreButton(controller: controller),
+      ],
+    );
+  }
+}
+
+/// The "⋯" menu — Apple Music's overflow. Stop lives here (kills playback,
+/// clears the queue, removes the mini-player) rather than cluttering the
+/// transport.
+class _MoreButton extends StatelessWidget {
+  const _MoreButton({required this.controller});
+  final PlaybackController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: 'More',
+      style: IconButton.styleFrom(
+        backgroundColor: scheme.onSurface.withValues(alpha: 0.10),
+      ),
+      icon: const Icon(Icons.more_horiz, size: 22),
+      onPressed: () => showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetContext) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.stop_circle_outlined),
+                title: const Text('Stop'),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  await controller.stopAudio();
+                  if (context.mounted) Navigator.of(context).maybePop();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Heart toggle for the playing track. Only rendered while connected — local
+/// standalone playback has no server-side favorites.
+class _FavoriteButton extends ConsumerWidget {
+  const _FavoriteButton({required this.trackId});
+  final String trackId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(musicServerModeProvider)) return const SizedBox.shrink();
+    final liked = ref.watch(
+      favoriteIdsProvider.select((ids) => ids.contains(trackId)),
+    );
+    final scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: liked ? 'Remove from Favorites' : 'Add to Favorites',
+      style: IconButton.styleFrom(
+        backgroundColor: scheme.onSurface.withValues(alpha: 0.10),
+      ),
+      icon: Icon(
+        liked ? Icons.star : Icons.star_border,
+        size: 22,
+        color: liked ? scheme.primary : null,
+      ),
+      onPressed: () async {
+        final music = ref.read(vaultClientProvider).music;
+        try {
+          if (liked) {
+            await music.removeFavorite(trackId);
+          } else {
+            await music.addFavorite(trackId);
+          }
+          ref.invalidate(favoritesProvider);
+        } catch (_) {
+          // Personal-zone tracks aren't in the shared catalog.
+        }
+      },
+    );
+  }
+}
+
+/// Position scrubber — a minimal capsule that thickens while dragging, with
+/// elapsed on the left and REMAINING (−m:ss) on the right, Apple Music-style.
+class _SeekBar extends StatefulWidget {
+  const _SeekBar({required this.player});
   final AudioPlayer player;
 
   @override
-  State<_Scrubber> createState() => _ScrubberState();
+  State<_SeekBar> createState() => _SeekBarState();
 }
 
-class _ScrubberState extends State<_Scrubber> {
+class _SeekBarState extends State<_SeekBar> {
   AudioPlayer get player => widget.player;
 
-  /// Throttled position stream, created once. The default positionStream
-  /// emits up to every 16ms — rebuilding the slider ~60×/s for the whole
-  /// playback session. 200ms is indistinguishable on a scrubber and cuts
-  /// that work by >90%.
   late final Stream<Duration> _position = player.createPositionStream(
     minPeriod: const Duration(milliseconds: 200),
     maxPeriod: const Duration(milliseconds: 500),
   );
 
-  /// Non-null while dragging or waiting for the seek to land.
   double? _dragMs;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return StreamBuilder<Duration>(
       stream: _position,
       builder: (context, snapshot) {
@@ -310,48 +456,39 @@ class _ScrubberState extends State<_Scrubber> {
         final total = player.duration ?? Duration.zero;
         final max = total.inMilliseconds.toDouble().clamp(1.0, double.infinity);
 
-        // Release the held drag value once playback has caught up with the
-        // seek target (or drifted past it).
         if (_dragMs != null &&
             (position.inMilliseconds - _dragMs!).abs() < 1000) {
           _dragMs = null;
         }
-        final shown = (_dragMs ?? position.inMilliseconds.toDouble()).clamp(
-          0.0,
-          max,
-        );
+        final shown =
+            (_dragMs ?? position.inMilliseconds.toDouble()).clamp(0.0, max);
+        final remaining =
+            Duration(milliseconds: (max - shown).round());
 
         return Column(
           children: [
             SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 4,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              ),
+              data: _capsuleSlider(scheme, active: _dragMs != null),
               child: Slider(
                 value: shown,
                 max: max,
                 onChangeStart: (v) => setState(() => _dragMs = v),
                 onChanged: (v) => setState(() => _dragMs = v),
-                onChangeEnd: (v) {
-                  player.seek(Duration(milliseconds: v.round()));
-                  // Keep _dragMs until the stream reflects the new position.
-                },
+                onChangeEnd: (v) =>
+                    player.seek(Duration(milliseconds: v.round())),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    _fmt(Duration(milliseconds: shown.round())),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Text(
-                    _fmt(total),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  Text(_fmt(Duration(milliseconds: shown.round())),
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant, fontSize: 12)),
+                  Text('-${_fmt(remaining)}',
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant, fontSize: 12)),
                 ],
               ),
             ),
@@ -368,27 +505,23 @@ class _ScrubberState extends State<_Scrubber> {
   }
 }
 
-class _Controls extends ConsumerWidget {
-  const _Controls({required this.controller, required this.player});
+/// The three-button transport: previous, play/pause, next. Plain monochrome
+/// icons (no filled circle), like Apple Music. Shuffle/repeat moved to the
+/// output row below.
+class _TransportControls extends StatelessWidget {
+  const _TransportControls({required this.controller, required this.player});
   final PlaybackController controller;
   final AudioPlayer player;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Shuffle/repeat are QUEUE state (the engine holds a single source), so
-    // they come from the controller, not the player's streams.
-    final shuffle = ref.watch(playbackProvider.select((s) => s.shuffle));
-    final repeat = ref.watch(playbackProvider.select((s) => s.repeat));
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurface;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         IconButton(
-          icon: const Icon(Icons.shuffle),
-          color: shuffle ? Theme.of(context).colorScheme.primary : null,
-          onPressed: () => controller.setShuffle(!shuffle),
-        ),
-        IconButton(
-          iconSize: 40,
+          iconSize: 44,
+          color: color,
           icon: const Icon(Icons.skip_previous),
           onPressed: controller.previous,
         ),
@@ -397,38 +530,27 @@ class _Controls extends ConsumerWidget {
           builder: (context, snapshot) {
             final playing = snapshot.data?.playing ?? false;
             return IconButton(
-              iconSize: 72,
-              icon: Icon(
-                playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
-              ),
-              color: Theme.of(context).colorScheme.primary,
+              iconSize: 68,
+              color: color,
+              icon: Icon(playing ? Icons.pause : Icons.play_arrow),
               onPressed: controller.togglePlay,
             );
           },
         ),
         IconButton(
-          iconSize: 40,
+          iconSize: 44,
+          color: color,
           icon: const Icon(Icons.skip_next),
           onPressed: controller.next,
-        ),
-        IconButton(
-          icon: Icon(
-            repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
-          ),
-          color: repeat != LoopMode.off
-              ? Theme.of(context).colorScheme.primary
-              : null,
-          onPressed: controller.cycleRepeat,
         ),
       ],
     );
   }
 }
 
-/// Volume slider plus (on iOS) the system audio-output picker for AirPlay /
-/// Bluetooth routing.
-class _VolumeRow extends StatelessWidget {
-  const _VolumeRow({required this.player});
+/// Volume capsule with speaker icons flanking it.
+class _VolumeBar extends StatelessWidget {
+  const _VolumeBar({required this.player});
   final AudioPlayer player;
 
   @override
@@ -436,36 +558,76 @@ class _VolumeRow extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Icon(Icons.volume_down, size: 20, color: scheme.onSurfaceVariant),
+        Icon(Icons.volume_down, size: 18, color: scheme.onSurfaceVariant),
         Expanded(
           child: StreamBuilder<double>(
             stream: player.volumeStream,
             builder: (context, snap) {
               final volume = (snap.data ?? player.volume).clamp(0.0, 1.0);
               return SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 3,
-                  thumbShape: const RoundSliderThumbShape(
-                    enabledThumbRadius: 5,
-                  ),
-                ),
+                data: _capsuleSlider(scheme, active: false),
                 child: Slider(value: volume, onChanged: player.setVolume),
               );
             },
           ),
         ),
-        Icon(Icons.volume_up, size: 20, color: scheme.onSurfaceVariant),
+        Icon(Icons.volume_up, size: 18, color: scheme.onSurfaceVariant),
+      ],
+    );
+  }
+}
+
+/// The bottom row: shuffle (left), repeat (next to the output button), and the
+/// system audio-output picker with the live device name — Apple Music's
+/// bottom cluster.
+class _OutputRow extends ConsumerWidget {
+  const _OutputRow({required this.controller});
+  final PlaybackController controller;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final shuffle = ref.watch(playbackProvider.select((s) => s.shuffle));
+    final repeat = ref.watch(playbackProvider.select((s) => s.repeat));
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          tooltip: 'Shuffle',
+          icon: const Icon(Icons.shuffle, size: 22),
+          color: shuffle ? scheme.primary : scheme.onSurfaceVariant,
+          onPressed: () => controller.setShuffle(!shuffle),
+        ),
+        const SizedBox(width: 4),
+        IconButton(
+          tooltip: 'Repeat',
+          icon: Icon(repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
+              size: 22),
+          color: repeat != LoopMode.off
+              ? scheme.primary
+              : scheme.onSurfaceVariant,
+          onPressed: controller.cycleRepeat,
+        ),
         if (isIOS) ...[
           const SizedBox(width: 8),
-          // System output picker (AirPlay/Bluetooth). Interactive platform
-          // view: tapping presents the native route sheet.
+          // Interactive native route picker (AirPlay/Bluetooth sheet).
           SizedBox(
-            width: 40,
-            height: 40,
+            width: 34,
+            height: 34,
             child: UiKitView(
               viewType: 'vault/route-picker',
               creationParams: {'tint': scheme.onSurfaceVariant.toARGB32()},
               creationParamsCodec: const StandardMessageCodec(),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              ref.watch(audioOutputNameProvider).asData?.value ?? '',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
             ),
           ),
         ],
