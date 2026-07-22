@@ -190,6 +190,8 @@ func New(o Options) http.Handler {
 				r.Use(s.RequireGrant("files", "write"))
 				r.Post("/files/folder", s.handleMkdir)
 				r.Post("/files/rename", s.handleRenameFile)
+				r.Post("/files/move", s.handleMoveFile)
+				r.Post("/files/copy", s.handleCopyFile)
 				r.Post("/files/upload", s.handleUpload)
 				// Sync folders — a folder pushed from a device, browsable
 				// everywhere (files land via the upload path above).

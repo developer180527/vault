@@ -40,6 +40,8 @@ func (s *Server) filesErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeErr(w, http.StatusBadRequest, "invalid path")
 	case errors.Is(err, files.ErrNotFound), errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not found")
+	case errors.Is(err, files.ErrExists):
+		writeErr(w, http.StatusConflict, "a file with that name already exists here")
 	default:
 		s.fail(w, r, err)
 	}
@@ -120,6 +122,47 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	node, err := s.files.Rename(username, rel, req.Name)
+	if err != nil {
+		s.filesErr(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, node)
+}
+
+// POST /v1/files/move {id, dest_parent}  — relocate a node into another folder.
+func (s *Server) handleMoveFile(w http.ResponseWriter, r *http.Request) {
+	s.transfer(w, r, false)
+}
+
+// POST /v1/files/copy {id, dest_parent}  — duplicate a node into another folder.
+func (s *Server) handleCopyFile(w http.ResponseWriter, r *http.Request) {
+	s.transfer(w, r, true)
+}
+
+func (s *Server) transfer(w http.ResponseWriter, r *http.Request, copy bool) {
+	var req struct {
+		ID         string `json:"id"`
+		DestParent string `json:"dest_parent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad json")
+		return
+	}
+	username, rel, ok := s.userAndRel(w, r, req.ID)
+	if !ok {
+		return
+	}
+	dstParent, err := files.DecodeID(strings.TrimSpace(req.DestParent))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid destination id")
+		return
+	}
+	var node *files.Node
+	if copy {
+		node, err = s.files.Copy(username, rel, dstParent)
+	} else {
+		node, err = s.files.Move(username, rel, dstParent)
+	}
 	if err != nil {
 		s.filesErr(w, r, err)
 		return

@@ -9,6 +9,7 @@ import '../../core/logging/vault_log.dart';
 import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/platform/platform_services.dart';
 import 'data/file_browser_controller.dart';
+import 'data/file_clipboard.dart';
 import 'data/file_download.dart';
 import 'data/upload_queue.dart';
 import 'server_file_preview.dart';
@@ -88,6 +89,38 @@ final filesServiceActions = <VaultAction>[
     },
   ),
   VaultAction(
+    id: 'files.paste',
+    label: 'Paste',
+    icon: VaultIcons.paste,
+    // Reactive: watch so the toolbar/menu shows Paste the moment something is
+    // cut or copied. Needs write to land the node in this folder.
+    isEnabled: (ref) =>
+        ref.watch(fileClipboardProvider) != null && _canWrite(ref),
+    onInvoke: (context, ref) async {
+      final clip = ref.read(fileClipboardProvider);
+      if (clip == null) return;
+      final parent = ref.read(fileBrowserControllerProvider).currentId;
+      final repo = ref.read(fileRepositoryProvider);
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        if (clip.isCut) {
+          await repo.move(clip.node.id, parent);
+          ref.read(fileClipboardProvider.notifier).clear();
+        } else {
+          await repo.copy(clip.node.id, parent);
+        }
+        _log.info('pasted', fields: {
+          'name': clip.node.name,
+          'move': clip.isCut,
+          'into': parent ?? 'root',
+        });
+        _refresh(ref);
+      } catch (e) {
+        messenger.showSnackBar(SnackBar(content: Text('Paste failed: $e')));
+      }
+    },
+  ),
+  VaultAction(
     id: 'files.toggle-view',
     label: 'Toggle List / Grid',
     icon: VaultIcons.toggleView,
@@ -146,6 +179,30 @@ List<VaultAction> _kindActions(FileNode node) {
 
 /// Actions every node gets, regardless of kind.
 List<VaultAction> _commonActions(FileNode node) => [
+      // Cut / Copy → the clipboard; Paste (folder toolbar) lands it here. Both
+      // files and folders can be moved/copied. Needs write.
+      VaultAction(
+        id: 'file.cut',
+        label: 'Cut',
+        icon: VaultIcons.cut,
+        isEnabled: _canWrite,
+        onInvoke: (context, ref) {
+          ref.read(fileClipboardProvider.notifier).cut(node);
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Cut “${node.name}” — Paste into a folder')));
+        },
+      ),
+      VaultAction(
+        id: 'file.copy',
+        label: 'Copy',
+        icon: VaultIcons.copy,
+        isEnabled: _canWrite,
+        onInvoke: (context, ref) {
+          ref.read(fileClipboardProvider.notifier).copy(node);
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Copied “${node.name}” — Paste into a folder')));
+        },
+      ),
       if (!node.isFolder)
         VaultAction(
           id: 'file.download',

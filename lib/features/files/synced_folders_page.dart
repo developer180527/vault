@@ -90,12 +90,23 @@ class SyncedFoldersPage extends ConsumerWidget {
                     const SizedBox(height: 8),
                     LinearProgressIndicator(value: progress.fraction),
                     const SizedBox(height: 6),
-                    Text(
-                      '${progress.done} of ${progress.total}'
-                      '${progress.current.isEmpty ? '' : ' — ${progress.current}'}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${progress.done} of ${progress.total}'
+                            '${progress.current.isEmpty ? '' : ' — ${progress.current}'}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () =>
+                              ref.read(syncProgressProvider.notifier).cancel(),
+                          child: const Text('Cancel'),
+                        ),
+                      ],
                     ),
                   ],
                 ),

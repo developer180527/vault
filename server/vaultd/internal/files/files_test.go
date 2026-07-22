@@ -134,6 +134,50 @@ func TestMkdirRenameTrash(t *testing.T) {
 	}
 }
 
+func TestMoveCopy(t *testing.T) {
+	s, root := newSvc(t)
+	if _, err := s.Mkdir("venu", "files", "Trip"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Copy note.txt into files/Trip — original stays, duplicate appears.
+	if _, err := s.Copy("venu", "files/note.txt", "files/Trip"); err != nil {
+		t.Fatalf("copy: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "users", "venu", "files", "note.txt")); err != nil {
+		t.Fatal("copy removed the original")
+	}
+	if _, err := os.Stat(filepath.Join(root, "users", "venu", "files", "Trip", "note.txt")); err != nil {
+		t.Fatalf("copy target missing: %v", err)
+	}
+
+	// Move it too — original gone, target present.
+	if _, err := s.Move("venu", "files/note.txt", "files/Trip"); err == nil {
+		// Trip/note.txt already exists from the copy → must be a conflict.
+		t.Fatal("move onto an existing name should fail")
+	}
+	if _, err := s.Mkdir("venu", "files", "Away"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Move("venu", "files/note.txt", "files/Away"); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "users", "venu", "files", "note.txt")); !os.IsNotExist(err) {
+		t.Fatal("move left the original behind")
+	}
+	if _, err := os.Stat(filepath.Join(root, "users", "venu", "files", "Away", "note.txt")); err != nil {
+		t.Fatalf("move target missing: %v", err)
+	}
+
+	// A zone root can't be moved, and a folder can't move into itself.
+	if _, err := s.Move("venu", "files", "downloads"); err == nil {
+		t.Error("moving a zone root was allowed")
+	}
+	if _, err := s.Move("venu", "files/Trip", "files/Trip"); err == nil {
+		t.Error("moving a folder into itself was allowed")
+	}
+}
+
 func TestUploadAtomicIngest(t *testing.T) {
 	s, root := newSvc(t)
 	node, err := s.Upload("venu", "files", "clip.mp4", strings.NewReader("videobytes"))

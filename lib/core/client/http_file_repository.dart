@@ -117,6 +117,24 @@ class HttpFileRepository implements FileRepository {
   }
 
   @override
+  Future<String> move(String id, String? destParentId) =>
+      _transfer('move', id, destParentId);
+
+  @override
+  Future<String> copy(String id, String? destParentId) =>
+      _transfer('copy', id, destParentId);
+
+  Future<String> _transfer(String op, String id, String? destParentId) async {
+    final res = await http.post(
+      _session.api('/v1/files/$op'),
+      headers: await _headers(json: true),
+      body: jsonEncode({'id': id, 'dest_parent': destParentId ?? ''}),
+    );
+    _check(res, op);
+    return (jsonDecode(res.body) as Map<String, Object?>)['id'] as String;
+  }
+
+  @override
   bool get supportsPinning => false; // sync/mirror lands M-later
 
   @override

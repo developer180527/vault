@@ -222,6 +222,21 @@ abstract final class VaultIcons {
     sfSymbol: 'pencil',
   );
 
+  static const cut = AdaptiveIconData(
+    material: Icons.content_cut,
+    sfSymbol: 'scissors',
+  );
+
+  static const copy = AdaptiveIconData(
+    material: Icons.content_copy,
+    sfSymbol: 'doc.on.doc',
+  );
+
+  static const paste = AdaptiveIconData(
+    material: Icons.content_paste,
+    sfSymbol: 'doc.on.clipboard',
+  );
+
   static const share = AdaptiveIconData(
     material: Icons.share_outlined,
     sfSymbol: 'square.and.arrow.up',

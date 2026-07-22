@@ -34,9 +34,19 @@ class SyncProgress {
 }
 
 class SyncProgressNotifier extends Notifier<SyncProgress?> {
+  bool _cancelRequested = false;
+
   @override
   SyncProgress? build() => null;
-  void set(SyncProgress? p) => state = p;
+
+  void set(SyncProgress? p) {
+    if (p != null && state == null) _cancelRequested = false; // fresh run
+    state = p;
+  }
+
+  /// Ask the in-flight push to stop; it checks this between files.
+  void cancel() => _cancelRequested = true;
+  bool get cancelRequested => _cancelRequested;
 }
 
 final syncProgressProvider =
@@ -85,18 +95,36 @@ Future<String?> pickAndSyncFolder(WidgetRef ref) async {
   _log.info('synced folder created',
       fields: {'name': name, 'device': origin.device});
 
-  // Enumerate files first (so we have a total for progress). Skip hidden
-  // files and anything unreadable.
-  final files = <File>[];
-  await for (final entity in dir.list(recursive: true, followLinks: false)) {
-    if (entity is File) {
-      final base = entity.path.split(Platform.pathSeparator).last;
-      if (!base.startsWith('.')) files.add(entity);
+  // Enumerate files, PRUNING hidden files AND directories (a leading-dot
+  // component anywhere in the path). The server reserves dot-names (.trash /
+  // .art) and its scanner skips dot-dirs, so it 400s on `mkdir .qt` — and
+  // those paths are almost always caches / build junk (.git, .qtc_clangd…).
+  // A manual walk lets us skip descending into a hidden dir entirely, instead
+  // of listing thousands of files under it only to drop them.
+  final files = <(File, String)>[]; // (file, relPath) — rel joined with '/'
+  Future<void> walk(Directory d, String rel) async {
+    List<FileSystemEntity> children;
+    try {
+      children = await d.list(followLinks: false).toList();
+    } catch (_) {
+      return; // unreadable dir — skip
+    }
+    for (final e in children) {
+      final base = e.path.split(Platform.pathSeparator).last;
+      if (base.startsWith('.')) continue; // prune hidden files & dirs
+      final childRel = rel.isEmpty ? base : '$rel/$base';
+      if (e is Directory) {
+        await walk(e, childRel);
+      } else if (e is File) {
+        files.add((e, childRel));
+      }
     }
   }
 
-  ref.read(syncProgressProvider.notifier).set(
-      SyncProgress(folder: name, done: 0, total: files.length));
+  await walk(dir, '');
+
+  final progress = ref.read(syncProgressProvider.notifier);
+  progress.set(SyncProgress(folder: name, done: 0, total: files.length));
 
   // Recreate the tree lazily: map a relative dir path → its server node id.
   final dirNodes = <String, String>{'': rootNodeId};
@@ -113,15 +141,16 @@ Future<String?> pickAndSyncFolder(WidgetRef ref) async {
     return id;
   }
 
-  for (final f in files) {
-    final rel = f.path
-        .substring(dirPath.length)
-        .replaceAll(Platform.pathSeparator, '/')
-        .replaceFirst(RegExp('^/'), '');
+  var cancelled = false;
+  for (final (f, rel) in files) {
+    if (progress.cancelRequested) {
+      cancelled = true;
+      break;
+    }
     final base = rel.contains('/') ? rel.substring(rel.lastIndexOf('/') + 1) : rel;
     final relDir = rel.contains('/') ? rel.substring(0, rel.lastIndexOf('/')) : '';
-    ref.read(syncProgressProvider.notifier).set(
-        SyncProgress(folder: name, done: uploaded, total: files.length, current: base));
+    progress.set(SyncProgress(
+        folder: name, done: uploaded, total: files.length, current: base));
     try {
       final len = await f.length();
       final parentNode = await nodeForDir(relDir);
@@ -134,9 +163,9 @@ Future<String?> pickAndSyncFolder(WidgetRef ref) async {
   }
 
   await api.touch(info.id, fileCount: uploaded, totalBytes: totalBytes);
-  ref.read(syncProgressProvider.notifier).set(null);
+  progress.set(null);
   ref.invalidate(syncedFoldersProvider);
-  _log.info('synced folder push done',
+  _log.info(cancelled ? 'synced folder push cancelled' : 'synced folder push done',
       fields: {'name': name, 'files': uploaded, 'bytes': totalBytes});
   return info.id;
 }

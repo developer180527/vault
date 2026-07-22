@@ -405,6 +405,43 @@ class MockFileRepository implements FileRepository {
   }
 
   @override
+  Future<String> move(String id, String? destParentId) async {
+    final n = _byId[id];
+    if (n == null) return id;
+    _childIds[n.parentId]?.remove(id);
+    _byId[id] = _reparent(n, id, destParentId);
+    _childIds.putIfAbsent(destParentId, () => []).add(id);
+    _bumpChildCount(n.parentId, -1);
+    _bumpChildCount(destParentId, 1);
+    return id;
+  }
+
+  @override
+  Future<String> copy(String id, String? destParentId) async {
+    final n = _byId[id];
+    if (n == null) return id;
+    final newId = _newId('file');
+    _add(_reparent(n, newId, destParentId));
+    _bumpChildCount(destParentId, 1);
+    return newId;
+  }
+
+  // copyWith can't change id/parentId, so rebuild the node for a move/copy.
+  FileNode _reparent(FileNode n, String id, String? parentId) => FileNode(
+        id: id,
+        parentId: parentId,
+        name: n.name,
+        kind: n.kind,
+        syncStatus: n.syncStatus,
+        shareStatus: n.shareStatus,
+        pinned: n.pinned,
+        mediaKind: n.mediaKind,
+        size: n.size,
+        modifiedAt: DateTime.now(),
+        childCount: n.childCount,
+      );
+
+  @override
   bool get supportsPinning => true;
 
   @override

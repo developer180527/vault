@@ -88,6 +88,14 @@ abstract interface class FileRepository {
 
   Future<void> rename(String id, String newName);
 
+  /// Move [id] into folder [destParentId] (null/'' = library root). Returns the
+  /// moved node's new id (ids are path-derived, so a move changes them).
+  Future<String> move(String id, String? destParentId);
+
+  /// Copy [id] (recursively, for folders) into [destParentId]. Returns the new
+  /// node's id.
+  Future<String> copy(String id, String? destParentId);
+
   /// Whether this backend can honor offline pinning. When false the UI hides
   /// the pin action entirely (never show a control that silently no-ops).
   bool get supportsPinning;

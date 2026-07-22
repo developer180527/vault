@@ -33,6 +33,9 @@ var ErrInvalidPath = errors.New("invalid path")
 // ErrNotFound mirrors store.ErrNotFound for fs entities.
 var ErrNotFound = errors.New("not found")
 
+// ErrExists is returned when a move/copy target name is already taken.
+var ErrExists = errors.New("already exists")
+
 // Node is one entry in the library.
 type Node struct {
 	ID         string    `json:"id"`
@@ -211,6 +214,97 @@ func (s *Service) Mkdir(username, parentRel, name string) (*Node, error) {
 		return nil, err
 	}
 	return s.nodeFor(username, rel)
+}
+
+// Move relocates a node under dstParentRel, keeping its basename. Refuses to
+// move a zone root, to move a folder into itself/a descendant, or onto an
+// existing name.
+func (s *Service) Move(username, srcRel, dstParentRel string) (*Node, error) {
+	dstRel, srcAbs, dstAbs, err := s.resolveTransfer(username, srcRel, dstParentRel)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Rename(srcAbs, dstAbs); err != nil {
+		return nil, err
+	}
+	return s.nodeFor(username, dstRel)
+}
+
+// Copy duplicates a node (recursively, for folders) under dstParentRel.
+func (s *Service) Copy(username, srcRel, dstParentRel string) (*Node, error) {
+	dstRel, srcAbs, dstAbs, err := s.resolveTransfer(username, srcRel, dstParentRel)
+	if err != nil {
+		return nil, err
+	}
+	if err := copyTree(srcAbs, dstAbs); err != nil {
+		return nil, err
+	}
+	return s.nodeFor(username, dstRel)
+}
+
+// resolveTransfer validates a move/copy of srcRel into dstParentRel and returns
+// the destination rel path plus both absolute paths.
+func (s *Service) resolveTransfer(username, srcRel, dstParentRel string) (dstRel, srcAbs, dstAbs string, err error) {
+	if isZoneRoot(srcRel) {
+		return "", "", "", ErrInvalidPath // zones are fixed
+	}
+	srcAbs, err = s.SafeJoin(username, srcRel)
+	if err != nil {
+		return "", "", "", err
+	}
+	if _, statErr := os.Stat(srcAbs); statErr != nil {
+		return "", "", "", ErrNotFound
+	}
+	dstRel = filepath.Join(dstParentRel, filepath.Base(srcRel))
+	dstAbs, err = s.SafeJoin(username, dstRel)
+	if err != nil {
+		return "", "", "", err
+	}
+	// No moving/copying a folder into itself or a descendant.
+	sep := string(os.PathSeparator)
+	if dstAbs == srcAbs || strings.HasPrefix(dstAbs+sep, srcAbs+sep) {
+		return "", "", "", ErrInvalidPath
+	}
+	if _, statErr := os.Stat(dstAbs); statErr == nil {
+		return "", "", "", ErrExists
+	}
+	return dstRel, srcAbs, dstAbs, nil
+}
+
+// copyTree recursively copies src to dst (dst must not exist).
+func copyTree(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		if err := os.MkdirAll(dst, 0o700); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if err := copyTree(filepath.Join(src, e.Name()),
+				filepath.Join(dst, e.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // Rename changes a node's basename (its parent stays fixed).

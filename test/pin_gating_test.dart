@@ -33,6 +33,10 @@ class _NoPinRepo implements FileRepository {
   @override
   Future<void> rename(String id, String newName) async {}
   @override
+  Future<String> move(String id, String? destParentId) async => '';
+  @override
+  Future<String> copy(String id, String? destParentId) async => '';
+  @override
   Future<void> setPinned(String id, bool pinned) async =>
       throw UnsupportedError('pinning not supported');
   @override
