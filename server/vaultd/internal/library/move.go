@@ -1,13 +1,22 @@
 package library
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 )
+
+// placeMu serializes only the FINAL name claim (uniquePath + rename), which is
+// instant — never the slow copy. Without it, two concurrent same-name moves
+// could uniquePath to the same free name and clobber each other (TOCTOU). One
+// process, so a package mutex is enough.
+var placeMu sync.Mutex
 
 // MoveInto moves srcPath into the user's <zone> (e.g. "downloads"),
 // preserving the source's base name, and returns the final path.
@@ -26,27 +35,41 @@ func MoveInto(dataRoot, username, zone, srcPath string) (string, error) {
 	if err := os.MkdirAll(dstDir, 0o700); err != nil {
 		return "", err
 	}
-	final := uniquePath(filepath.Join(dstDir, filepath.Base(srcPath)))
+	base := filepath.Base(srcPath)
 
-	// Fast path: same filesystem.
-	if err := os.Rename(srcPath, final); err == nil {
-		return final, nil
-	} else if !isCrossDevice(err) {
-		return "", err
+	// 1. Get the payload onto the destination filesystem at a UNIQUE hidden
+	//    temp (random suffix → no collision between concurrent moves, and no
+	//    reader ever sees a half-written file). Same-fs is an instant rename;
+	//    cross-device (separate ZFS datasets) copies + fsyncs.
+	tmp := filepath.Join(dstDir, "."+base+".incoming."+randSuffix())
+	if err := os.Rename(srcPath, tmp); err != nil {
+		if !isCrossDevice(err) {
+			return "", err
+		}
+		if err := copyTree(srcPath, tmp); err != nil {
+			_ = os.RemoveAll(tmp)
+			return "", err
+		}
+		_ = os.RemoveAll(srcPath) // best-effort source cleanup after the copy
 	}
 
-	// Cross-device: copy into a temp on the destination fs, then local rename.
-	tmp := final + ".incoming"
-	if err := copyTree(srcPath, tmp); err != nil {
-		_ = os.RemoveAll(tmp)
-		return "", err
-	}
+	// 2. Claim the final name and place the temp there — serialized and
+	//    instant, so uniquePath's "is it free?" and the rename can't be raced.
+	placeMu.Lock()
+	defer placeMu.Unlock()
+	final := uniquePath(filepath.Join(dstDir, base))
 	if err := os.Rename(tmp, final); err != nil {
 		_ = os.RemoveAll(tmp)
 		return "", err
 	}
-	_ = os.RemoveAll(srcPath) // best-effort source cleanup
 	return final, nil
+}
+
+// randSuffix is a short random hex string for a collision-free temp name.
+func randSuffix() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 func isCrossDevice(err error) bool {
