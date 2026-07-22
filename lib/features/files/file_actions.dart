@@ -10,6 +10,7 @@ import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/platform/platform_services.dart';
 import 'data/file_browser_controller.dart';
 import 'data/file_download.dart';
+import 'file_open.dart';
 import '../../core/models/file_node.dart';
 import 'data/files_view.dart';
 import 'synced_folders_page.dart';
@@ -125,10 +126,10 @@ List<VaultAction> _kindActions(FileNode node) {
       id: 'file.open',
       label: label,
       icon: icon,
-      // TODO(files): hand media kinds to the viewer/player once file bytes
-      // are reachable (needs sync); documents to a platform open-with.
-      onInvoke: (context, ref) => ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Open "${node.name}" — player next'))),
+      // In-app preview routed by kind: image viewer, video/audio player, or
+      // the document viewer (PDF/markdown/code/text). Unpreviewable types fall
+      // back to a "use Download" hint.
+      onInvoke: (context, ref) => openFileNode(context, ref, node),
     ),
   ];
 }

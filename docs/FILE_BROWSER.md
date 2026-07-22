@@ -75,7 +75,19 @@ Desktop: a "Places" column in a secondary sidebar. Mobile: a segmented/scrollabl
 - **delete:** → trash (retention; client never hard-deletes)
 - **share:** grant/revoke to circle members
 
-Controls are **hidden entirely** when the capability is absent (consistent with the manifest system; the server still re-checks every request). Opening a media file hands off to the media player; other types use platform preview.
+Controls are **hidden entirely** when the capability is absent (consistent with the manifest system; the server still re-checks every request).
+
+**Opening a file (in-app preview).** "Open" routes by media kind (`file_open.dart`), rendering everything in-app — no round-trip through an external app:
+
+| Kind | Viewer |
+| --- | --- |
+| image | `FileImageViewerPage` — PhotoView, pinch-zoom / double-tap, streamed with the bearer |
+| video | `FileVideoViewerPage` — the central `PlaybackController` (one video session, resume-aware); direct-play only (files have no transcode endpoint) |
+| audio | enqueued into the audio player as a one-item queue (the mini-player appears) |
+| pdf / markdown / code / text | `DocumentViewerPage` — pdfrx for PDFs, rendered markdown, and a selectable line-numbered mono view (wrap + copy) for code/text; JSON is pretty-printed |
+| anything else | a "use Download" hint — nothing can render it in-app |
+
+Bytes come from `/v1/files/{id}/content` with the bearer (refreshed up front so a long read/watch survives the 15-min token). Files are bearer-only — no signed URLs — so the audio path streams through just_audio's header proxy (fine here; it's not the hot music path). **Download** (native destination picker, streamed to disk) remains the escape hatch for unpreviewable types and for keeping a local copy.
 
 ## 8. Offline & optimistic behavior
 
