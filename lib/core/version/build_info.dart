@@ -4,10 +4,10 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 54;
-  static const String commit = '06381d1';
-  static const String commitSubject = 'Movie catalog (admin) A new Movie catalog nav item, mirroring the Music catalog manager: List page — search + \'Scan for new titles\', then a table with poster thumbnail, title (with an SxxExx pill for episodes), series, year, and a Tracks column showing \'2 audio · 1 sub\' at a glance. Edit page — Title, Kind (movie/episode), Series, Year, Season, Episode, Overview, plus a read-only Media panel that lists every probed audio track (language, codec, channels, default) and subtitle track (language, sidecar/embedded, \'image (no OCR)\' for the ones the client can\'t use) — so one can see exactly what a file offers. Poster upload (override, survives rescans) and a typed-confirmation danger-zone delete that trashes the file on disk. Deliberately no browser upload (unlike music): movie files are large, so the flow is scp/rsync into /srv/vault/movies then Scan — the page says so. Every mutation audits (movie.edit, movie.delete, movie.art, movies.scan) into the Activity feed. Tested end-to-end. Insights, reorganized The old flat scroll is now a dashboard: A KPI summary strip up top — Plays (30d), Active listeners, Photos & videos, Backed up — for at-a-glance context. Section-jump pills (🎵 Music / 🖼 Photos) that anchor-scroll, and clean uppercase section heads. Two-column layouts grouping related panels (Top tracks beside Top artists + Most active listeners), each panel with its own title instead of loose <h2>s. Sections only render when there\'s data, so a music-only or photos-only household sees a focused page. Bonus polish: textareas and selects now inherit the dark input styling (the Overview box was rendering with a mismatched grey background).';
-  static const String date = '2026-07-20';
+  static const int build = 74;
+  static const String commit = '08fb7ab';
+  static const String commitSubject = 'Custom Flutter glass nav (animatable), player control order, movie chrome fix';
+  static const String date = '2026-07-22';
 
   static String get label =>
       build == 0 ? '$version (dev)' : '$version (build $build)';
