@@ -99,6 +99,11 @@ class MobileShell extends ConsumerWidget {
 const double _kDockHeight = 64;
 const double _kMiniPlayerHeight = 44;
 
+/// One shared duration/curve for the chrome's size + content animations, so the
+/// mini-player's fade/slide and the height it grows into stay in lockstep.
+const Duration _kChromeAnim = Duration(milliseconds: 360);
+const Curve _kChromeCurve = Curves.easeOutCubic;
+
 /// Whether the bottom chrome is COLLAPSED, Apple Music-style: the dock tucks
 /// into a single 4-box button and the mini player (when active) sits between
 /// it and the You circle, all on one row. Swipe down on the dock to collapse;
@@ -181,8 +186,8 @@ class _BottomBarArea extends ConsumerWidget {
                 );
 
           return AnimatedSize(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOutCubic,
+            duration: _kChromeAnim,
+            curve: _kChromeCurve,
             alignment: Alignment.bottomCenter,
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 250),
@@ -236,9 +241,11 @@ class _ExpandedChrome extends StatefulWidget {
 
 class _ExpandedChromeState extends State<_ExpandedChrome>
     with SingleTickerProviderStateMixin {
+  // Matched to the parent AnimatedSize (_kChromeAnim) so the pill's content
+  // and the height it grows into move as one.
   late final AnimationController _entrance = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 440),
+    duration: _kChromeAnim,
   );
 
   @override
@@ -280,10 +287,12 @@ class _ExpandedChromeState extends State<_ExpandedChrome>
               },
               child: SizedBox(
                 height: _kDockHeight,
-                // Inner padding keeps the end slots clear of the pill's curved
-                // ends, so the capsule geometry is identical for every slot.
+                // Wider inner padding so even the end slots' selection capsule
+                // stays inside the pill's straight middle, never poking into
+                // the rounded cap (where the ClipRRect would shave it — the
+                // "glow cutout").
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: _DockRow(
                     dock: widget.dock,
                     selectedIndex: widget.onUserPage
@@ -303,43 +312,35 @@ class _ExpandedChromeState extends State<_ExpandedChrome>
       ],
     );
 
-    // Now that the glass is Flutter-drawn (not a native platform view), the
-    // mini-player's GLASS itself animates: it grows in height from behind the
-    // dock (heightFactor), fades, and eases up — while the dock + You settle
-    // (0.96 → 1.0) on the same beat. This is the smooth entrance the native
-    // panel couldn't do (a platform view can't tween).
+    // The mini-player entrance is driven by ONE controller doing only the
+    // CONTENT (fade + slide-up + a small button settle). The height growth is
+    // owned solely by the parent AnimatedSize (matched duration/curve) — having
+    // both animate height was what made it feel janky. Slide starts below and
+    // eases up as the space opens, so the pill rises into place.
     return AnimatedBuilder(
       animation: _entrance,
       builder: (context, _) {
-        final t = _entrance.value;
-        final fade = Curves.easeOut.transform(t);
-        final grow = Curves.easeOutCubic.transform(t);
-        final rise = (1 - grow) * 10.0;
-        final settle = 0.96 + 0.04 * Curves.easeOut.transform(t);
+        final e = _entrance.value;
+        final fade = Curves.easeOut.transform(e);
+        final rise = (1 - Curves.easeOutCubic.transform(e)) * 14.0;
+        final settle = 0.97 + 0.03 * Curves.easeOut.transform(e);
         return Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (hasTrack)
-              ClipRect(
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  heightFactor: grow.clamp(0.0001, 1.0),
-                  child: Opacity(
-                    opacity: fade.clamp(0.0, 1.0),
-                    child: Transform.translate(
-                      offset: Offset(0, rise),
-                      child: const Padding(
-                        padding: EdgeInsets.only(bottom: 8),
-                        child: GlassSurface(
-                          radius: _kMiniPlayerHeight / 2,
-                          child: _MiniPlayerPill(),
-                        ),
-                      ),
-                    ),
+            if (hasTrack) ...[
+              Opacity(
+                opacity: fade.clamp(0.0, 1.0),
+                child: Transform.translate(
+                  offset: Offset(0, rise),
+                  child: const GlassSurface(
+                    radius: _kMiniPlayerHeight / 2,
+                    child: _MiniPlayerPill(),
                   ),
                 ),
               ),
+              const SizedBox(height: 8),
+            ],
             Transform.scale(scale: settle, child: dockRow),
           ],
         );
@@ -484,31 +485,30 @@ class _DockRow extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final slotWidth = width / n;
-        // The dock row sits inside the pill with its own horizontal padding,
-        // so every slot — including the extremes — has identical geometry and
-        // the capsule is simply centered on its slot. No edge clamping: that
-        // asymmetry was what made the end slots look wrong.
-        final capsuleWidth = math.min(slotWidth + 6, width);
+        // Capsule fits WITHIN its slot (never wider), so it can't spill past
+        // the slot into the pill's rounded cap and get clipped. A small inset
+        // (top/bottom 10, ~4px side gap) also gives the corners clearance.
+        const vInset = 10.0;
+        final capsuleHeight = _kDockHeight - vInset * 2;
+        final capsuleWidth = math.max(0.0, slotWidth - 4);
         final i = selectedIndex.clamp(0, n - 1);
         final left = i * slotWidth + (slotWidth - capsuleWidth) / 2;
         return Stack(
           children: [
             AnimatedPositioned(
-              duration: const Duration(milliseconds: 350),
-              curve: Curves.easeOutBack,
+              duration: const Duration(milliseconds: 340),
+              curve: Curves.easeOutCubic,
               left: left,
-              top: 7,
+              top: vInset,
               width: capsuleWidth,
-              height: _kDockHeight - 14,
+              height: capsuleHeight,
               child: AnimatedOpacity(
                 duration: const Duration(milliseconds: 150),
                 opacity: selectedIndex < 0 ? 0 : 1,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: scheme.secondaryContainer.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(
-                      (_kDockHeight - 14) / 2,
-                    ),
+                    borderRadius: BorderRadius.circular(capsuleHeight / 2),
                   ),
                 ),
               ),

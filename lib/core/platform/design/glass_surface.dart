@@ -12,7 +12,7 @@ class GlassSurface extends StatelessWidget {
     super.key,
     required this.radius,
     required this.child,
-    this.blur = 24,
+    this.blur = 32,
   });
 
   final double radius;
@@ -27,21 +27,26 @@ class GlassSurface extends StatelessWidget {
     return ClipRRect(
       borderRadius: br,
       child: BackdropFilter(
+        // Heavier blur reads as thicker glass, and desaturates less of the
+        // scene so it stays see-through rather than a flat tint.
         filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
         child: DecoratedBox(
+          // Low-opacity tint (you can see the content behind), brighter at the
+          // top like light pooling on the glass, fading toward the bottom; plus
+          // a bright hairline border that reads as the glass's specular rim.
           decoration: BoxDecoration(
             borderRadius: br,
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                scheme.surface.withValues(alpha: dark ? 0.55 : 0.74),
-                scheme.surface.withValues(alpha: dark ? 0.40 : 0.60),
+                scheme.surface.withValues(alpha: dark ? 0.42 : 0.55),
+                scheme.surface.withValues(alpha: dark ? 0.24 : 0.40),
               ],
             ),
             border: Border.all(
-              color: scheme.onSurface.withValues(alpha: dark ? 0.14 : 0.10),
-              width: 0.6,
+              color: Colors.white.withValues(alpha: dark ? 0.22 : 0.50),
+              width: 0.8,
             ),
           ),
           child: child,
