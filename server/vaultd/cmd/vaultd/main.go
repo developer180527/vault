@@ -44,18 +44,15 @@ func main() {
 	defer st.Close()
 	log.Info("store ready", "path", cfg.DBPath)
 
-	// OIDC verification against Pocket ID. Failure is non-fatal so the rest
-	// of the server (health, later read paths) stays up, but auth endpoints
-	// will refuse until the issuer is reachable.
+	// OIDC verification against Pocket ID. Discovery runs in the BACKGROUND and
+	// self-heals: on a cold power-on vaultd usually starts before Tailscale/
+	// Pocket ID are up (the tailnet name isn't resolvable yet), so a one-shot
+	// discovery would permanently disable auth until a manual restart. Instead
+	// we keep retrying with backoff — auth flips on the moment the issuer is
+	// reachable, no restart needed.
 	var verifier auth.Verifier
 	if cfg.OIDCIssuer != "" {
-		v, err := auth.NewOIDCVerifier(ctx, cfg.OIDCIssuer, cfg.OIDCClientID)
-		if err != nil {
-			log.Warn("OIDC verifier unavailable — auth disabled", "err", err)
-		} else {
-			verifier = v
-			log.Info("OIDC ready", "issuer", cfg.OIDCIssuer)
-		}
+		verifier = auth.StartOIDCDiscovery(ctx, cfg.OIDCIssuer, cfg.OIDCClientID, log)
 	} else {
 		log.Warn("VAULTD_OIDC_ISSUER not set — auth disabled")
 	}
