@@ -646,48 +646,45 @@ class _OutputRow extends ConsumerWidget {
       );
     }
 
-    // The AirPlay/Bluetooth picker centered, with the live output device name
-    // directly beneath it; shuffle + repeat sit to its left (repeat nearest).
-    // Equal Expanded flanks keep the picker dead-centre on screen.
-    final outputColumn = Column(
+    final picker = SizedBox(
+      width: 34,
+      height: 34,
+      child: UiKitView(
+        viewType: 'vault/route-picker',
+        creationParams: {'tint': scheme.onSurface.toARGB32()},
+        creationParamsCodec: const StandardMessageCodec(),
+      ),
+    );
+
+    // The picker sits DEAD-CENTRE (equal Expanded flanks). Repeat is pinned
+    // right beside it (left flank, end-aligned), shuffle to repeat's left. The
+    // device name is a full-width centered line below, so it sits under the
+    // centered picker without widening the row and shoving the buttons away.
+    return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          height: 44,
-          child: Center(
-            child: SizedBox(
-              width: 34,
-              height: 34,
-              child: UiKitView(
-                viewType: 'vault/route-picker',
-                creationParams: {'tint': scheme.onSurface.toARGB32()},
-                creationParamsCodec: const StandardMessageCodec(),
+        Row(
+          children: [
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [shuffleBtn, const SizedBox(width: 4), repeatBtn],
               ),
             ),
-          ),
+            const SizedBox(width: 10),
+            picker,
+            const SizedBox(width: 10),
+            const Expanded(child: SizedBox()),
+          ],
         ),
+        const SizedBox(height: 2),
         Text(
           ref.watch(audioOutputNameProvider).asData?.value ?? '',
+          textAlign: TextAlign.center,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
         ),
-      ],
-    );
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [shuffleBtn, const SizedBox(width: 4), repeatBtn],
-          ),
-        ),
-        const SizedBox(width: 12),
-        outputColumn,
-        const SizedBox(width: 12),
-        const Expanded(child: SizedBox()),
       ],
     );
   }

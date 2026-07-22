@@ -17,6 +17,7 @@ import '../../core/prefs/theme_prefs.dart';
 import '../../core/services/service_registry.dart';
 import '../../core/tasks/background_tasks.dart';
 import '../logs/log_viewer_page.dart';
+import 'local_data_page.dart';
 
 
 /// Settings. In debug it doubles as the **mock manifest editor** — a stand-in
@@ -397,6 +398,16 @@ class _StorageSectionState extends State<_StorageSection> {
           trailing: TextButton(
             onPressed: _clear,
             child: const Text('Clear'),
+          ),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.folder_outlined),
+          title: const Text('Local data'),
+          subtitle: const Text('Everything Vault stores on this device'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const LocalDataPage()),
           ),
         ),
       ],
