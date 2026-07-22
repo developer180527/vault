@@ -83,6 +83,34 @@ func (f *fakeIDP) mint(t *testing.T, sub, email, username string) string {
 	return raw
 }
 
+// mintUnverified is like mint but stamps email_verified:false, for asserting
+// that an unverified email can't bind a pending invite.
+func (f *fakeIDP) mintUnverified(t *testing.T, sub, email, username string) string {
+	t.Helper()
+	signer, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.RS256, Key: f.key},
+		(&jose.SignerOptions{}).WithHeader("kid", "test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	raw, err := jwt.Signed(signer).Claims(jwt.Claims{
+		Issuer:   f.issuer,
+		Subject:  sub,
+		Audience: jwt.Audience{"vault-app"},
+		IssuedAt: jwt.NewNumericDate(now),
+		Expiry:   jwt.NewNumericDate(now.Add(time.Hour)),
+	}).Claims(map[string]any{
+		"email":              email,
+		"email_verified":     false,
+		"preferred_username": username,
+	}).Serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 type testEnv struct {
 	handler  http.Handler
 	store    *store.Store
@@ -217,6 +245,17 @@ func TestAuthLifecycle(t *testing.T) {
 	mcaps := m2["capabilities"].(map[string]any)
 	if len(mcaps) != 1 || mcaps["torrent"] == nil {
 		t.Fatalf("member caps = %v", mcaps)
+	}
+
+	// An UNVERIFIED email must NOT bind a pending invite: create a fresh
+	// invite, then present a token with email_verified:false for it → refused.
+	if _, err := e.store.Write().CreateUser(ctx, "eve", "eve@example.com", "", "member", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	unverified := e.idp.mintUnverified(t, "sub-eve", "eve@example.com", "eve")
+	if code, _ := e.call(t, "POST", "/v1/devices/register", "", map[string]any{
+		"id_token": unverified}); code != 403 {
+		t.Fatalf("unverified-email invite bind not refused (got %d)", code)
 	}
 }
 

@@ -9,11 +9,12 @@ import (
 
 // Identity is what vaultd needs from a verified ID token.
 type Identity struct {
-	Issuer   string
-	Subject  string
-	Email    string
-	Name     string
-	Username string // preferred_username claim, if present
+	Issuer        string
+	Subject       string
+	Email         string
+	EmailVerified bool
+	Name          string
+	Username      string // preferred_username claim, if present
 }
 
 // Verifier validates a raw OIDC ID token and extracts the identity.
@@ -50,18 +51,22 @@ func (v *oidcVerifier) Verify(ctx context.Context, raw string) (*Identity, error
 		return nil, err
 	}
 	var claims struct {
-		Email    string `json:"email"`
-		Name     string `json:"name"`
-		Username string `json:"preferred_username"`
+		Email         string `json:"email"`
+		EmailVerified *bool  `json:"email_verified"`
+		Name          string `json:"name"`
+		Username      string `json:"preferred_username"`
 	}
 	if err := tok.Claims(&claims); err != nil {
 		return nil, err
 	}
 	return &Identity{
-		Issuer:   v.issuer,
-		Subject:  tok.Subject,
-		Email:    claims.Email,
-		Name:     claims.Name,
-		Username: claims.Username,
+		Issuer:  v.issuer,
+		Subject: tok.Subject,
+		Email:   claims.Email,
+		// Absent claim → treated as verified (our IdP is admin-controlled and
+		// may omit it); only an EXPLICIT false marks the email unverified.
+		EmailVerified: claims.EmailVerified == nil || *claims.EmailVerified,
+		Name:          claims.Name,
+		Username:      claims.Username,
 	}, nil
 }

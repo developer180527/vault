@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -165,7 +166,10 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad json")
 		return
 	}
-	if s.setupCode == "" || req.Code != s.setupCode {
+	// Constant-time compare so the one-time bootstrap code can't be recovered
+	// byte-by-byte via response timing. The empty-code guard is public state.
+	if s.setupCode == "" ||
+		subtle.ConstantTimeCompare([]byte(req.Code), []byte(s.setupCode)) != 1 {
 		writeErr(w, http.StatusForbidden, "setup unavailable or wrong code")
 		return
 	}
@@ -233,9 +237,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	read := s.store.Read()
 	u, err := read.UserByOIDC(r.Context(), id.Issuer, id.Subject)
-	if errors.Is(err, store.ErrNotFound) && id.Email != "" {
+	if errors.Is(err, store.ErrNotFound) && id.Email != "" && id.EmailVerified {
 		// Invite binding: admin pre-created this user by email; first login
-		// attaches the OIDC identity permanently.
+		// attaches the OIDC identity permanently. Gated on a VERIFIED email so
+		// a token carrying an unverified address can't hijack someone else's
+		// pending invite.
 		if pending, perr := read.PendingUserByEmail(r.Context(), id.Email); perr == nil {
 			if berr := s.store.Write().BindOIDC(r.Context(), pending.ID, id.Issuer, id.Subject); berr == nil {
 				u, err = pending, nil

@@ -51,6 +51,11 @@ func (y *YtdlpRunner) Run(ctx context.Context, job store.Job, report func(float6
 		"-S", "vcodec:h264,res,acodec:m4a,ext:mp4:m4a",
 		"--merge-output-format", "mp4",
 		"-o", filepath.Join(jobDir, "%(title)s.%(ext)s"),
+		// `--` ends option parsing: without it a job.Source beginning with a
+		// dash (e.g. "--exec=...") would be read as a yt-dlp FLAG, not a URL —
+		// an argument-injection path to arbitrary command execution for anyone
+		// who can submit a download.
+		"--",
 		job.Source,
 	)
 	// Own process group so cancellation kills yt-dlp AND ffmpeg children
