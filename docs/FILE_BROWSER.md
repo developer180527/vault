@@ -77,15 +77,17 @@ Desktop: a "Places" column in a secondary sidebar. Mobile: a segmented/scrollabl
 
 Controls are **hidden entirely** when the capability is absent (consistent with the manifest system; the server still re-checks every request).
 
-**Opening a file (in-app preview).** "Open" routes by media kind (`file_open.dart`), rendering everything in-app — no round-trip through an external app:
+**Uploading.** A picked file's bytes stream to `/v1/files/upload` via `FileRepository.uploadFile` (a `StreamedRequest`, so multi-GB files never buffer in memory) — the earlier placeholder that POSTed an empty body (every upload landed as 0 bytes) is gone. While an upload runs it shows as a placeholder row in the target folder driven by `UploadQueue`: a spinner (`uploading`), an error glyph on failure (`failed`, tap to dismiss), and — on success — the placeholder is removed and the real server node takes its place. A settled, successfully-stored file carries **no** badge (only a *pinned* file shows a glyph).
+
+**Opening a file (in-app preview).** "Open" (context menu) and tap both go through `openServerFileNode` → `openServerFile` (`server_file_preview.dart`), routing by media kind and rendering everything in-app — no round-trip through an external app:
 
 | Kind | Viewer |
 | --- | --- |
-| image | `FileImageViewerPage` — PhotoView, pinch-zoom / double-tap, streamed with the bearer |
-| video | `FileVideoViewerPage` — the central `PlaybackController` (one video session, resume-aware); direct-play only (files have no transcode endpoint) |
+| image | an inline zoomable viewer (`InteractiveViewer` + `Image.network` with the bearer) |
+| video | the shared `VideoPlaybackPage` via the central `PlaybackController` (one video session, resume-aware); direct-play only (files have no transcode endpoint) |
 | audio | enqueued into the audio player as a one-item queue (the mini-player appears) |
 | pdf / markdown / code / text | `DocumentViewerPage` — pdfrx for PDFs, rendered markdown, and a selectable line-numbered mono view (wrap + copy) for code/text; JSON is pretty-printed |
-| anything else | a "use Download" hint — nothing can render it in-app |
+| anything else | a "no preview" hint — use Download instead |
 
 Bytes come from `/v1/files/{id}/content` with the bearer (refreshed up front so a long read/watch survives the 15-min token). Files are bearer-only — no signed URLs — so the audio path streams through just_audio's header proxy (fine here; it's not the hot music path). **Download** (native destination picker, streamed to disk) remains the escape hatch for unpreviewable types and for keeping a local copy.
 

@@ -377,8 +377,11 @@ class MockFileRepository implements FileRepository {
   }
 
   @override
-  Future<String> addLocalFile(String? parentId, String name,
-      {int? size, FileMediaKind mediaKind = FileMediaKind.none}) async {
+  Future<String> uploadFile(
+      String? parentId, String name, Stream<List<int>> bytes, int length,
+      {FileMediaKind mediaKind = FileMediaKind.none}) async {
+    // Drain the stream so the byte count is real, then land an available node.
+    await bytes.drain<void>();
     final id = _newId('file');
     _add(FileNode(
       id: id,
@@ -386,8 +389,8 @@ class MockFileRepository implements FileRepository {
       name: name,
       kind: NodeKind.file,
       mediaKind: mediaKind,
-      size: size,
-      syncStatus: SyncStatus.localOnly, // pending upload
+      size: length,
+      syncStatus: SyncStatus.available,
       modifiedAt: DateTime.now(),
     ));
     _bumpChildCount(parentId, 1);

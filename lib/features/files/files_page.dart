@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/client/http_file_repository.dart';
 import '../../shell/adaptive_shell.dart';
 import '../../shell/widgets/item_context_menu.dart';
 import 'server_file_preview.dart';
 import 'data/file_browser_controller.dart';
+import 'data/upload_queue.dart';
 import '../../core/models/file_node.dart';
 import 'data/files_view.dart';
 import 'file_actions.dart';
@@ -23,6 +23,15 @@ class FilesPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final childrenAsync = ref.watch(currentChildrenProvider);
     final viewMode = ref.watch(filesViewModeProvider);
+    // In-flight / failed uploads for THIS folder ride on top of the server
+    // listing as placeholder rows (spinner / error badge). currentChildren is
+    // the source of truth once an upload settles.
+    final currentId =
+        ref.watch(fileBrowserControllerProvider.select((s) => s.currentId));
+    final uploadNodes = [
+      for (final t in ref.watch(uploadQueueProvider))
+        if (t.parentId == currentId) t.toNode(),
+    ];
 
     // Desktop keeps the Finder-style bar at the bottom; on mobile it moves to
     // the top (just under the app bar) where a thumb doesn't cover it and the
@@ -45,11 +54,14 @@ class FilesPage extends ConsumerWidget {
             child: childrenAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Could not load files: $e')),
-              data: (nodes) => nodes.isEmpty
-                  ? const _EmptyFolder()
-                  : viewMode == FilesViewMode.grid
-                      ? _grid(context, ref, nodes)
-                      : _list(context, ref, nodes),
+              data: (nodes) {
+                final merged = [...uploadNodes, ...nodes];
+                return merged.isEmpty
+                    ? const _EmptyFolder()
+                    : viewMode == FilesViewMode.grid
+                        ? _grid(context, ref, merged)
+                        : _list(context, ref, merged);
+              },
             ),
           ),
         ),
@@ -64,10 +76,11 @@ class FilesPage extends ConsumerWidget {
       itemCount: nodes.length,
       itemBuilder: (context, i) {
         final node = nodes[i];
-        return ItemContextMenu(
-          actions: fileItemActions(node),
-          child: FileRow(node: node, onTap: () => _onTap(context, ref, node)),
-        );
+        final row = FileRow(node: node, onTap: () => _onTap(context, ref, node));
+        // An in-flight/failed upload placeholder has no server id yet, so no
+        // file actions apply.
+        if (_isPlaceholder(node)) return row;
+        return ItemContextMenu(actions: fileItemActions(node), child: row);
       },
     );
   }
@@ -84,13 +97,17 @@ class FilesPage extends ConsumerWidget {
       itemCount: nodes.length,
       itemBuilder: (context, i) {
         final node = nodes[i];
-        return ItemContextMenu(
-          actions: fileItemActions(node),
-          child: FileTile(node: node, onTap: () => _onTap(context, ref, node)),
-        );
+        final tile =
+            FileTile(node: node, onTap: () => _onTap(context, ref, node));
+        if (_isPlaceholder(node)) return tile;
+        return ItemContextMenu(actions: fileItemActions(node), child: tile);
       },
     );
   }
+
+  static bool _isPlaceholder(FileNode n) =>
+      n.syncStatus == SyncStatus.uploading ||
+      n.syncStatus == SyncStatus.failed;
 
   Future<void> _onTap(
       BuildContext context, WidgetRef ref, FileNode node) async {
@@ -98,24 +115,16 @@ class FilesPage extends ConsumerWidget {
       ref.read(fileBrowserControllerProvider.notifier).openFolder(node.id);
       return;
     }
-    // Server files stream a preview through the central playback machinery;
-    // the mock (standalone) can't.
-    final repo = ref.read(fileRepositoryProvider);
-    if (repo is HttpFileRepository) {
-      final headers = await repo.authHeader();
-      if (!context.mounted) return;
-      await openServerFile(
-        context,
-        ref,
-        node: node,
-        contentUri: repo.contentUri(node.id),
-        headers: headers,
-      );
-    } else {
+    // A still-uploading / failed placeholder isn't a real server file yet.
+    if (node.syncStatus == SyncStatus.uploading) return;
+    if (node.syncStatus == SyncStatus.failed) {
+      ref.read(uploadQueueProvider.notifier).remove(node.id);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Open "${node.name}" — preview not available')),
+        SnackBar(content: Text('Removed failed upload “${node.name}”.')),
       );
+      return;
     }
+    await openServerFileNode(context, ref, node);
   }
 }
 

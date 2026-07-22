@@ -78,9 +78,13 @@ abstract interface class FileRepository {
   /// Create a folder under [parentId]. Returns its id.
   Future<String> createFolder(String? parentId, String name);
 
-  /// Register a picked local file as a pending-upload (localOnly) node.
-  Future<String> addLocalFile(String? parentId, String name,
-      {int? size, FileMediaKind mediaKind = FileMediaKind.none});
+  /// Stream a picked local file's [bytes] ([length] bytes) into [parentId]
+  /// (null = My Files root). Returns the created node id. The bytes actually
+  /// travel to the server — a streamed body, so large files never load into
+  /// memory.
+  Future<String> uploadFile(
+      String? parentId, String name, Stream<List<int>> bytes, int length,
+      {FileMediaKind mediaKind = FileMediaKind.none});
 
   Future<void> rename(String id, String newName);
 

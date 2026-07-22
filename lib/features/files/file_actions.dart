@@ -10,7 +10,8 @@ import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/platform/platform_services.dart';
 import 'data/file_browser_controller.dart';
 import 'data/file_download.dart';
-import 'file_open.dart';
+import 'data/upload_queue.dart';
+import 'server_file_preview.dart';
 import '../../core/models/file_node.dart';
 import 'data/files_view.dart';
 import 'synced_folders_page.dart';
@@ -65,16 +66,25 @@ final filesServiceActions = <VaultAction>[
       if (picked.isEmpty) return;
       final parent = ref.read(fileBrowserControllerProvider).currentId;
       final repo = ref.read(fileRepositoryProvider);
+      final queue = ref.read(uploadQueueProvider.notifier);
+      // Upload sequentially; each file shows a placeholder row (spinner →
+      // gone on success, error badge on failure) in the target folder.
       for (final f in picked) {
-        await repo.addLocalFile(parent, f.name,
-            size: f.size, mediaKind: _mediaKindFor(f.mimeType, f.name));
+        final kind = _mediaKindFor(f.mimeType, f.name);
+        final tempId = queue.start(parent, f.name, kind, f.size);
+        try {
+          await repo.uploadFile(parent, f.name, f.openRead(), f.size,
+              mediaKind: kind);
+          queue.remove(tempId);
+          _refresh(ref); // the real server node replaces the placeholder
+        } catch (e) {
+          _log.warn('upload failed',
+              fields: {'name': f.name, 'err': '$e'});
+          queue.fail(tempId); // row stays with an error badge
+        }
       }
-      _log.info('Queued uploads', fields: {
-        'parent': parent,
-        'count': picked.length,
-        'bytes': picked.fold<int>(0, (a, f) => a + f.size),
-      });
-      _refresh(ref);
+      _log.info('Uploads finished',
+          fields: {'parent': parent, 'count': picked.length});
     },
   ),
   VaultAction(
@@ -129,7 +139,7 @@ List<VaultAction> _kindActions(FileNode node) {
       // In-app preview routed by kind: image viewer, video/audio player, or
       // the document viewer (PDF/markdown/code/text). Unpreviewable types fall
       // back to a "use Download" hint.
-      onInvoke: (context, ref) => openFileNode(context, ref, node),
+      onInvoke: (context, ref) => openServerFileNode(context, ref, node),
     ),
   ];
 }

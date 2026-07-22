@@ -50,10 +50,11 @@ class FileStatusBadge extends StatelessWidget {
         return Icon(Icons.cloud_off_outlined,
             size: 18, color: scheme.outline);
       case SyncStatus.available:
+        // A settled, successfully-stored file needs no symbol; only a pinned
+        // (kept-offline) one earns a glyph.
         return node.pinned
             ? Icon(Icons.check_circle, size: 18, color: scheme.primary)
-            : Icon(Icons.check_circle_outline,
-                size: 18, color: scheme.outline);
+            : const SizedBox.shrink();
       case SyncStatus.failed:
         return Icon(Icons.error_outline, size: 18, color: scheme.error);
     }

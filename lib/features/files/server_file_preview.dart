@@ -1,11 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/client/http_file_repository.dart';
 import '../../core/models/file_node.dart';
 import '../../core/playback/playable.dart';
 import '../../core/playback/playback_controller.dart';
 import '../media/video_playback_page.dart';
+import 'data/file_browser_controller.dart';
 import 'document_viewer_page.dart';
+
+/// Resolves a [FileNode] to its server content URL + bearer, then opens the
+/// right in-app preview. The single entry point for both tap and the "Open"
+/// context-menu action. On a non-server (mock) repo there's nothing to stream,
+/// so it says so rather than failing obscurely.
+Future<void> openServerFileNode(
+    BuildContext context, WidgetRef ref, FileNode node) async {
+  final repo = ref.read(fileRepositoryProvider);
+  if (repo is! HttpFileRepository) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Open “${node.name}” — preview not available')),
+    );
+    return;
+  }
+  final headers = await repo.authHeader(); // refreshes a stale token
+  if (!context.mounted) return;
+  await openServerFile(context, ref,
+      node: node, contentUri: repo.contentUri(node.id), headers: headers);
+}
 
 /// Opens the right preview for a tapped server file, routing through the
 /// centralized playback machinery:

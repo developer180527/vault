@@ -87,18 +87,21 @@ class HttpFileRepository implements FileRepository {
   }
 
   @override
-  Future<String> addLocalFile(String? parentId, String name,
-      {int? size, FileMediaKind mediaKind = FileMediaKind.none}) async {
-    // The server files service ingests raw bytes; the picked-file byte stream
-    // is wired in M4's backup/upload work. For now this registers intent by
-    // creating an empty file so the node exists (real upload arrives with the
-    // upload pipeline).
-    final res = await http.post(
-      _session.api('/v1/files/upload').replace(
-          queryParameters: {'parent': parentId ?? '', 'name': name}),
-      headers: await _headers(),
-      body: const <int>[],
-    );
+  Future<String> uploadFile(
+      String? parentId, String name, Stream<List<int>> bytes, int length,
+      {FileMediaKind mediaKind = FileMediaKind.none}) async {
+    // Stream the real bytes to the server (the handler reads r.Body directly).
+    // A StreamedRequest pumps the file through without buffering it in memory.
+    final uri = _session.api('/v1/files/upload').replace(
+        queryParameters: {'parent': parentId ?? '', 'name': name});
+    final req = http.StreamedRequest('POST', uri)
+      ..headers.addAll(await _headers())
+      ..contentLength = length;
+    bytes.listen(req.sink.add,
+        onDone: req.sink.close,
+        onError: (Object e) => req.sink.addError(e),
+        cancelOnError: true);
+    final res = await http.Response.fromStream(await req.send());
     _check(res, 'upload');
     return (jsonDecode(res.body) as Map<String, Object?>)['id'] as String;
   }

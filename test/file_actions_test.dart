@@ -20,16 +20,21 @@ void main() {
     expect(created.syncStatus, SyncStatus.localOnly);
   });
 
-  test('addLocalFile registers a pending-upload node', () async {
+  test('uploadFile streams bytes and lands an available node', () async {
     final container = ProviderContainer();
     addTearDown(container.dispose);
     final repo = container.read(fileRepositoryProvider);
 
-    final id = await repo.addLocalFile(null, 'clip.mp4',
-        size: 123, mediaKind: FileMediaKind.video);
+    final bytes = Stream<List<int>>.fromIterable([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]);
+    final id = await repo.uploadFile(null, 'clip.mp4', bytes, 6,
+        mediaKind: FileMediaKind.video);
     final node = await repo.node(id);
-    expect(node!.syncStatus, SyncStatus.localOnly);
+    expect(node!.syncStatus, SyncStatus.available);
     expect(node.mediaKind, FileMediaKind.video);
+    expect(node.size, 6);
   });
 
   test('pin flips a remote-only file to available + pinned', () async {

@@ -26,8 +26,9 @@ class _NoPinRepo implements FileRepository {
   @override
   Future<String> createFolder(String? parentId, String name) async => '';
   @override
-  Future<String> addLocalFile(String? parentId, String name,
-          {int? size, FileMediaKind mediaKind = FileMediaKind.none}) async =>
+  Future<String> uploadFile(
+          String? parentId, String name, Stream<List<int>> bytes, int length,
+          {FileMediaKind mediaKind = FileMediaKind.none}) async =>
       '';
   @override
   Future<void> rename(String id, String newName) async {}
