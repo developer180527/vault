@@ -165,6 +165,25 @@ func (s *Service) listRoot(username string) ([]Node, error) {
 		n.Name = zoneNames[zone]
 		nodes = append(nodes, *n)
 	}
+	// ALSO surface any non-zone entries sitting at the library root — e.g. a
+	// folder moved/pasted here. Without this they exist on disk but are
+	// invisible (the root used to be zones-only), which reads as data loss.
+	if root, err := s.SafeJoin(username, ""); err == nil {
+		if entries, err := os.ReadDir(root); err == nil {
+			for _, e := range entries {
+				name := e.Name()
+				if strings.HasPrefix(name, ".") {
+					continue // .trash / ingest temps
+				}
+				if _, isZone := zoneNames[name]; isZone {
+					continue // already listed above, with its display name
+				}
+				if n, err := s.nodeFor(username, name); err == nil {
+					nodes = append(nodes, *n)
+				}
+			}
+		}
+	}
 	sortNodes(nodes)
 	return nodes, nil
 }

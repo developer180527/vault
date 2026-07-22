@@ -178,6 +178,32 @@ func TestMoveCopy(t *testing.T) {
 	}
 }
 
+// A folder moved to the LIBRARY ROOT (dest parent "") must still appear in the
+// root listing — the disappearing-folder bug was that the root only ever
+// listed the fixed zones.
+func TestMoveToRootStaysVisible(t *testing.T) {
+	s, _ := newSvc(t)
+	if _, err := s.Mkdir("venu", "downloads", "Music Video"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Move("venu", "downloads/Music Video", ""); err != nil {
+		t.Fatalf("move to root: %v", err)
+	}
+	nodes, err := s.List("venu", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, n := range nodes {
+		if n.Name == "Music Video" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("folder moved to root is invisible; root = %v", nodes)
+	}
+}
+
 func TestUploadAtomicIngest(t *testing.T) {
 	s, root := newSvc(t)
 	node, err := s.Upload("venu", "files", "clip.mp4", strings.NewReader("videobytes"))
