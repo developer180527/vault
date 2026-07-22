@@ -49,12 +49,25 @@ class PinnedServicesNotifier extends AsyncNotifier<List<String>> {
   /// [kMaxDockPins] from the mobile dock; null for the desktop sidebar, which
   /// can hold any number). Returns false when pinning would exceed the cap
   /// (the caller tells the user to unpin something first).
-  Future<bool> toggle(String serviceId, {int? maxPins}) async {
+  ///
+  /// [countAmong] scopes what the cap counts to the ids that can actually
+  /// occupy a dock slot (currently-permitted services). Without it, a stored
+  /// pin for a service that isn't in the dock right now — a not-yet-granted
+  /// service, or a stale default — would silently consume a slot, so the dock
+  /// shows 3 while pinning a 4th is refused as "full". The dock renders
+  /// pinned ∩ permitted, so the cap must be measured against that same set.
+  Future<bool> toggle(String serviceId,
+      {int? maxPins, Set<String>? countAmong}) async {
     final current = state.asData?.value ?? const <String>[];
     if (current.contains(serviceId)) {
       await _persist(List.of(current)..remove(serviceId));
     } else {
-      if (maxPins != null && current.length >= maxPins) return false;
+      if (maxPins != null) {
+        final counted = countAmong == null
+            ? current.length
+            : current.where(countAmong.contains).length;
+        if (counted >= maxPins) return false;
+      }
       await _persist([...current, serviceId]);
     }
     return true;

@@ -16,7 +16,7 @@ import '../features/media/data/server_music.dart';
 import '../features/user/user_page.dart';
 import '../features/media/music_player_page.dart';
 import 'widgets/action_bar.dart';
-import 'widgets/glass_app_bar.dart';
+import 'widgets/floating_app_bar.dart';
 
 /// Mobile layout, Apple Music-style bottom chrome:
 ///
@@ -57,10 +57,11 @@ class MobileShell extends ConsumerWidget {
       // the page scrolls beneath.
       extendBody: true,
       extendBodyBehindAppBar: true,
-      appBar: GlassAppBar(
+      appBar: FloatingAppBar(
         title: Text(services[shell.currentIndex].label),
         actions: [
-          ActionBar(actions: services[shell.currentIndex].actions),
+          ActionBar(
+              actions: services[shell.currentIndex].actions, floating: true),
           ?services[shell.currentIndex].statusBar?.call(context),
           const SizedBox(width: 8),
         ],

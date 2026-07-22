@@ -145,7 +145,13 @@ class _ServicesSection extends ConsumerWidget {
           )
         else
           for (final s in shelf)
-            _ServiceTile(service: s, pinned: pinnedIds.contains(s.id)),
+            _ServiceTile(
+              service: s,
+              pinned: pinnedIds.contains(s.id),
+              // Only currently-dockable services count toward the cap, so a
+              // pin for a not-yet-permitted service can't wedge the dock.
+              dockableIds: {for (final d in shelf) d.id},
+            ),
       ],
     );
   }
@@ -386,10 +392,17 @@ class _ProfileHeader extends ConsumerWidget {
 }
 
 class _ServiceTile extends ConsumerWidget {
-  const _ServiceTile({required this.service, required this.pinned});
+  const _ServiceTile({
+    required this.service,
+    required this.pinned,
+    this.dockableIds,
+  });
 
   final ServiceDefinition service;
   final bool pinned;
+
+  /// Ids that count toward the dock cap (currently-dockable services).
+  final Set<String>? dockableIds;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -413,7 +426,9 @@ class _ServiceTile extends ConsumerWidget {
           final capped = !FormFactor.isDesktopOf(context);
           final ok = await ref
               .read(pinnedServicesProvider.notifier)
-              .toggle(service.id, maxPins: capped ? kMaxDockPins : null);
+              .toggle(service.id,
+                  maxPins: capped ? kMaxDockPins : null,
+                  countAmong: dockableIds);
           if (!ok && context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text(
