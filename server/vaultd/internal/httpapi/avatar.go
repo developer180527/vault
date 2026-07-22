@@ -12,7 +12,7 @@ import (
 // (boring storage: easy to back up, impossible to mismanage). Every signed-in
 // user owns exactly their own avatar; the admin panel reads the same files.
 
-const maxAvatarBytes = 2 << 20 // 2 MB — plenty for a profile picture
+const maxAvatarBytes = 5 << 20 // 5 MB — headroom for a downscaled PNG avatar
 
 func (s *Server) avatarPath(userID string) string {
 	return filepath.Join(s.dataRoot, "system", "avatars", userID+".img")
@@ -53,7 +53,7 @@ func (s *Server) handlePutMyAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(data) == 0 || len(data) > maxAvatarBytes {
-		writeErr(w, http.StatusBadRequest, "avatar must be 1B–2MB")
+		writeErr(w, http.StatusBadRequest, "avatar must be 1B–5MB")
 		return
 	}
 	if ct := http.DetectContentType(data); len(ct) < 6 || ct[:6] != "image/" {

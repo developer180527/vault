@@ -13,7 +13,6 @@ import '../core/services/service_registry.dart';
 import '../core/playback/playable.dart';
 import '../core/playback/playback_controller.dart';
 import '../features/media/data/server_music.dart';
-import '../features/user/user_page.dart';
 import '../features/media/music_player_page.dart';
 import 'widgets/action_bar.dart';
 import 'widgets/floating_app_bar.dart';
@@ -208,7 +207,15 @@ class _BottomBarArea extends ConsumerWidget {
 
 /// The full bottom chrome: mini-player above, dock pill + You circle below.
 /// Swiping DOWN on the dock tucks it away into [_CollapsedChrome].
-class _ExpandedChrome extends StatelessWidget {
+///
+/// Stateful for the mini-player ENTRANCE: when a track starts (hasTrack goes
+/// true while expanded), one controller drives the pill sliding up + fading +
+/// scaling into place, and — the same beat — the dock and You buttons do a
+/// small settle, so the new pill reads as pushing them into position rather
+/// than popping in. (The native glass panel behind snaps to the new layout —
+/// it's a platform view that can't tween — so the entrance animates the
+/// Flutter content over it.)
+class _ExpandedChrome extends StatefulWidget {
   const _ExpandedChrome({
     super.key,
     required this.width,
@@ -229,9 +236,81 @@ class _ExpandedChrome extends StatelessWidget {
   final VoidCallback onCollapse;
 
   @override
+  State<_ExpandedChrome> createState() => _ExpandedChromeState();
+}
+
+class _ExpandedChromeState extends State<_ExpandedChrome>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _entrance = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 440),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    // Already-playing when this chrome mounts (e.g. re-expanding) → no entrance.
+    if (widget.hasTrack) _entrance.value = 1;
+  }
+
+  @override
+  void didUpdateWidget(_ExpandedChrome old) {
+    super.didUpdateWidget(old);
+    if (widget.hasTrack && !old.hasTrack) {
+      _entrance.forward(from: 0);
+    } else if (!widget.hasTrack && old.hasTrack) {
+      _entrance.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _entrance.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final width = widget.width;
+    final hasTrack = widget.hasTrack;
     final dockTop = hasTrack ? _kMiniPlayerHeight + 8.0 : 0.0;
     final height = dockTop + _kDockHeight;
+
+    final dockRow = Row(
+      children: [
+        Expanded(
+          child: NativeGlassSurface(
+            radius: _kDockHeight / 2,
+            // Swipe down on the dock pill → collapsed chrome.
+            child: GestureDetector(
+              onVerticalDragEnd: (d) {
+                if ((d.primaryVelocity ?? 0) > 250) widget.onCollapse();
+              },
+              child: SizedBox(
+                height: _kDockHeight,
+                // Inner padding keeps the end slots clear of the pill's curved
+                // ends, so the capsule geometry is identical for every slot.
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: _DockRow(
+                    dock: widget.dock,
+                    selectedIndex: widget.onUserPage
+                        ? -1
+                        : widget.dock
+                            .indexWhere((s) => s.id == widget.currentId),
+                    onTap: (s) => widget.onOpen(s.id),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _YouCircle(
+            selected: widget.onUserPage, onTap: () => widget.onOpen('user')),
+      ],
+    );
+
     return NativeGlassPanel(
       size: Size(width, height),
       regions: [
@@ -241,66 +320,47 @@ class _ExpandedChrome extends StatelessWidget {
             radius: _kMiniPlayerHeight / 2,
           ),
         GlassRegion(
-          rect: Rect.fromLTWH(
-            0,
-            dockTop,
-            width - _kDockHeight - 8,
-            _kDockHeight,
-          ),
+          rect: Rect.fromLTWH(0, dockTop, width - _kDockHeight - 8, _kDockHeight),
           radius: _kDockHeight / 2,
         ),
         GlassRegion(
           rect: Rect.fromLTWH(
-            width - _kDockHeight,
-            dockTop,
-            _kDockHeight,
-            _kDockHeight,
-          ),
+              width - _kDockHeight, dockTop, _kDockHeight, _kDockHeight),
           radius: _kDockHeight / 2,
         ),
       ],
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (hasTrack) ...[
-            const _MiniPlayerPill(),
-            const SizedBox(height: 8),
-          ],
-          Row(
+      child: AnimatedBuilder(
+        animation: _entrance,
+        builder: (context, _) {
+          final t = _entrance.value;
+          // Fade + slide-up + overshoot-scale for the pill; a gentle settle
+          // (0.96 → 1.0) for the buttons on the same curve.
+          final fade = Curves.easeOut.transform(t);
+          final rise = (1 - Curves.easeOutCubic.transform(t)) * 12.0;
+          final popScale = 0.85 + 0.15 * Curves.easeOutBack.transform(t);
+          final settle = 0.96 + 0.04 * Curves.easeOut.transform(t);
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: NativeGlassSurface(
-                  radius: _kDockHeight / 2,
-                  // Swipe down on the dock pill → collapsed chrome.
-                  child: GestureDetector(
-                    onVerticalDragEnd: (d) {
-                      if ((d.primaryVelocity ?? 0) > 250) onCollapse();
-                    },
-                    child: SizedBox(
-                      height: _kDockHeight,
-                      // Inner padding keeps the end slots clear of the pill's
-                      // curved ends, so the capsule geometry is identical for
-                      // every slot — including the extremes.
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: _DockRow(
-                          dock: dock,
-                          selectedIndex: onUserPage
-                              ? -1
-                              : dock.indexWhere((s) => s.id == currentId),
-                          onTap: (s) => onOpen(s.id),
-                        ),
-                      ),
+              if (hasTrack) ...[
+                Opacity(
+                  opacity: fade.clamp(0.0, 1.0),
+                  child: Transform.translate(
+                    offset: Offset(0, rise),
+                    child: Transform.scale(
+                      scale: popScale,
+                      alignment: Alignment.bottomCenter,
+                      child: const _MiniPlayerPill(),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              _YouCircle(selected: onUserPage, onTap: () => onOpen('user')),
+                const SizedBox(height: 8),
+              ],
+              Transform.scale(scale: settle, child: dockRow),
             ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -388,8 +448,10 @@ class _CollapsedChrome extends StatelessWidget {
 }
 
 /// The detached You circle, Apple Music-style — shared by both chrome states.
-/// [size] shrinks it in the collapsed row to match the mini player.
-class _YouCircle extends ConsumerWidget {
+/// [size] shrinks it in the collapsed row to match the mini player. Always the
+/// person glyph (never the profile picture) — the avatar lives on the You page;
+/// the dock stays a clean, consistent tab symbol.
+class _YouCircle extends StatelessWidget {
   const _YouCircle({
     required this.selected,
     required this.onTap,
@@ -401,7 +463,7 @@ class _YouCircle extends ConsumerWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return NativeGlassSurface(
       radius: size / 2,
@@ -417,12 +479,6 @@ class _YouCircle extends ConsumerWidget {
               backgroundColor: selected
                   ? scheme.primaryContainer
                   : scheme.surfaceContainerHighest,
-              // Profile picture when set; person glyph fallback.
-              foregroundImage:
-                  switch (ref.watch(myAvatarProvider).asData?.value) {
-                final bytes? => MemoryImage(bytes),
-                null => null,
-              },
               child: AdaptiveIcon(
                 VaultIcons.user,
                 selected: selected,

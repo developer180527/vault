@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -280,8 +281,20 @@ class _ProfileHeader extends ConsumerWidget {
       type: FileType.image,
       withData: true,
     );
-    final bytes = picked?.files.single.bytes;
-    if (bytes == null) return;
+    final raw = picked?.files.single.bytes;
+    if (raw == null) return;
+    // Normalize before upload: iOS photos are usually HEIC (which the server's
+    // content sniff rejects) and often several MB (over the size cap). Decode
+    // via the platform codecs (handles HEIC), downscale, and re-encode as PNG
+    // — a small, universally-recognized image that always passes.
+    final bytes = await _normalizeAvatar(raw);
+    if (bytes == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('That image could not be read.')));
+      }
+      return;
+    }
     try {
       await ref.read(vaultClientProvider).setMyAvatar(bytes);
       ref.invalidate(myAvatarProvider);
@@ -290,6 +303,21 @@ class _ProfileHeader extends ConsumerWidget {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Could not set picture: $e')));
       }
+    }
+  }
+
+  /// Decode (any format the platform supports, incl. HEIC), downscale to a
+  /// 512px-wide avatar, and re-encode as PNG. Returns null if undecodable.
+  Future<Uint8List?> _normalizeAvatar(Uint8List raw) async {
+    try {
+      final codec = await ui.instantiateImageCodec(raw, targetWidth: 512);
+      final frame = await codec.getNextFrame();
+      final data =
+          await frame.image.toByteData(format: ui.ImageByteFormat.png);
+      frame.image.dispose();
+      return data?.buffer.asUint8List();
+    } catch (_) {
+      return null;
     }
   }
 
