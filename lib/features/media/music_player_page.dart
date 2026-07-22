@@ -99,45 +99,62 @@ class _MusicPlayerPageState extends ConsumerState<MusicPlayerPage>
     final progress = (_dragY / 320).clamp(0.0, 1.0);
     final dragScale = 1 - 0.06 * progress;
 
-    return Scaffold(
-      body: GestureDetector(
-        onVerticalDragUpdate: _onDragUpdate,
-        onVerticalDragEnd: _onDragEnd,
-        child: Transform.translate(
-          offset: Offset(0, _dragY),
-          child: Transform.scale(
-            scale: dragScale,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(progress > 0 ? 28 : 0),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 400),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      artColor == null
-                          ? scheme.primaryContainer
-                          : Color.lerp(artColor, scheme.surface, 0.25)!,
-                      scheme.surface,
-                    ],
-                  ),
-                ),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 6, 24, 16),
-                    child: LayoutBuilder(builder: (context, constraints) {
-                      final wide = constraints.maxWidth > 720;
-                      return wide
-                          ? _wideLayout(context, controller, player, track)
-                          : _phoneLayout(context, controller, player, track);
-                    }),
-                  ),
-                ),
+    final page = Transform.translate(
+      offset: Offset(0, _dragY),
+      child: Transform.scale(
+        scale: dragScale,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(progress > 0 ? 28 : 0),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 400),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  artColor == null
+                      ? scheme.primaryContainer
+                      : Color.lerp(artColor, scheme.surface, 0.25)!,
+                  scheme.surface,
+                ],
+              ),
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 6, 24, 16),
+                child: LayoutBuilder(builder: (context, constraints) {
+                  final wide = constraints.maxWidth > 720;
+                  return wide
+                      ? _wideLayout(context, controller, player, track)
+                      : _phoneLayout(context, controller, player, track);
+                }),
               ),
             ),
           ),
         ),
+      ),
+    );
+
+    // Swipe-to-dismiss is captured ONLY from the top 60% (the grabber + art),
+    // so it never fights the sliders/controls in the lower part of the screen
+    // for a vertical drag.
+    final dragHeight = MediaQuery.sizeOf(context).height * 0.6;
+    return Scaffold(
+      body: Stack(
+        children: [
+          page,
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: dragHeight,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragUpdate: _onDragUpdate,
+              onVerticalDragEnd: _onDragEnd,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -233,10 +250,27 @@ SliderThemeData _capsuleSlider(ColorScheme scheme, {required bool active}) {
     inactiveTrackColor: scheme.onSurface.withValues(alpha: 0.20),
     thumbColor: Colors.white,
     trackShape: const RoundedRectSliderTrackShape(),
-    overlayShape: SliderComponentShape.noOverlay,
+    // A generous invisible overlay = a big, finger-friendly grab area even
+    // though the track itself stays thin.
+    overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
+    overlayColor: scheme.onSurface.withValues(alpha: 0.08),
     thumbShape: RoundSliderThumbShape(
-        enabledThumbRadius: active ? 7 : 0, elevation: active ? 2 : 0),
+        enabledThumbRadius: active ? 8 : 0, elevation: active ? 2 : 0),
   );
+}
+
+/// Wraps a capsule [Slider] in a taller touch strip so big fingers can grab the
+/// thin track anywhere across a comfortable vertical band.
+class _TouchSlider extends StatelessWidget {
+  const _TouchSlider({required this.data, required this.child});
+  final SliderThemeData data;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: 44,
+        child: SliderTheme(data: data, child: child),
+      );
 }
 
 /// Album art that shrinks when paused (Apple Music), enlarges while playing.
@@ -467,7 +501,7 @@ class _SeekBarState extends State<_SeekBar> {
 
         return Column(
           children: [
-            SliderTheme(
+            _TouchSlider(
               data: _capsuleSlider(scheme, active: _dragMs != null),
               child: Slider(
                 value: shown,
@@ -564,7 +598,7 @@ class _VolumeBar extends StatelessWidget {
             stream: player.volumeStream,
             builder: (context, snap) {
               final volume = (snap.data ?? player.volume).clamp(0.0, 1.0);
-              return SliderTheme(
+              return _TouchSlider(
                 data: _capsuleSlider(scheme, active: false),
                 child: Slider(value: volume, onChanged: player.setVolume),
               );
@@ -590,47 +624,70 @@ class _OutputRow extends ConsumerWidget {
     final shuffle = ref.watch(playbackProvider.select((s) => s.shuffle));
     final repeat = ref.watch(playbackProvider.select((s) => s.repeat));
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    final shuffleBtn = IconButton(
+      tooltip: 'Shuffle',
+      icon: const Icon(Icons.shuffle, size: 22),
+      color: shuffle ? scheme.primary : scheme.onSurfaceVariant,
+      onPressed: () => controller.setShuffle(!shuffle),
+    );
+    final repeatBtn = IconButton(
+      tooltip: 'Repeat',
+      icon: Icon(repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
+          size: 22),
+      color: repeat != LoopMode.off ? scheme.primary : scheme.onSurfaceVariant,
+      onPressed: controller.cycleRepeat,
+    );
+
+    // Non-iOS: no system route picker — just center shuffle + repeat.
+    if (!isIOS) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [shuffleBtn, const SizedBox(width: 8), repeatBtn],
+      );
+    }
+
+    // The AirPlay/Bluetooth picker centered, with the live output device name
+    // directly beneath it; shuffle + repeat sit to its left (repeat nearest).
+    // Equal Expanded flanks keep the picker dead-centre on screen.
+    final outputColumn = Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          tooltip: 'Shuffle',
-          icon: const Icon(Icons.shuffle, size: 22),
-          color: shuffle ? scheme.primary : scheme.onSurfaceVariant,
-          onPressed: () => controller.setShuffle(!shuffle),
-        ),
-        const SizedBox(width: 4),
-        IconButton(
-          tooltip: 'Repeat',
-          icon: Icon(repeat == LoopMode.one ? Icons.repeat_one : Icons.repeat,
-              size: 22),
-          color: repeat != LoopMode.off
-              ? scheme.primary
-              : scheme.onSurfaceVariant,
-          onPressed: controller.cycleRepeat,
-        ),
-        if (isIOS) ...[
-          const SizedBox(width: 8),
-          // Interactive native route picker (AirPlay/Bluetooth sheet).
-          SizedBox(
-            width: 34,
-            height: 34,
-            child: UiKitView(
-              viewType: 'vault/route-picker',
-              creationParams: {'tint': scheme.onSurfaceVariant.toARGB32()},
-              creationParamsCodec: const StandardMessageCodec(),
+        SizedBox(
+          height: 44,
+          child: Center(
+            child: SizedBox(
+              width: 34,
+              height: 34,
+              child: UiKitView(
+                viewType: 'vault/route-picker',
+                creationParams: {'tint': scheme.onSurface.toARGB32()},
+                creationParamsCodec: const StandardMessageCodec(),
+              ),
             ),
           ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              ref.watch(audioOutputNameProvider).asData?.value ?? '',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
-            ),
+        ),
+        Text(
+          ref.watch(audioOutputNameProvider).asData?.value ?? '',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+        ),
+      ],
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [shuffleBtn, const SizedBox(width: 4), repeatBtn],
           ),
-        ],
+        ),
+        const SizedBox(width: 12),
+        outputColumn,
+        const SizedBox(width: 12),
+        const Expanded(child: SizedBox()),
       ],
     );
   }
