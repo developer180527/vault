@@ -15,6 +15,7 @@ class DockRow extends StatelessWidget {
     required this.dock,
     required this.selectedIndex,
     required this.onTap,
+    this.labelOpacity = 1,
   });
 
   final List<ServiceDefinition> dock;
@@ -22,6 +23,10 @@ class DockRow extends StatelessWidget {
   /// -1 = nothing selected (the You page is active).
   final int selectedIndex;
   final ValueChanged<ServiceDefinition> onTap;
+
+  /// 1 = labels shown, 0 = icon-only (the dock compacts to icons while the
+  /// mini-player squeezes in beside it). Values between animate the fade.
+  final double labelOpacity;
 
   @override
   Widget build(BuildContext context) {
@@ -70,6 +75,7 @@ class DockRow extends StatelessWidget {
                       service: dock[i],
                       selected: i == selectedIndex,
                       onTap: () => onTap(dock[i]),
+                      labelOpacity: labelOpacity,
                     ),
                   ),
               ],
@@ -88,11 +94,13 @@ class DockItem extends StatelessWidget {
     required this.service,
     required this.selected,
     required this.onTap,
+    this.labelOpacity = 1,
   });
 
   final ServiceDefinition service;
   final bool selected;
   final VoidCallback onTap;
+  final double labelOpacity;
 
   @override
   Widget build(BuildContext context) {
@@ -119,18 +127,35 @@ class DockItem extends StatelessWidget {
                 color: color,
               ),
             ),
-            const SizedBox(height: 2),
-            ExcludeSemantics(
-              child: Text(
-                service.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: color,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            // Label collapses (height + opacity) to icon-only as the mini-player
+            // squeezes in — so a narrow dock never shows clipped text.
+            if (labelOpacity > 0.01)
+              ClipRect(
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  heightFactor: labelOpacity,
+                  child: Opacity(
+                    opacity: labelOpacity.clamp(0.0, 1.0),
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: ExcludeSemantics(
+                        child: Text(
+                          service.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: color,
+                                    fontWeight: selected
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                  ),
+                        ),
+                      ),
                     ),
+                  ),
+                ),
               ),
-            ),
           ],
         ),
       ),

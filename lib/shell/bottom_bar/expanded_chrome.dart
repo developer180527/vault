@@ -70,7 +70,7 @@ class _ExpandedChromeState extends State<ExpandedChrome>
     super.dispose();
   }
 
-  Widget _dockPill() => GlassSurface(
+  Widget _dockPill(double labelOpacity) => GlassSurface(
         radius: kDockHeight / 2,
         // Swipe down on the dock pill → collapsed chrome.
         child: GestureDetector(
@@ -90,6 +90,7 @@ class _ExpandedChromeState extends State<ExpandedChrome>
                     ? -1
                     : widget.dock.indexWhere((s) => s.id == widget.currentId),
                 onTap: (s) => widget.onOpen(s.id),
+                labelOpacity: labelOpacity,
               ),
             ),
           ),
@@ -118,11 +119,16 @@ class _ExpandedChromeState extends State<ExpandedChrome>
             final mini = inner * (kMiniFraction * t);
             final dock = inner - mini;
 
+            // Dock labels fade to icon-only as the pill comes in.
+            final labelOpacity = (1 - t).clamp(0.0, 1.0);
             return SizedBox(
               height: kDockHeight,
               child: Row(
                 children: [
-                  SizedBox(width: dock, height: kDockHeight, child: _dockPill()),
+                  SizedBox(
+                      width: dock,
+                      height: kDockHeight,
+                      child: _dockPill(labelOpacity)),
                   SizedBox(width: miniGap),
                   // The mini slot: a clip that widens 0 → endMini, revealing a
                   // pill laid out once at its final width.

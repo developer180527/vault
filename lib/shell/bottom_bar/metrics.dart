@@ -10,12 +10,11 @@ const double kMiniPlayerHeight = 44;
 const double kYouExpanded = kDockHeight;
 const double kYouShrunk = 52;
 
-/// How far the dock is compressed to open room for the mini-player: it keeps
-/// this fraction of its available width while playing.
-const double kDockPlayingFraction = 0.62;
-
-/// Fraction of the freed row the mini-player claims once fully in.
-const double kMiniFraction = 0.34;
+/// Fraction of the freed row the mini-player claims once fully in. The dock
+/// takes the rest — and drops its labels to icon-only while playing, so the
+/// narrow dock reads as intentional (not clipped) and the pill gets real room
+/// for art + title + a control.
+const double kMiniFraction = 0.5;
 
 /// One shared duration/curve for every chrome transition, so the dock's
 /// squeeze, the You circle's shrink, and the pill's entrance move as one.
