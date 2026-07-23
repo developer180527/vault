@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/habits/habits.dart';
 import '../../core/playback/playback_controller.dart';
 import '../../core/services/service_registry.dart';
 import 'collapsed_chrome.dart';
@@ -31,9 +32,14 @@ class BottomBarArea extends ConsumerWidget {
 
   int _branchIndexOf(String id) => services.indexWhere((s) => s.id == id);
 
-  void _open(String id) {
+  void _open(WidgetRef ref, String id) {
     final branch = _branchIndexOf(id);
     if (branch < 0) return;
+    // Learn what gets used (content services only, not the You slot) so the app
+    // can suggest / auto-land later. Local-only, best-effort.
+    if (id != 'user') {
+      ref.read(habitsProvider.notifier).recordServiceOpen(id);
+    }
     // No haptic here: native tab bars switch silently.
     // Re-tapping the active service resets its branch stack.
     shell.goBranch(branch, initialLocation: branch == shell.currentIndex);
@@ -53,6 +59,7 @@ class BottomBarArea extends ConsumerWidget {
     final bottomGap = math.max(6.0, bottomInset - 10.0);
 
     final collapsed = ref.watch(dockCollapsedProvider);
+    void open(String id) => _open(ref, id);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, bottomGap),
@@ -78,7 +85,7 @@ class BottomBarArea extends ConsumerWidget {
                   onUserPage: onUserPage,
                   onExpand: () =>
                       ref.read(dockCollapsedProvider.notifier).set(false),
-                  onYou: () => _open('user'),
+                  onYou: () => open('user'),
                 )
               : ExpandedChrome(
                   key: const ValueKey('expanded'),
@@ -86,7 +93,7 @@ class BottomBarArea extends ConsumerWidget {
                   onUserPage: onUserPage,
                   dock: dock,
                   currentId: _currentId,
-                  onOpen: _open,
+                  onOpen: open,
                   onCollapse: () =>
                       ref.read(dockCollapsedProvider.notifier).set(true),
                 ),
