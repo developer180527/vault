@@ -4,10 +4,10 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 74;
-  static const String commit = '08fb7ab';
-  static const String commitSubject = 'Custom Flutter glass nav (animatable), player control order, movie chrome fix';
-  static const String date = '2026-07-22';
+  static const int build = 82;
+  static const String commit = '04ae97d';
+  static const String commitSubject = 'Bottom nav: give the squeezed mini-player real room (icon-only dock)';
+  static const String date = '2026-07-23';
 
   static String get label =>
       build == 0 ? '$version (dev)' : '$version (build $build)';
