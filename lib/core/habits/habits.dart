@@ -48,6 +48,7 @@ class Habits {
     this.servers = const [],
     this.serviceOpens = const {},
     this.lastServiceId,
+    this.autoLand = true,
   });
 
   /// Every server ever connected to, most-recent first.
@@ -59,10 +60,27 @@ class Habits {
   /// The service open last — the "resume where I left off" signal.
   final String? lastServiceId;
 
+  /// Open the most-used service on cold start (user-overridable in Settings).
+  final bool autoLand;
+
+  Habits copyWith({
+    List<ServerMemory>? servers,
+    Map<String, int>? serviceOpens,
+    String? lastServiceId,
+    bool? autoLand,
+  }) =>
+      Habits(
+        servers: servers ?? this.servers,
+        serviceOpens: serviceOpens ?? this.serviceOpens,
+        lastServiceId: lastServiceId ?? this.lastServiceId,
+        autoLand: autoLand ?? this.autoLand,
+      );
+
   Map<String, Object?> toJson() => {
         'servers': [for (final s in servers) s.toJson()],
         'serviceOpens': serviceOpens,
         'lastServiceId': lastServiceId,
+        'autoLand': autoLand,
       };
 
   factory Habits.fromJson(Map<String, Object?> j) => Habits(
@@ -75,6 +93,7 @@ class Habits {
             e.key as String: (e.value as num).toInt(),
         },
         lastServiceId: j['lastServiceId'] as String?,
+        autoLand: (j['autoLand'] as bool?) ?? true,
       );
 }
 
@@ -109,34 +128,32 @@ class HabitsNotifier extends AsyncNotifier<Habits> {
       updated,
       for (final s in h.servers) if (s.host != host) s,
     ]..sort((a, b) => b.lastUsed.compareTo(a.lastUsed));
-    await _save(Habits(
-      servers: servers,
-      serviceOpens: h.serviceOpens,
-      lastServiceId: h.lastServiceId,
-    ));
+    await _save(h.copyWith(servers: servers));
   }
 
   /// Forget a server (e.g. a typo the user wants gone).
   Future<void> forgetServer(String host) async {
     final h = state.asData?.value ?? const Habits();
-    await _save(Habits(
-      servers: [for (final s in h.servers) if (s.host != host) s],
-      serviceOpens: h.serviceOpens,
-      lastServiceId: h.lastServiceId,
-    ));
+    await _save(h.copyWith(
+        servers: [for (final s in h.servers) if (s.host != host) s]));
   }
 
   /// Record an intentional open of [serviceId] (a dock/sidebar tap).
   Future<void> recordServiceOpen(String serviceId) async {
     final h = state.asData?.value ?? const Habits();
-    await _save(Habits(
-      servers: h.servers,
+    await _save(h.copyWith(
       serviceOpens: {
         ...h.serviceOpens,
         serviceId: (h.serviceOpens[serviceId] ?? 0) + 1,
       },
       lastServiceId: serviceId,
     ));
+  }
+
+  /// Toggle auto-landing on the most-used service at startup.
+  Future<void> setAutoLand(bool value) async {
+    final h = state.asData?.value ?? const Habits();
+    await _save(h.copyWith(autoLand: value));
   }
 }
 

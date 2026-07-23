@@ -43,6 +43,13 @@ void main() {
     expect(c.read(habitsProvider).requireValue.lastServiceId, 'music');
   });
 
+  test('autoLand defaults on and its toggle persists', () async {
+    final (c, h) = await fresh();
+    expect(c.read(habitsProvider).requireValue.autoLand, isTrue);
+    await h.setAutoLand(false);
+    expect(c.read(habitsProvider).requireValue.autoLand, isFalse);
+  });
+
   test('habits persist across a restart (new container, same prefs)', () async {
     SharedPreferences.setMockInitialValues({});
     final c1 = ProviderContainer();

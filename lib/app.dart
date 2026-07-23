@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/capability/manifest_providers.dart';
+import 'core/habits/habits.dart';
 import 'core/prefs/theme_prefs.dart';
 import 'core/platform/design/adaptive_icons.dart';
 import 'core/services/service_registry.dart';
@@ -151,7 +152,21 @@ final routerProvider = Provider<GoRouter>((ref) {
     final landing = services.firstWhere((s) => !notLanding.contains(s.id),
         orElse: () => services.firstWhere((s) => s.id == 'user',
             orElse: () => services.first));
-    initialLocation = '/${landing.id}';
+
+    // Habit-driven auto-land: if enabled and the person's most-used service is
+    // permitted (and a real content tab), open THAT on cold start instead of
+    // the default. Read (not watch) — this only steers the INITIAL location; we
+    // don't want the router to rebuild when usage counts tick. Habits load from
+    // prefs well before the manifest (a network fetch), so it's ready here.
+    final habits = ref.read(habitsProvider).asData?.value;
+    final topId = ref.read(topServiceIdProvider);
+    final landOn = (habits?.autoLand ?? false) &&
+            topId != null &&
+            !notLanding.contains(topId) &&
+            services.any((s) => s.id == topId)
+        ? topId
+        : landing.id;
+    initialLocation = '/$landOn';
     routes = [
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) =>

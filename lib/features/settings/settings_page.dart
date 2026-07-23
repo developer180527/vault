@@ -16,6 +16,7 @@ import '../../core/prefs/desktop_prefs.dart';
 import '../../core/prefs/theme_prefs.dart';
 import '../../core/services/service_registry.dart';
 import '../../core/tasks/background_tasks.dart';
+import '../../core/habits/habits.dart';
 import '../logs/log_viewer_page.dart';
 import 'local_data_page.dart';
 
@@ -43,6 +44,9 @@ class SettingsPage extends ConsumerWidget {
       children: [
         const _SectionHeader('Appearance'),
         const _AppearanceSection(),
+        const Divider(height: 32),
+        const _SectionHeader('Startup'),
+        const _StartupSection(),
         // Desktop-only power options. The platforms diverge on purpose: a
         // desktop app carries window/layout controls a phone never needs, so
         // this section simply doesn't exist on mobile builds.
@@ -345,6 +349,35 @@ class _AppearanceSection extends ConsumerWidget {
         onSelectionChanged: (s) =>
             ref.read(themeModeProvider.notifier).set(s.first),
       ),
+    );
+  }
+}
+
+/// The habit-driven "open my most-used service on launch" toggle. The app
+/// learns which service you open most (locally, on-device) and can land there
+/// on a cold start instead of the default tab.
+class _StartupSection extends ConsumerWidget {
+  const _StartupSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final autoLand = ref.watch(habitsProvider).asData?.value.autoLand ?? true;
+    final topId = ref.watch(topServiceIdProvider);
+    final top = topId == null
+        ? null
+        : ref
+            .watch(serviceRegistryProvider)
+            .where((s) => s.id == topId)
+            .firstOrNull;
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      secondary: const Icon(Icons.rocket_launch_outlined),
+      title: const Text('Open my most-used service'),
+      subtitle: Text(top != null
+          ? 'Lands on ${top.label} — learned from how you use the app'
+          : 'Learns which service you use most, then opens it on launch'),
+      value: autoLand,
+      onChanged: (v) => ref.read(habitsProvider.notifier).setAutoLand(v),
     );
   }
 }
