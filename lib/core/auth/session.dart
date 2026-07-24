@@ -200,9 +200,34 @@ class SessionController extends AsyncNotifier<Session?> {
     ));
   }
 
+  /// In-flight refresh, shared by all concurrent callers (single-flight).
+  Future<Session?>? _refreshing;
+
   /// Refreshes the token pair. Returns the new session, or null when the
   /// device has been revoked (session cleared → back to login).
-  Future<Session?> refresh() async {
+  ///
+  /// SINGLE-FLIGHT: refresh tokens are single-use and rotate on the server.
+  /// At startup several providers (manifest, jobs feed, change feed, art
+  /// headers…) each notice the expired access token and call this at once.
+  /// Without coalescing they'd each POST the SAME token: the first rotates it,
+  /// the rest present a now-stale token and — once past the server's rotation
+  /// grace — get the device REVOKED, and their out-of-order persists could
+  /// even store a stale token that bricks the NEXT launch. Sharing one
+  /// in-flight future means exactly one rotation and one persist.
+  Future<Session?> refresh() {
+    final inflight = _refreshing;
+    if (inflight != null) return inflight;
+    final f = _doRefresh();
+    _refreshing = f;
+    // Clear only if we're still the current in-flight future (a later refresh
+    // may have replaced us).
+    f.whenComplete(() {
+      if (identical(_refreshing, f)) _refreshing = null;
+    });
+    return f;
+  }
+
+  Future<Session?> _doRefresh() async {
     final s = state.asData?.value;
     if (s == null) return null;
     final res = await http.post(
