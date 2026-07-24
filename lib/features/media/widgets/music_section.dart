@@ -839,21 +839,22 @@ class _ServerTrackList extends ConsumerWidget {
   }
 }
 
-/// Inset separator between track rows (Apple Music-style): starts after the
-/// artwork column. onSurface-derived so it reads in BOTH themes — the
+/// Inset separator between track rows (Apple Music-style): starts AFTER the
+/// artwork column and runs to the right edge, so the rail never crosses under a
+/// cover. onSurface-derived so it reads in BOTH themes — the
 /// outlineVariant-with-alpha version vanished entirely on dark surfaces.
 class _RowDivider extends StatelessWidget {
   const _RowDivider();
 
   @override
   Widget build(BuildContext context) {
+    // ListTile geometry: 16 content pad + 52 artwork + 16 title gap = the
+    // title's left edge. The divider begins there so it clears the cover.
     return Divider(
       height: 1,
       thickness: 1,
-      // Centered with equal gaps at both screen edges (not indented to align
-      // with the text — that left one edge touching and looked lopsided).
-      indent: 16,
-      endIndent: 16,
+      indent: 84,
+      endIndent: 0,
       color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.14),
     );
   }
@@ -1204,14 +1205,14 @@ class _ServerArt extends ConsumerWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
       child: SizedBox(
-        width: 44,
-        height: 44,
+        width: 52,
+        height: 52,
         child: bytes == null
             ? placeholder
             : Image.memory(
                 bytes,
                 fit: BoxFit.cover,
-                cacheWidth: 132,
+                cacheWidth: 160,
                 gaplessPlayback: true,
                 errorBuilder: (_, _, _) => placeholder,
               ),

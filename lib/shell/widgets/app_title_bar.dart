@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../core/platform/platform_info.dart';
-import 'now_playing_strip.dart';
 
 /// Custom title bar for the native-desktop frameless window. Deliberately has
 /// NO menu bar — File/Edit/View actions were relocated to the per-service
 /// content toolbar, item context menus, and the Cmd-K command palette (so they
 /// also exist on mobile). This bar only carries window affordances: a
 /// drag-to-move region, macOS traffic-light spacing / Windows-Linux caption
-/// buttons, and the background-task status.
+/// buttons. Now-playing moved to the floating [DesktopNowPlayingBar] at the
+/// bottom of the window (Apple Music style).
 class AppTitleBar extends StatelessWidget {
   const AppTitleBar({super.key});
 
@@ -33,9 +33,6 @@ class AppTitleBar extends StatelessWidget {
               ],
             ),
           ),
-          // Playback status lives centered in the window chrome (desktop-only
-          // power UX): visible from every tab, above the drag area.
-          const Center(child: NowPlayingStrip()),
         ],
       ),
     );

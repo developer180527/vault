@@ -8,6 +8,7 @@ import '../core/prefs/desktop_prefs.dart';
 import '../core/prefs/pinned_services.dart';
 import '../core/services/service_registry.dart';
 import 'widgets/app_title_bar.dart';
+import 'widgets/desktop_now_playing_bar.dart';
 import 'widgets/now_playing_strip.dart';
 
 /// The sidebar (wide) layout, used by native desktop AND large tablets. The
@@ -82,11 +83,22 @@ class DesktopShell extends ConsumerWidget {
       ],
     );
 
-    return Scaffold(
-      // Native desktop's title bar reserves its own space; tablets must clear
-      // the OS status bar.
-      body: nativeDesktop ? body : SafeArea(bottom: false, child: body),
-    );
+    // Native desktop: the now-playing bar floats over the bottom of the whole
+    // window (Apple Music style), not tucked in the sidebar/title bar. Tablets
+    // keep the sidebar strip (see _Sidebar), so no floating bar there.
+    final Widget shellBody = nativeDesktop
+        ? Stack(children: [
+            Positioned.fill(child: body),
+            const Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: DesktopNowPlayingBar(),
+            ),
+          ])
+        : SafeArea(bottom: false, child: body);
+
+    return Scaffold(body: shellBody);
   }
 }
 
