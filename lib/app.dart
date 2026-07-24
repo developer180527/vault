@@ -95,7 +95,9 @@ final vaultServices = <ServiceDefinition>[
     icon: VaultIcons.chat,
     category: ServiceCategory.tools,
     builder: (_) => const PlaceholderPage(
-        title: 'AI Chat', icon: Icons.chat_bubble_outline),
+      title: 'AI Chat',
+      icon: Icons.chat_bubble_outline,
+    ),
   ),
   ServiceDefinition(
     id: 'settings',
@@ -134,12 +136,12 @@ final routerProvider = Provider<GoRouter>((ref) {
     initialLocation = '/_boot';
     routes = [
       GoRoute(
-          path: '/_boot',
-          builder: (_, _) => ManifestErrorScreen(
-                error: manifest.error!,
-                onRetry: () =>
-                    ref.read(manifestProvider.notifier).reload(),
-              )),
+        path: '/_boot',
+        builder: (_, _) => ManifestErrorScreen(
+          error: manifest.error!,
+          onRetry: () => ref.read(manifestProvider.notifier).reload(),
+        ),
+      ),
     ];
   } else {
     // Landing tab: prefer the first real CONTENT service; fall back to the You
@@ -149,9 +151,13 @@ final routerProvider = Provider<GoRouter>((ref) {
     // with no other tabs and looked stranded. Settings stays a branch (the
     // desktop sidebar lists it), it just can't be the home tab.
     const notLanding = {'settings', 'user'};
-    final landing = services.firstWhere((s) => !notLanding.contains(s.id),
-        orElse: () => services.firstWhere((s) => s.id == 'user',
-            orElse: () => services.first));
+    final landing = services.firstWhere(
+      (s) => !notLanding.contains(s.id),
+      orElse: () => services.firstWhere(
+        (s) => s.id == 'user',
+        orElse: () => services.first,
+      ),
+    );
 
     // Habit-driven auto-land: if enabled and the person's most-used service is
     // permitted (and a real content tab), open THAT on cold start instead of
@@ -160,7 +166,8 @@ final routerProvider = Provider<GoRouter>((ref) {
     // prefs well before the manifest (a network fetch), so it's ready here.
     final habits = ref.read(habitsProvider).asData?.value;
     final topId = ref.read(topServiceIdProvider);
-    final landOn = (habits?.autoLand ?? false) &&
+    final landOn =
+        (habits?.autoLand ?? false) &&
             topId != null &&
             !notLanding.contains(topId) &&
             services.any((s) => s.id == topId)
@@ -223,12 +230,12 @@ class VaultApp extends ConsumerWidget {
       brightness: Brightness.dark,
     );
     final scheme = seeded.copyWith(
-      surface: const Color(0xFF0E0E10),
-      surfaceContainerLowest: const Color(0xFF08080A),
-      surfaceContainerLow: const Color(0xFF121214),
-      surfaceContainer: const Color(0xFF161618),
-      surfaceContainerHigh: const Color(0xFF1C1C1F),
-      surfaceContainerHighest: const Color(0xFF232326),
+      surface: const Color.fromARGB(255, 0, 0, 0),
+      surfaceContainerLowest: const Color.fromARGB(255, 0, 0, 0),
+      surfaceContainerLow: const Color.fromARGB(255, 0, 0, 0),
+      surfaceContainer: const Color.fromARGB(255, 0, 0, 0),
+      surfaceContainerHigh: const Color.fromARGB(255, 0, 0, 0),
+      surfaceContainerHighest: const Color.fromARGB(255, 0, 0, 0),
       onSurface: const Color(0xFFE7E7EA),
       onSurfaceVariant: const Color(0xFFA6A6AE),
       outline: const Color(0xFF77777F),

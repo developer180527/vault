@@ -14,12 +14,21 @@ import '../../core/habits/habits.dart';
 Future<void> startConnectFlow(BuildContext context, WidgetRef ref) async {
   // Remembered servers first: pick a known one in a tap, or add a new one
   // (prefilled with the most recent, so a re-login isn't a retype).
-  final known = ref.read(knownServersProvider);
   String? host;
-  if (known.isNotEmpty) {
-    final picked = await _pickServer(context, ref, known);
+  // Re-read on each turn: forgetting a server mutates the list and loops back
+  // to re-show the freshly-trimmed picker (rather than aborting the flow).
+  var known = ref.read(knownServersProvider);
+  while (known.isNotEmpty) {
+    if (!context.mounted) return; // back-edge after a prior-iteration await
+    final picked = await _pickServer(context, known);
     if (picked == null || !context.mounted) return; // cancelled
-    host = picked.isEmpty
+    if (picked is _ForgetServer) {
+      await ref.read(habitsProvider.notifier).forgetServer(picked.host);
+      if (!context.mounted) return;
+      known = ref.read(knownServersProvider);
+      continue; // re-show the picker (or fall through to the prompt if empty)
+    }
+    host = picked.host.isEmpty
         ? await _promptText(
             context,
             title: 'Connect to a new server',
@@ -29,8 +38,11 @@ Future<void> startConnectFlow(BuildContext context, WidgetRef ref) async {
             confirm: 'Continue',
             initial: known.first.host,
           )
-        : picked;
-  } else {
+        : picked.host;
+    break;
+  }
+  if (known.isEmpty) {
+    if (!context.mounted) return; // loop may have awaited a forget
     host = await _promptText(
       context,
       title: 'Connect to your Vault server',
@@ -148,18 +160,37 @@ Future<String?> _promptText(
   );
 }
 
-/// Picks a remembered server. Returns the chosen host, `''` to add a NEW one,
-/// or null if cancelled. Long-press a row to forget it.
-Future<String?> _pickServer(
-    BuildContext context, WidgetRef ref, List<ServerMemory> known) {
-  return showDialog<String>(
+/// Outcome of the server picker. [_ConnectServer] with a host reconnects; with
+/// an empty host it means "add a new server"; [_ForgetServer] means the caller
+/// should forget that host and re-show the picker. `null` from the dialog is a
+/// plain cancel.
+sealed class _PickResult {
+  const _PickResult(this.host);
+  final String host;
+}
+
+class _ConnectServer extends _PickResult {
+  const _ConnectServer(super.host);
+}
+
+class _ForgetServer extends _PickResult {
+  const _ForgetServer(super.host);
+}
+
+/// Picks a remembered server. Returns a [_ConnectServer] (host, or `''` to add
+/// a new one), a [_ForgetServer] request, or null if cancelled. Forgetting pops
+/// with the request so the caller can mutate the store and reopen — we don't
+/// mutate-then-close here (that read as a cancel and aborted the whole flow).
+Future<_PickResult?> _pickServer(
+    BuildContext context, List<ServerMemory> known) {
+  return showDialog<_PickResult>(
     context: context,
     builder: (context) => SimpleDialog(
       title: const Text('Connect to your Vault server'),
       children: [
         for (final s in known)
           SimpleDialogOption(
-            onPressed: () => Navigator.of(context).pop(s.host),
+            onPressed: () => Navigator.of(context).pop(_ConnectServer(s.host)),
             child: ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.dns_outlined),
@@ -168,16 +199,14 @@ Future<String?> _pickServer(
               trailing: IconButton(
                 tooltip: 'Forget',
                 icon: const Icon(Icons.close, size: 18),
-                onPressed: () {
-                  ref.read(habitsProvider.notifier).forgetServer(s.host);
-                  Navigator.of(context).pop(); // reopen picks up the change
-                },
+                onPressed: () =>
+                    Navigator.of(context).pop(_ForgetServer(s.host)),
               ),
             ),
           ),
         const Divider(),
         SimpleDialogOption(
-          onPressed: () => Navigator.of(context).pop(''),
+          onPressed: () => Navigator.of(context).pop(const _ConnectServer('')),
           child: const ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(Icons.add),
