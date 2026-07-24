@@ -3,7 +3,7 @@ package changes
 import "testing"
 
 func TestWatchSeesSnapshotThenBumps(t *testing.T) {
-	h := NewHub()
+	h := NewHub(nil)
 	ch, unsub := h.Watch()
 	defer unsub()
 
@@ -26,7 +26,7 @@ func TestWatchSeesSnapshotThenBumps(t *testing.T) {
 }
 
 func TestSlowSubscriberCoalesces(t *testing.T) {
-	h := NewHub()
+	h := NewHub(nil)
 	ch, unsub := h.Watch()
 	defer unsub()
 	<-ch // drain the snapshot
@@ -52,7 +52,7 @@ func TestBootSeedMakesRevsDiffer(t *testing.T) {
 	// Two hubs (≈ server restarts) must not reuse small counters like 1,2,3 —
 	// otherwise a client that saw rev 2 before the restart would miss the
 	// changes behind a fresh hub's rev 2.
-	a, b := NewHub(), NewHub()
+	a, b := NewHub(nil), NewHub(nil)
 	a.Bump("music")
 	b.Bump("music")
 	achan, aun := a.Watch()

@@ -9,6 +9,7 @@
 package changes
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -22,13 +23,18 @@ type Hub struct {
 	revs map[string]int64
 	subs map[chan map[string]int64]struct{}
 	seed int64
+	log  *slog.Logger
 }
 
-func NewHub() *Hub {
+// NewHub builds the hub. A nil logger is fine (logging is skipped) — tests
+// pass nil; production passes vaultd's logger so bumps and subscriber counts
+// are visible.
+func NewHub(log *slog.Logger) *Hub {
 	return &Hub{
 		revs: map[string]int64{},
 		subs: map[chan map[string]int64]struct{}{},
 		seed: time.Now().UnixMilli(),
+		log:  log,
 	}
 }
 
@@ -45,6 +51,8 @@ func (h *Hub) Bump(topic string) {
 		h.revs[topic] = h.seed
 	}
 	h.revs[topic]++
+	rev := h.revs[topic]
+	subCount := len(h.subs)
 	snap := h.snapshotLocked()
 	for ch := range h.subs {
 		select {
@@ -61,6 +69,10 @@ func (h *Hub) Bump(topic string) {
 		}
 	}
 	h.mu.Unlock()
+	if h.log != nil {
+		h.log.Info("change bump", "topic", topic, "rev", rev,
+			"watchers", subCount)
+	}
 }
 
 // Watch subscribes: the returned channel first receives the current snapshot

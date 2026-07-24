@@ -30,8 +30,11 @@ func (s *Server) handleWatchChanges(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
+	p := PrincipalFrom(r.Context())
 	ch, unsubscribe := s.changes.Watch()
 	defer unsubscribe()
+	s.log.Info("change watcher connected", "user", p.Username, "device", p.DeviceID)
+	defer s.log.Info("change watcher disconnected", "user", p.Username, "device", p.DeviceID)
 
 	deadline := time.NewTimer(30 * time.Minute)
 	defer deadline.Stop()

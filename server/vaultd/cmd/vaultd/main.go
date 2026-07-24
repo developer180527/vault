@@ -96,7 +96,7 @@ func main() {
 
 	// One shared change hub: admin-panel mutations bump it, the member API
 	// streams it (/v1/changes/watch) so apps refresh without restarting.
-	changeHub := changes.NewHub()
+	changeHub := changes.NewHub(log)
 
 	srv := &http.Server{
 		Addr: cfg.Addr,

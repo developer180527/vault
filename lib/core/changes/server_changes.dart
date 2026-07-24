@@ -63,6 +63,8 @@ final serverRevsProvider = StreamProvider<Map<String, int>>((ref) {
           throw Exception('watch HTTP ${res.statusCode}');
         }
         backoff = const Duration(seconds: 2); // healthy connect → reset
+        _log.info('change feed connected');
+        var lastRevs = <String, int>{};
         var buffer = '';
         await for (final chunk in res.stream.transform(utf8.decoder)) {
           if (closed) break;
@@ -71,7 +73,21 @@ final serverRevsProvider = StreamProvider<Map<String, int>>((ref) {
           while (idx >= 0) {
             final revs = _parseEvent(buffer.substring(0, idx));
             buffer = buffer.substring(idx + 2);
-            if (revs != null && !closed) controller.add(revs);
+            if (revs != null && !closed) {
+              // Log only the topics that actually advanced — the first event
+              // after (re)connect is the full snapshot, so seed silently.
+              if (lastRevs.isNotEmpty) {
+                final changed = [
+                  for (final e in revs.entries)
+                    if (e.value != (lastRevs[e.key] ?? 0)) e.key,
+                ];
+                if (changed.isNotEmpty) {
+                  _log.info('change received', fields: {'topics': changed});
+                }
+              }
+              lastRevs = revs;
+              controller.add(revs);
+            }
             idx = buffer.indexOf('\n\n');
           }
         }
