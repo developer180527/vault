@@ -88,8 +88,12 @@ class HttpMoviesApi implements MoviesApi {
   }
 
   @override
-  Uri artUri(String id, {int version = 0}) =>
-      _session.api('/v1/movies/$id/art${version != 0 ? '?v=$version' : ''}');
+  Uri artUri(String id, {int version = 0}) {
+    // Query goes through Uri.replace, not the path string — otherwise the '?'
+    // is percent-encoded into the path (%3F) and the poster request 404s.
+    final u = _session.api('/v1/movies/$id/art');
+    return version != 0 ? u.replace(queryParameters: {'v': '$version'}) : u;
+  }
 
   @override
   Uri subUri(String id, String track) =>

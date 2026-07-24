@@ -80,8 +80,13 @@ class HttpMusicApi implements MusicApi {
       _session.api('/v1/music/catalog/$id/stream');
 
   @override
-  Uri catalogArtUri(String id, {int version = 0}) => _session.api(
-      '/v1/music/catalog/$id/art${version != 0 ? '?v=$version' : ''}');
+  Uri catalogArtUri(String id, {int version = 0}) {
+    // api() builds Uri.https(host, path) — the arg is the PATH, so a literal
+    // '?v=' in it gets percent-encoded (%3F) into the path and 404s. Attach
+    // the cache-buster as a real query parameter instead.
+    final u = _session.api('/v1/music/catalog/$id/art');
+    return version != 0 ? u.replace(queryParameters: {'v': '$version'}) : u;
+  }
 
   @override
   Future<List<ServerTrack>> catalog({String query = ''}) {
