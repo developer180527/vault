@@ -301,6 +301,9 @@ func (s *Server) handleCatalogScan(w http.ResponseWriter, r *http.Request) {
 		"by", userFrom(r).Username)
 	s.audit(r, "catalog.scan", "catalog", "",
 		fmt.Sprintf("%d changed, %d pruned", added, pruned))
+	if added > 0 || pruned > 0 {
+		s.changes.Bump("music")
+	}
 	redirectMsg(w, r, "/catalog",
 		fmt.Sprintf("Scan done: %d changed, %d pruned.", added, pruned))
 }
@@ -318,6 +321,9 @@ func (s *Server) handleCatalogOptimize(w http.ResponseWriter, r *http.Request) {
 		"optimized", optimized, "skipped", skipped, "by", userFrom(r).Username)
 	s.audit(r, "catalog.optimize", "catalog", "",
 		fmt.Sprintf("%d optimized, %d already fast", optimized, skipped))
+	if optimized > 0 {
+		s.changes.Bump("music")
+	}
 	redirectMsg(w, r, "/catalog",
 		fmt.Sprintf("Optimize done: %d re-laid for fast start, %d already fast.",
 			optimized, skipped))
@@ -369,6 +375,9 @@ func (s *Server) handleCatalogUpload(w http.ResponseWriter, r *http.Request) {
 		"by", userFrom(r).Username)
 	s.audit(r, "catalog.upload", "catalog", "",
 		fmt.Sprintf("%d uploaded, %d skipped", saved, skipped))
+	if saved > 0 {
+		s.changes.Bump("music")
+	}
 	msg := fmt.Sprintf("Uploaded %d file(s).", saved)
 	if skipped > 0 {
 		msg += fmt.Sprintf(" %d skipped (not audio, or failed).", skipped)
@@ -420,6 +429,7 @@ func (s *Server) handleTrackSave(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("admin: track metadata edited", "track", t.ID,
 		"by", userFrom(r).Username)
 	s.audit(r, "track.edit", "track", t.ID, "metadata: "+t.Title)
+	s.changes.Bump("music")
 	redirectMsg(w, r, back, "Saved. Edits survive rescans (DB is authoritative).")
 }
 
@@ -441,6 +451,7 @@ func (s *Server) handleTrackDelete(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("admin: track deleted (trashed)", "track", t.ID,
 		"title", t.Title, "by", userFrom(r).Username)
 	s.audit(r, "track.delete", "track", t.ID, "trashed: "+t.Title)
+	s.changes.Bump("music")
 	redirectMsg(w, r, "/catalog",
 		"Deleted “"+t.Title+"” — file moved to the catalog trash.")
 }

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/auth/session.dart';
 import '../../../core/cache/content_cache.dart';
+import '../../../core/changes/server_changes.dart';
 import '../../../core/client/vault_client.dart';
 import '../../../core/logging/vault_log.dart';
 import '../../../core/models/playlist.dart';
@@ -147,6 +148,11 @@ Future<List<T>> _snapshotFirst<T>({
   final connected = ref.watch(musicServerModeProvider);
   final cache = ref.watch(contentCacheProvider);
   final key = '$scope/$name';
+  // Server change feed: a "music" bump (admin uploaded art, edited metadata,
+  // scanned…) rebuilds every music listing → fresh art_version → new `?v=`
+  // art URLs bust the image caches. Watching INSIDE the shared fetch gives
+  // all snapshot-first listings live updates in one line.
+  ref.watch(topicRevProvider('music'));
 
   List<T> decodeSnap(String snap) => [
         for (final t in jsonDecode(snap) as List)
@@ -236,6 +242,7 @@ final catalogTracksProvider =
 /// snapshot-cached: search must be truth, and it's already index-fast.
 final catalogSearchProvider = FutureProvider<List<ServerTrack>>((ref) {
   if (!ref.watch(musicServerModeProvider)) return const [];
+  ref.watch(topicRevProvider('music')); // open search refreshes on changes
   final q = ref.watch(musicSearchQueryProvider).trim();
   if (q.isEmpty) return const [];
   return ref.watch(vaultClientProvider).music.catalog(query: q);
@@ -280,6 +287,7 @@ final artBytesProvider = FutureProvider.autoDispose.family<Uint8List?, String>((
 final playlistTracksProvider = FutureProvider.family<List<ServerTrack>, String>(
   (ref, playlistId) {
     if (!ref.watch(musicServerModeProvider)) return const [];
+    ref.watch(topicRevProvider('music')); // art/metadata changes reach rows
     return ref.watch(vaultClientProvider).music.playlistTracks(playlistId);
   },
 );

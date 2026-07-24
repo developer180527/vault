@@ -235,7 +235,8 @@ abstract interface class MoviesApi {
   /// Resolve a server-provided signed stream path (bearer-free playback).
   Uri resolveStreamUrl(String pathWithQuery);
 
-  Uri artUri(String id);
+  /// Poster URL; [version] cache-busts (`?v=`) when the server stamps one.
+  Uri artUri(String id, {int version});
 
   /// A subtitle track as WebVTT. [track] is `e<N>` (embedded) or `x<N>`
   /// (sidecar), matching [ServerMovie.subs] ordering.

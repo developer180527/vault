@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/developer180527/vault/vaultd/internal/auth"
+	"github.com/developer180527/vault/vaultd/internal/changes"
 	"github.com/developer180527/vault/vaultd/internal/files"
 	"github.com/developer180527/vault/vaultd/internal/jobs"
 	"github.com/developer180527/vault/vaultd/internal/movies"
@@ -64,6 +65,10 @@ type Options struct {
 	// Signer mints/verifies signed stream URLs (nil → lists carry no
 	// stream_url and streams are bearer-only, the pre-signing behavior).
 	Signer *auth.StreamSigner
+
+	// Changes is the shared change hub (also bumped by the admin panel);
+	// nil disables /v1/changes/watch. Bumps are nil-safe.
+	Changes *changes.Hub
 }
 
 // Server holds the dependencies shared by handlers.
@@ -82,6 +87,7 @@ type Server struct {
 	photos       *photos.Service
 	movies       *movies.Service
 	signer       *auth.StreamSigner
+	changes      *changes.Hub
 }
 
 // New builds the router.
@@ -96,6 +102,7 @@ func New(o Options) http.Handler {
 		dataRoot:     o.DataRoot,
 		jobs:         o.Jobs,
 		signer:       o.Signer,
+		changes:      o.Changes,
 		files:        &files.Service{DataRoot: o.DataRoot},
 		music: &music.Service{
 			DataRoot: o.DataRoot, Store: o.Store, Log: o.Log,
@@ -163,6 +170,10 @@ func New(o Options) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.RequireAuth)
 			r.Get("/manifest", s.handleManifest)
+
+			// Change feed — {topic: rev} ticks, no payload, so plain auth
+			// suffices; fetching what changed still hits granted endpoints.
+			r.Get("/changes/watch", s.handleWatchChanges)
 
 			// Profile picture — every user owns exactly their own.
 			r.Get("/me/avatar", s.handleGetMyAvatar)

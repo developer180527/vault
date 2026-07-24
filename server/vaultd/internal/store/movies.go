@@ -83,6 +83,11 @@ type CatalogMovie struct {
 
 	// StreamURL is transient (signed, bearer-free), like music.
 	StreamURL string `json:"stream_url,omitempty"`
+
+	// ArtVersion is transient: the poster's version stamp (override mtime,
+	// else file mtime) so clients cache-bust `?v=` URLs when an admin uploads
+	// a new poster. Filled by handlers, never stored.
+	ArtVersion int64 `json:"art_version,omitempty"`
 }
 
 // MovieKey is the scan change-detection key.

@@ -104,6 +104,7 @@ class ServerMovie {
     this.width = 0,
     this.height = 0,
     this.hasArt = false,
+    this.artVersion = 0,
     this.resumeMs = 0,
     this.audio = const [],
     this.subs = const [],
@@ -124,6 +125,10 @@ class ServerMovie {
   final int width;
   final int height;
   final bool hasArt;
+
+  /// Poster cache-bust stamp from the server (0 = old server / none).
+  final int artVersion;
+
   final int resumeMs;
   final List<MovieAudio> audio;
   final List<MovieSub> subs;
@@ -160,6 +165,7 @@ class ServerMovie {
       width: (j['width'] as num?)?.toInt() ?? 0,
       height: (j['height'] as num?)?.toInt() ?? 0,
       hasArt: (j['has_art'] as bool?) ?? false,
+      artVersion: (j['art_version'] as num?)?.toInt() ?? 0,
       resumeMs: (j['resume_ms'] as num?)?.toInt() ?? 0,
       audio: [
         for (final a in (streams['audio'] as List?) ?? const [])
@@ -189,6 +195,7 @@ class ServerMovie {
     'width': width,
     'height': height,
     'has_art': hasArt,
+    if (artVersion != 0) 'art_version': artVersion,
     if (resumeMs > 0) 'resume_ms': resumeMs,
     'streams': {
       'audio': [

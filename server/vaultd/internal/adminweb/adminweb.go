@@ -27,6 +27,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/developer180527/vault/vaultd/internal/auth"
+	"github.com/developer180527/vault/vaultd/internal/changes"
 	"github.com/developer180527/vault/vaultd/internal/movies"
 	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/store"
@@ -55,6 +56,10 @@ type Options struct {
 
 	// Flow runs the OIDC dance (tests inject a fake).
 	Flow OAuthFlow
+
+	// Changes is the app-facing change hub: panel mutations bump it so
+	// connected apps refresh without a restart. Nil-safe (tests omit it).
+	Changes *changes.Hub
 }
 
 const (
@@ -71,6 +76,7 @@ type Server struct {
 	photosRoot string
 	flow       OAuthFlow
 	external   *url.URL
+	changes    *changes.Hub
 }
 
 // New builds the admin panel handler.
@@ -82,6 +88,7 @@ func New(o Options) (http.Handler, error) {
 	s := &Server{
 		log: o.Log, store: o.Store, music: o.Music, movies: o.Movies,
 		photosRoot: o.PhotosRoot, flow: o.Flow, external: ext,
+		changes: o.Changes,
 	}
 
 	r := chi.NewRouter()

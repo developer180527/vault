@@ -88,7 +88,8 @@ class HttpMoviesApi implements MoviesApi {
   }
 
   @override
-  Uri artUri(String id) => _session.api('/v1/movies/$id/art');
+  Uri artUri(String id, {int version = 0}) =>
+      _session.api('/v1/movies/$id/art${version != 0 ? '?v=$version' : ''}');
 
   @override
   Uri subUri(String id, String track) =>

@@ -10,18 +10,25 @@ class Poster extends ConsumerWidget {
     super.key,
     required this.id,
     required this.hasArt,
+    this.artVersion = 0,
     this.borderRadius = 10,
   });
 
   final String id;
   final bool hasArt;
+
+  /// Cache-bust stamp from [ServerMovie.artVersion]; a new poster upload
+  /// changes it, which re-keys the fetch so the fresh image shows.
+  final int artVersion;
+
   final double borderRadius;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final bytes =
-        hasArt ? ref.watch(posterProvider(id)).asData?.value : null;
+    final bytes = hasArt
+        ? ref.watch(posterProvider((id: id, v: artVersion))).asData?.value
+        : null;
     return AspectRatio(
       aspectRatio: 2 / 3,
       child: ClipRRect(

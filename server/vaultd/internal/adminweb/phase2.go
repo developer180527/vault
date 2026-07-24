@@ -78,6 +78,9 @@ func (s *Server) handleTrackArtUpload(w http.ResponseWriter, r *http.Request) {
 		_ = s.store.Write().SetCatalogHasArt(r.Context(), t.ID, true)
 	}
 	s.audit(r, "track.art", "track", t.ID, "cover art replaced: "+t.Title)
+	// Tell connected apps: they re-list, pick up the new art_version, and the
+	// `?v=`-keyed cover URL busts every client image cache.
+	s.changes.Bump("music")
 	redirectMsg(w, r, back, "Artwork updated — it overrides the file's embedded art.")
 }
 
@@ -112,8 +115,8 @@ type sysMetrics struct {
 	PhotoSize int64
 
 	Users, Admins, Devices, Tracks, Listens int
-	PhotoCount int
-	PhotoBytes int64
+	PhotoCount                              int
+	PhotoBytes                              int64
 
 	GoVersion, Revision, BuildTime string
 }

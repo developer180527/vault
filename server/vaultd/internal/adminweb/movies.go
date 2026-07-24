@@ -47,6 +47,9 @@ func (s *Server) handleMovieCatalogScan(w http.ResponseWriter, r *http.Request) 
 		"by", userFrom(r).Username)
 	s.audit(r, "movies.scan", "movies", "",
 		fmt.Sprintf("%d changed, %d pruned", added, pruned))
+	if added > 0 || pruned > 0 {
+		s.changes.Bump("movies")
+	}
 	redirectMsg(w, r, "/movies",
 		fmt.Sprintf("Scan done: %d changed, %d pruned.", added, pruned))
 }
@@ -92,6 +95,9 @@ func (s *Server) handleMovieUpload(w http.ResponseWriter, r *http.Request) {
 		"by", userFrom(r).Username)
 	s.audit(r, "movies.upload", "movies", "",
 		fmt.Sprintf("%d uploaded, %d skipped", saved, skipped))
+	if saved > 0 {
+		s.changes.Bump("movies")
+	}
 	msg := fmt.Sprintf("Uploaded %d file(s).", saved)
 	if skipped > 0 {
 		msg += fmt.Sprintf(" %d skipped (not video, or failed).", skipped)
@@ -147,6 +153,7 @@ func (s *Server) handleMovieSave(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("admin: movie metadata edited", "movie", m.ID,
 		"by", userFrom(r).Username)
 	s.audit(r, "movie.edit", "movie", m.ID, "metadata: "+m.Title)
+	s.changes.Bump("movies")
 	redirectMsg(w, r, back, "Saved. Edits survive rescans (DB is authoritative).")
 }
 
@@ -167,6 +174,7 @@ func (s *Server) handleMovieDelete(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("admin: movie deleted (trashed)", "movie", m.ID,
 		"title", m.Title, "by", userFrom(r).Username)
 	s.audit(r, "movie.delete", "movie", m.ID, "trashed: "+m.Title)
+	s.changes.Bump("movies")
 	redirectMsg(w, r, "/movies",
 		"Deleted “"+m.Title+"” — file moved to the catalog trash.")
 }
@@ -234,6 +242,7 @@ func (s *Server) handleMoviePosterUpload(w http.ResponseWriter, r *http.Request)
 	}
 	s.log.Info("admin: movie poster set", "movie", m.ID, "by", userFrom(r).Username)
 	s.audit(r, "movie.art", "movie", m.ID, "poster: "+m.Title)
+	s.changes.Bump("movies")
 	redirectMsg(w, r, back, "Poster updated — shows everywhere, survives rescans.")
 }
 

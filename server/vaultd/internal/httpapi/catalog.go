@@ -152,6 +152,7 @@ func (s *Server) handleCatalogEdit(w http.ResponseWriter, r *http.Request) {
 		s.filesErr(w, r, err)
 		return
 	}
+	s.changes.Bump("music")
 	writeJSON(w, http.StatusOK, t)
 }
 
@@ -161,6 +162,9 @@ func (s *Server) handleCatalogScan(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	if changed > 0 || pruned > 0 {
+		s.changes.Bump("music")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"changed": changed, "pruned": pruned,
@@ -175,6 +179,9 @@ func (s *Server) handleCatalogOptimize(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	if optimized > 0 {
+		s.changes.Bump("music")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"optimized": optimized, "skipped": skipped,

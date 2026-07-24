@@ -18,8 +18,11 @@ import (
 )
 
 // signMovieStream attaches a signed, bearer-free stream URL to one movie
-// (no-op without a signer). The list and detail paths share this.
+// (no-op without a signer). The list and detail paths share this. It also
+// stamps the poster's art version so clients cache-bust `?v=` art URLs the
+// moment an admin uploads a new poster (same pattern as the music catalog).
 func (s *Server) signMovieStream(m *store.CatalogMovie) {
+	m.ArtVersion = s.movies.ArtVersion(m)
 	if s.signer == nil {
 		return
 	}

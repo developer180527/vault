@@ -33,7 +33,10 @@ class MovieDetailPage extends ConsumerWidget {
                       children: [
                         SizedBox(
                           width: 260,
-                          child: Poster(id: movie.id, hasArt: movie.hasArt),
+                          child: Poster(
+                              id: movie.id,
+                              hasArt: movie.hasArt,
+                              artVersion: movie.artVersion),
                         ),
                         const SizedBox(width: 32),
                         Expanded(child: _Info(movie: movie)),
@@ -45,7 +48,10 @@ class MovieDetailPage extends ConsumerWidget {
                         Center(
                           child: SizedBox(
                             width: 200,
-                            child: Poster(id: movie.id, hasArt: movie.hasArt),
+                            child: Poster(
+                              id: movie.id,
+                              hasArt: movie.hasArt,
+                              artVersion: movie.artVersion),
                           ),
                         ),
                         const SizedBox(height: 24),

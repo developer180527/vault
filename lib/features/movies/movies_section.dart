@@ -207,7 +207,10 @@ class _PosterCard extends StatelessWidget {
         children: [
           Stack(
             children: [
-              Poster(id: movie.id, hasArt: movie.hasArt),
+              Poster(
+                  id: movie.id,
+                  hasArt: movie.hasArt,
+                  artVersion: movie.artVersion),
               if (showProgress && movie.progress > 0)
                 Positioned(
                   left: 6,

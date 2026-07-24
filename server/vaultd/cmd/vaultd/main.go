@@ -18,6 +18,7 @@ import (
 
 	"github.com/developer180527/vault/vaultd/internal/adminweb"
 	"github.com/developer180527/vault/vaultd/internal/auth"
+	"github.com/developer180527/vault/vaultd/internal/changes"
 	"github.com/developer180527/vault/vaultd/internal/config"
 	"github.com/developer180527/vault/vaultd/internal/httpapi"
 	"github.com/developer180527/vault/vaultd/internal/jobs"
@@ -93,15 +94,19 @@ func main() {
 		log.Warn("stream signing unavailable — streams stay bearer-only", "err", err)
 	}
 
+	// One shared change hub: admin-panel mutations bump it, the member API
+	// streams it (/v1/changes/watch) so apps refresh without restarting.
+	changeHub := changes.NewHub()
+
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(httpapi.Options{
-			Log:          log,
-			Store:        st,
-			Verifier:     verifier,
-			SetupCode:    setupCode,
-			OIDCIssuer:   cfg.OIDCIssuer,
-			OIDCClientID: cfg.OIDCClientID,
+			Log:           log,
+			Store:         st,
+			Verifier:      verifier,
+			SetupCode:     setupCode,
+			OIDCIssuer:    cfg.OIDCIssuer,
+			OIDCClientID:  cfg.OIDCClientID,
 			DataRoot:      cfg.DataRoot,
 			PhotosRoot:    cfg.PhotosRoot,
 			MoviesRoot:    cfg.MoviesRoot,
@@ -109,6 +114,7 @@ func main() {
 			FFprobeBinary: cfg.FFprobeBinary,
 			Jobs:          engine,
 			Signer:        signer,
+			Changes:       changeHub,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -131,6 +137,7 @@ func main() {
 			ExternalURL: cfg.AdminExternalURL,
 			Flow: adminweb.NewOIDCFlow(cfg.OIDCIssuer, cfg.OIDCClientID,
 				cfg.AdminExternalURL+"/oauth/callback"),
+			Changes: changeHub,
 		})
 		if err != nil {
 			log.Error("admin panel", "err", err)
