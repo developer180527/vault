@@ -68,6 +68,48 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+# App icon generation (run: dart run flutter_launcher_icons).
+# Source: assets/Rainbow_Sunflower.png (transparent). We pre-composite the
+# per-platform variants in assets/icon/ so each platform gets exactly what its
+# launcher expects:
+#   - iOS 18 does a TRUE light/dark flip: the light asset bakes a white bg, and
+#     image_path_ios_dark_transparent is transparent so iOS fills the dark bg
+#     itself (this is the "white on light, black on dark" the user wanted).
+#     The tinted-grayscale asset feeds iOS 18's tinted mode.
+#   - Android: the adaptive background is a FIXED colour (launchers don't flip
+#     it with system dark mode), so it's white; the monochrome asset drives
+#     Android 13+ themed icons, which the OS tints to match the wallpaper.
+#   - macOS / Windows / web can't theme-flip the icon either → static white bg.
+flutter_launcher_icons:
+  image_path: "assets/icon/icon_light.png"
+
+  android: true
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/icon_fg.png"
+  adaptive_icon_monochrome: "assets/icon/icon_mono.png"
+
+  ios: true
+  remove_alpha_ios: true
+  image_path_ios: "assets/icon/icon_light.png"
+  image_path_ios_dark_transparent: "assets/icon/icon_dark_transparent.png"
+  image_path_ios_tinted_grayscale: "assets/icon/icon_tinted.png"
+
+  macos:
+    generate: true
+    image_path: "assets/icon/icon_light.png"
+
+  windows:
+    generate: true
+    image_path: "assets/icon/icon_light.png"
+    icon_size: 256
+
+  web:
+    generate: true
+    image_path: "assets/icon/icon_light.png"
+    background_color: "#ffffff"
+    theme_color: "#ffffff"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
