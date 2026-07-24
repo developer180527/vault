@@ -63,6 +63,16 @@ class DesktopShell extends ConsumerWidget {
                 ),
               ),
             ),
+          // Now-playing bar floats at the bottom of the MAIN VIEW only (native
+          // desktop) — inside `content`, so it never overlaps the sidebar and
+          // follows it wherever it docks (left/right/hidden) for free.
+          if (nativeDesktop)
+            const Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: DesktopNowPlayingBar(),
+            ),
         ],
       ),
     );
@@ -83,22 +93,12 @@ class DesktopShell extends ConsumerWidget {
       ],
     );
 
-    // Native desktop: the now-playing bar floats over the bottom of the whole
-    // window (Apple Music style), not tucked in the sidebar/title bar. Tablets
-    // keep the sidebar strip (see _Sidebar), so no floating bar there.
-    final Widget shellBody = nativeDesktop
-        ? Stack(children: [
-            Positioned.fill(child: body),
-            const Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: DesktopNowPlayingBar(),
-            ),
-          ])
-        : SafeArea(bottom: false, child: body);
-
-    return Scaffold(body: shellBody);
+    return Scaffold(
+      // Native desktop's title bar reserves its own space; tablets clear the
+      // OS status bar. The now-playing bar lives inside `content` (above), so
+      // it stays within the main view and never collides with the sidebar.
+      body: nativeDesktop ? body : SafeArea(bottom: false, child: body),
+    );
   }
 }
 

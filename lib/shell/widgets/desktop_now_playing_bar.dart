@@ -29,8 +29,10 @@ class DesktopNowPlayingBar extends ConsumerWidget {
       alignment: Alignment.bottomCenter,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        // A centred pill, not a full-width slab: capped so it reads as a
+        // floating control on wide windows, shrinking to fit on narrow ones.
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1120),
+          constraints: const BoxConstraints(maxWidth: 820),
           child: GlassSurface(
             radius: 16,
             child: SizedBox(
