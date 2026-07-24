@@ -405,7 +405,8 @@ Future<List<Playable>> catalogPlayables(
         title: t.title,
         subtitle: t.artist,
         album: t.album,
-        artworkUri: t.hasArt ? music.catalogArtUri(t.id) : null,
+        artworkUri:
+            t.hasArt ? music.catalogArtUri(t.id, version: t.artVersion) : null,
         // Signed → bare stream (native, no proxy); art keeps the bearer.
         headers: t.streamUrl != null ? const {} : headers,
         artHeaders: headers,

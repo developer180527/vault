@@ -13,6 +13,7 @@ class ServerTrack {
     this.trackNo = 0,
     this.year = 0,
     this.hasArt = false,
+    this.artVersion = 0,
     this.streamUrl,
   });
 
@@ -24,6 +25,11 @@ class ServerTrack {
   final int trackNo;
   final int year;
   final bool hasArt;
+
+  /// Cover version stamp from the server — folded into the art URL (`?v=`) so
+  /// URL-keyed caches refetch the moment an admin uploads new art. 0 on old
+  /// servers (no busting; TTL still applies).
+  final int artVersion;
 
   /// Signed, bearer-free stream path (with query) from the server — playback
   /// through it outlives the 15-minute access token, which is what makes
@@ -39,6 +45,7 @@ class ServerTrack {
     trackNo: (j['track_no'] as num?)?.toInt() ?? 0,
     year: (j['year'] as num?)?.toInt() ?? 0,
     hasArt: (j['has_art'] as bool?) ?? false,
+    artVersion: (j['art_version'] as num?)?.toInt() ?? 0,
     streamUrl: j['stream_url'] as String?,
   );
 
@@ -53,6 +60,7 @@ class ServerTrack {
     'track_no': trackNo,
     'year': year,
     'has_art': hasArt,
+    if (artVersion != 0) 'art_version': artVersion,
     if (streamUrl != null) 'stream_url': streamUrl,
   };
 }

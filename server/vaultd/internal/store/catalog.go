@@ -24,6 +24,11 @@ type CatalogTrack struct {
 	Year    int    `json:"year"`
 	HasArt  bool   `json:"has_art"`
 
+	// ArtVersion is TRANSIENT (never stored): the cover's version stamp
+	// (override mtime, else file mtime) attached by list handlers so clients
+	// can bust URL-keyed art caches when an admin uploads a new cover.
+	ArtVersion int64 `json:"art_version,omitempty"`
+
 	// StreamURL is TRANSIENT (never stored): a signed, bearer-free
 	// stream path attached by the list handlers so playback outlives
 	// the 15-minute access token (docs/MUSIC.md, auth.StreamSigner).

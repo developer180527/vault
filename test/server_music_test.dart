@@ -38,7 +38,7 @@ class _FakeMusicApi implements MusicApi {
       Uri.parse('https://vault/v1/music/catalog/$id/stream');
 
   @override
-  Uri catalogArtUri(String id) =>
+  Uri catalogArtUri(String id, {int version = 0}) =>
       Uri.parse('https://vault/v1/music/catalog/$id/art');
 
   @override

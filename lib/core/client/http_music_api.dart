@@ -80,7 +80,8 @@ class HttpMusicApi implements MusicApi {
       _session.api('/v1/music/catalog/$id/stream');
 
   @override
-  Uri catalogArtUri(String id) => _session.api('/v1/music/catalog/$id/art');
+  Uri catalogArtUri(String id, {int version = 0}) => _session.api(
+      '/v1/music/catalog/$id/art${version != 0 ? '?v=$version' : ''}');
 
   @override
   Future<List<ServerTrack>> catalog({String query = ''}) {

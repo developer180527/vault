@@ -24,13 +24,16 @@ func (s *Server) signUserStreams(username string, tracks []store.Track) {
 	}
 }
 
-// signCatalogStreams: same, for shared-catalog tracks.
+// signCatalogStreams: same, for shared-catalog tracks. Also attaches each
+// track's art version so clients can cache-bust cover URLs (`?v=`) the moment
+// an admin uploads new art — without it, URL-keyed image caches served stale
+// covers until their TTL expired.
 func (s *Server) signCatalogStreams(tracks []store.CatalogTrack) {
-	if s.signer == nil {
-		return
-	}
 	for i := range tracks {
-		tracks[i].StreamURL = s.userTrackStreamURL("", tracks[i].ID, true)
+		tracks[i].ArtVersion = s.music.CatalogArtVersion(&tracks[i])
+		if s.signer != nil {
+			tracks[i].StreamURL = s.userTrackStreamURL("", tracks[i].ID, true)
+		}
 	}
 }
 

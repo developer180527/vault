@@ -463,6 +463,10 @@ func (s *Server) handleTrackArt(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", mime)
 	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "private, max-age=86400")
+	// no-cache (NOT no-store): the browser must revalidate the ETag on every
+	// view, so a just-uploaded cover shows immediately. Unchanged art is still
+	// a headers-only 304. max-age made the panel serve day-old art after an
+	// upload — the img src has no version param to bust with.
+	w.Header().Set("Cache-Control", "private, no-cache")
 	_, _ = w.Write(data)
 }

@@ -801,7 +801,7 @@ class _ServerTrackList extends ConsumerWidget {
           uri: !t.hasArt
               ? null
               : catalogArt
-              ? music.catalogArtUri(t.id)
+              ? music.catalogArtUri(t.id, version: t.artVersion)
               : music.artUri(t.id),
         ),
         title: Text(
@@ -999,7 +999,9 @@ class _MostPlayedShelf extends ConsumerWidget {
           final t = tracks[i];
           return _ShelfCard(
             track: t,
-            artUri: t.hasArt ? music.catalogArtUri(t.id) : null,
+            artUri: t.hasArt
+                ? music.catalogArtUri(t.id, version: t.artVersion)
+                : null,
             isCurrent: currentId == t.id,
             onTap: () => onPlay(i),
           );
@@ -1109,7 +1111,11 @@ class _CatalogTrackTile extends ConsumerWidget {
       favoriteIdsProvider.select((ids) => ids.contains(track.id)),
     );
     final tile = ListTile(
-      leading: _ServerArt(uri: track.hasArt ? music.catalogArtUri(track.id) : null),
+      leading: _ServerArt(
+        uri: track.hasArt
+            ? music.catalogArtUri(track.id, version: track.artVersion)
+            : null,
+      ),
       title: Text(
         track.title,
         maxLines: 1,

@@ -188,7 +188,9 @@ func (s *Server) handleMoviePoster(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", mime)
 	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "private, max-age=86400")
+	// no-cache: revalidate per view so a just-uploaded poster shows at once
+	// (same reasoning as handleTrackArt).
+	w.Header().Set("Cache-Control", "private, no-cache")
 	_, _ = w.Write(data)
 }
 

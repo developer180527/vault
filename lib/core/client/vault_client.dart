@@ -137,7 +137,10 @@ abstract interface class MusicApi {
   Future<List<ServerTrack>> catalog({String query = ''});
 
   Uri catalogStreamUri(String id);
-  Uri catalogArtUri(String id);
+
+  /// Catalog cover URL. Pass the track's [version] (art_version) so the URL —
+  /// and every URL-keyed cache — changes when an admin uploads new art.
+  Uri catalogArtUri(String id, {int version = 0});
 
   /// The caller's playlists (catalog track UUIDs + owner UUID, server-side).
   Future<List<Playlist>> playlists();
