@@ -138,8 +138,12 @@ class _ContinueShelf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Height budget: a 116-wide poster is 2:3 → 174 tall, then the caption
+    // (gap + title + subtitle) and the list's own vertical padding. 210 was
+    // ~5px short and overflowed when a caption wrapped to two lines; 232 fits
+    // the poster + two caption lines + padding with a little slack.
     return SizedBox(
-      height: 210,
+      height: 232,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),

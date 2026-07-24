@@ -108,7 +108,17 @@ class ContentCache {
       return mem;
     }
 
-    final dir = await _dir('img');
+    // The cache dir itself can fail (path_provider unavailable, sandbox) —
+    // that used to throw out of here and become a silent placeholder. Log it
+    // and still attempt a direct (memory-only) fetch so art can appear.
+    Directory dir;
+    try {
+      dir = await _dir('img');
+    } catch (e) {
+      _log.warn('image cache dir unavailable — fetching direct',
+          fields: {'uri': '$uri', 'err': '$e'});
+      return _fetchDirect(uri, headers, key);
+    }
     final bin = File('${dir.path}/$key.bin');
     final meta = File('${dir.path}/$key.json');
     if (await bin.exists()) {
@@ -124,6 +134,28 @@ class ContentCache {
     return _fetchToDisk(uri, headers, bin, meta, key);
   }
 
+  /// Network fetch with NO disk write — the fallback when the cache dir is
+  /// unusable. Same failure logging as [_fetchToDisk].
+  Future<Uint8List?> _fetchDirect(
+    Uri uri,
+    Map<String, String> headers,
+    String key,
+  ) async {
+    try {
+      final res = await _client.get(uri, headers: headers);
+      if (res.statusCode != 200) {
+        _log.warn('image fetch non-200',
+            fields: {'uri': '$uri', 'status': res.statusCode});
+        return null;
+      }
+      _remember(key, res.bodyBytes);
+      return res.bodyBytes;
+    } catch (e) {
+      _log.warn('image fetch failed', fields: {'uri': '$uri', 'err': '$e'});
+      return null;
+    }
+  }
+
   Future<Uint8List?> _fetchToDisk(
     Uri uri,
     Map<String, String> headers,
@@ -133,23 +165,35 @@ class ContentCache {
   ) async {
     try {
       final res = await _client.get(uri, headers: headers);
-      if (res.statusCode != 200) return null;
+      if (res.statusCode != 200) {
+        // The usual art culprit: a 401 (stale bearer) or 404 (wrong endpoint).
+        // WARN so it shows in release logs — a silent placeholder hid this.
+        _log.warn('image fetch non-200',
+            fields: {'uri': '$uri', 'status': res.statusCode});
+        return null;
+      }
       final bytes = res.bodyBytes;
       _remember(key, bytes);
       // Atomic-enough for a cache: temp + rename (a torn cache entry would
-      // otherwise serve garbage forever).
-      final tmp = File('${bin.path}.tmp');
-      await tmp.writeAsBytes(bytes, flush: true);
-      await tmp.rename(bin.path);
-      await meta.writeAsString(
-        jsonEncode({
-          'etag': res.headers['etag'] ?? '',
-          'fetched_at': DateTime.now().millisecondsSinceEpoch,
-        }),
-      );
+      // otherwise serve garbage forever). A disk-write failure must NOT lose
+      // the image — keep the bytes (already in memory) and just log.
+      try {
+        final tmp = File('${bin.path}.tmp');
+        await tmp.writeAsBytes(bytes, flush: true);
+        await tmp.rename(bin.path);
+        await meta.writeAsString(
+          jsonEncode({
+            'etag': res.headers['etag'] ?? '',
+            'fetched_at': DateTime.now().millisecondsSinceEpoch,
+          }),
+        );
+      } catch (e) {
+        _log.warn('image disk-cache write failed (serving from memory)',
+            fields: {'uri': '$uri', 'err': '$e'});
+      }
       return bytes;
     } catch (e) {
-      _log.debug('image fetch failed', fields: {'uri': '$uri', 'err': '$e'});
+      _log.warn('image fetch failed', fields: {'uri': '$uri', 'err': '$e'});
       return null;
     }
   }
