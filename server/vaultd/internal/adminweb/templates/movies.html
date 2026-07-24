@@ -25,7 +25,7 @@
     <form method="post" action="/movies/upload" enctype="multipart/form-data">
       <div class="row">
         <div>
-          <label class="field" for="files">Upload video (mp4, mkv, mov… — 8&nbsp;GB per batch)</label>
+          <label class="field" for="files">Upload video (mp4, mkv, mov… — 4K features welcome)</label>
           <input type="file" id="files" name="files" multiple
                  accept=".mp4,.mkv,.m4v,.mov,.avi,.webm,.ts,video/*">
         </div>
@@ -34,9 +34,11 @@
         </div>
       </div>
       <p class="muted" style="margin-top:8px">Streamed straight to the movies
-      pool and indexed. For very large libraries, scp/rsync into
-      <code>/srv/vault/movies/</code> then Scan is faster (no browser upload
-      limit, resumable).</p>
+      pool and indexed — no size cap worth worrying about. For a bulk import
+      (many 4K titles at once), <code>rsync -P</code> into
+      <code>/srv/vault/movies/</code> then Scan is still faster and
+      <em>resumable</em>: a browser upload restarts from zero if the tab or
+      Wi-Fi drops mid-transfer.</p>
     </form>
   </div>
 

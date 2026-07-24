@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import 'media_transport_controls.dart';
@@ -53,7 +54,10 @@ class VideoSurface extends StatelessWidget {
         if (showControls)
           Positioned.fill(
             child: VideoControls(
-                controller: controller, title: title, topOverlay: topOverlay),
+              controller: controller,
+              title: title,
+              topOverlay: topOverlay,
+            ),
           ),
         // Above the controls so a stall is visible even mid-interaction.
         ValueListenableBuilder(
@@ -72,8 +76,12 @@ class VideoSurface extends StatelessWidget {
 /// Fills its parent — place it in a [Positioned.fill] (or as [VideoSurface]'s
 /// own overlay) so it spans the full area, never the video's letterbox strip.
 class VideoControls extends StatefulWidget {
-  const VideoControls(
-      {super.key, required this.controller, this.title, this.topOverlay});
+  const VideoControls({
+    super.key,
+    required this.controller,
+    this.title,
+    this.topOverlay,
+  });
 
   final VideoPlayerController controller;
   final String? title;
@@ -103,6 +111,51 @@ class _VideoControlsState extends State<VideoControls> {
     if (_visible) _scheduleHide();
   }
 
+  /// Reveal the chrome (used by keyboard shortcuts, which should surface the
+  /// controls so the user sees what their keypress did).
+  void _reveal() {
+    if (!_visible) setState(() => _visible = true);
+    _scheduleHide();
+  }
+
+  void _playPause() {
+    final v = widget.controller.value;
+    v.isPlaying ? widget.controller.pause() : widget.controller.play();
+    _reveal();
+  }
+
+  void _seekBy(Duration by) {
+    final v = widget.controller.value;
+    var target = v.position + by;
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > v.duration) target = v.duration;
+    widget.controller.seekTo(target);
+    _reveal();
+  }
+
+  /// Desktop/keyboard transport: space or K toggles play, arrows seek ±10s
+  /// (±60s with shift), J/L match the common player convention. Handled on
+  /// key DOWN only so a held key doesn't machine-gun.
+  KeyEventResult _onKey(FocusNode _, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final k = event.logicalKey;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final step = Duration(seconds: shift ? 60 : 10);
+    if (k == LogicalKeyboardKey.space || k == LogicalKeyboardKey.keyK) {
+      _playPause();
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.keyJ) {
+      _seekBy(-step);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.keyL) {
+      _seekBy(step);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -117,81 +170,90 @@ class _VideoControlsState extends State<VideoControls> {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      label: widget.title == null ? 'Video player' : 'Video: ${widget.title}',
-      onTapHint: 'show or hide playback controls',
-      // Opaque + always-active tap so a tap anywhere on the surface toggles
-      // the chrome, even while it's hidden. Horizontal drags aren't claimed
-      // here, so page-swiping still reaches the gallery below.
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _toggle,
-        child: AnimatedOpacity(
-          opacity: _visible ? 1 : 0,
-          duration: const Duration(milliseconds: 200),
-          child: IgnorePointer(
-            ignoring: !_visible,
-            child: ExcludeSemantics(
-              excluding: !_visible,
-              // All children explicitly Positioned: they lay out against the
-              // Stack's final size unconditionally, so the scrubber can NEVER
-              // collapse onto the center cluster regardless of the constraint
-              // path this overlay is mounted under (the squished-controls bug).
-              child: Stack(
-                children: [
-                  // Soft scrim so white controls stay legible on bright
-                  // footage.
-                  Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.black.withValues(alpha: 0.35),
-                    ),
-                  ),
-                  // Top chrome (back bar / pickers), fading with everything
-                  // else. SafeArea keeps it clear of the notch.
-                  if (widget.topOverlay != null)
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      child: SafeArea(bottom: false, child: widget.topOverlay!),
-                    ),
-                  // Center cluster: on phones thumbs land mid-screen, so the
-                  // primary transport lives there.
-                  Positioned.fill(
-                    child: Center(
-                      child: _CenterControls(
-                        controller: widget.controller,
-                        onInteract: _scheduleHide,
+    return Focus(
+      // autofocus so a desktop window's keyboard reaches the player the moment
+      // it opens — space/arrows are the transport people reach for first.
+      autofocus: true,
+      onKeyEvent: _onKey,
+      child: Semantics(
+        label: widget.title == null ? 'Video player' : 'Video: ${widget.title}',
+        onTapHint: 'show or hide playback controls',
+        // Opaque + always-active tap so a tap anywhere on the surface toggles
+        // the chrome, even while it's hidden. Horizontal drags aren't claimed
+        // here, so page-swiping still reaches the gallery below.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _toggle,
+          child: AnimatedOpacity(
+            opacity: _visible ? 1 : 0,
+            duration: const Duration(milliseconds: 200),
+            child: IgnorePointer(
+              ignoring: !_visible,
+              child: ExcludeSemantics(
+                excluding: !_visible,
+                // All children explicitly Positioned: they lay out against the
+                // Stack's final size unconditionally, so the scrubber can NEVER
+                // collapse onto the center cluster regardless of the constraint
+                // path this overlay is mounted under (the squished-controls bug).
+                child: Stack(
+                  children: [
+                    // Soft scrim so white controls stay legible on bright
+                    // footage.
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.35),
                       ),
                     ),
-                  ),
-                  // Scrubber pinned to the bottom edge, clear of the home
-                  // indicator on phones.
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.bottomCenter,
-                          end: Alignment.topCenter,
-                          colors: [
-                            Colors.black.withValues(alpha: 0.6),
-                            Colors.transparent,
-                          ],
+                    // Top chrome (back bar / pickers), fading with everything
+                    // else. SafeArea keeps it clear of the notch.
+                    if (widget.topOverlay != null)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: SafeArea(
+                          bottom: false,
+                          child: widget.topOverlay!,
                         ),
                       ),
-                      padding: EdgeInsets.only(
-                        top: 24,
-                        bottom: MediaQuery.paddingOf(context).bottom,
-                      ),
-                      child: MediaTransportControls(
-                        controller: widget.controller,
+                    // Center cluster: on phones thumbs land mid-screen, so the
+                    // primary transport lives there.
+                    Positioned.fill(
+                      child: Center(
+                        child: _CenterControls(
+                          controller: widget.controller,
+                          onInteract: _scheduleHide,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                    // Scrubber pinned to the bottom edge, clear of the home
+                    // indicator on phones.
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              Colors.black.withValues(alpha: 0.6),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                        padding: EdgeInsets.only(
+                          top: 24,
+                          bottom: MediaQuery.paddingOf(context).bottom,
+                        ),
+                        child: MediaTransportControls(
+                          controller: widget.controller,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
