@@ -1,11 +1,14 @@
-// Movie catalog manager (admin panel). Mirrors the music catalog manager, but
-// there's no browser upload: movie files are large, so the flow is copy to the
-// server (scp/rsync into /srv/vault/movies) then Scan. Per-title metadata
-// editing, poster override, and trash-delete match music.
+// Movie catalog manager (admin panel). Mirrors the music catalog manager,
+// plus a streaming browser upload for large files. For bulk imports, copying
+// to the server (scp/rsync into /srv/vault/movies) then Scan is still faster
+// and resumable. Per-title metadata editing, poster override, and
+// trash-delete match music.
 package adminweb
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,23 +70,40 @@ func (s *Server) handleMovieUpload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxMovieUpload+(8<<20))
 	mr, err := r.MultipartReader()
 	if err != nil {
-		redirectMsg(w, r, "/movies", "Upload malformed or too large (8GB max).")
+		s.log.Warn("movie upload: bad multipart body", "err", err)
+		redirectMsg(w, r, "/movies", "Upload malformed: "+err.Error())
 		return
 	}
 	var saved, skipped int
+	var firstErr string
 	for {
 		part, err := mr.NextPart()
 		if err != nil {
-			break // end of parts
+			// io.EOF is the normal end of the body. ANYTHING else means the
+			// transfer broke mid-flight (connection dropped, size cap hit) —
+			// report it instead of silently claiming success.
+			if !errors.Is(err, io.EOF) {
+				s.log.Warn("movie upload: stream ended early",
+					"err", err, "saved", saved)
+				if firstErr == "" {
+					firstErr = "transfer interrupted: " + err.Error()
+				}
+			}
+			break
 		}
 		if part.FormName() != "files" || part.FileName() == "" {
 			continue
 		}
 		if _, err := s.movies.SaveUploadStream(part.FileName(), part); err != nil {
-			s.log.Warn("movie upload part failed", "name", part.FileName(), "err", err)
+			s.log.Warn("movie upload part failed",
+				"name", part.FileName(), "err", err)
 			skipped++
+			if firstErr == "" {
+				firstErr = part.FileName() + ": " + err.Error()
+			}
 			continue
 		}
+		s.log.Info("movie upload part saved", "name", part.FileName())
 		saved++
 	}
 	if saved > 0 {
@@ -100,7 +120,14 @@ func (s *Server) handleMovieUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	msg := fmt.Sprintf("Uploaded %d file(s).", saved)
 	if skipped > 0 {
-		msg += fmt.Sprintf(" %d skipped (not video, or failed).", skipped)
+		msg += fmt.Sprintf(" %d skipped.", skipped)
+	}
+	// Surface the real reason — a silent "Uploaded 0 file(s)" was impossible
+	// to act on.
+	if firstErr != "" {
+		msg += " " + firstErr
+	} else if saved == 0 && skipped == 0 {
+		msg = "No file received — the browser sent an empty form."
 	}
 	redirectMsg(w, r, "/movies", msg)
 }

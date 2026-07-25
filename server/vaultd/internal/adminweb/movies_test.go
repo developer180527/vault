@@ -48,6 +48,52 @@ func TestMovieUploadStreamsToDisk(t *testing.T) {
 	}
 }
 
+// TestMovieUploadReportsWhyItFailed: a rejected or absent file must say WHY.
+// A silent "Uploaded 0 file(s)" was impossible to act on.
+func TestMovieUploadReportsWhyItFailed(t *testing.T) {
+	e := newEnv(t)
+	e.seedUser(t, "venu", "admin", "sub-venu")
+	session := e.login(t)
+
+	// A non-video file: the flash names the file and the reason.
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("files", "notes.txt")
+	_, _ = fw.Write([]byte("not video"))
+	_ = mw.Close()
+	rec := e.doPost(t, session, "/movies/upload", mw.FormDataContentType(), &buf)
+	loc := rec.Header().Get("Location")
+	if !strings.Contains(loc, "notes.txt") ||
+		!strings.Contains(loc, "not+a+video+file") {
+		t.Fatalf("skip reason missing from flash: %q", loc)
+	}
+
+	// A form with no file part at all.
+	var empty bytes.Buffer
+	mw2 := multipart.NewWriter(&empty)
+	_ = mw2.WriteField("nothing", "here")
+	_ = mw2.Close()
+	rec = e.doPost(t, session, "/movies/upload", mw2.FormDataContentType(), &empty)
+	if !strings.Contains(rec.Header().Get("Location"), "No+file+received") {
+		t.Fatalf("empty form not reported: %q", rec.Header().Get("Location"))
+	}
+
+	// MKV is accepted (the container the catalog is mostly made of).
+	var mkv bytes.Buffer
+	mw3 := multipart.NewWriter(&mkv)
+	fw3, _ := mw3.CreateFormFile("files", "Sita Ramam (2022).mkv")
+	_, _ = fw3.Write([]byte("matroska-bytes"))
+	_ = mw3.Close()
+	rec = e.doPost(t, session, "/movies/upload", mw3.FormDataContentType(), &mkv)
+	if !strings.Contains(rec.Header().Get("Location"), "Uploaded+1") {
+		t.Fatalf("mkv rejected: %q", rec.Header().Get("Location"))
+	}
+	if _, err := os.Stat(
+		filepath.Join(e.movies.Root, "Sita Ramam (2022).mkv")); err != nil {
+		t.Fatalf("mkv not on disk: %v", err)
+	}
+}
+
 func TestMovieCatalogEditAndAudit(t *testing.T) {
 	e := newEnv(t)
 	e.seedUser(t, "venu", "admin", "sub-venu")

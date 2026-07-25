@@ -92,6 +92,10 @@ func New(o Options) (http.Handler, error) {
 	}
 
 	r := chi.NewRouter()
+	// Log every admin request. Without this the panel was a black box: a failed
+	// upload left NOTHING in the logs, so there was no way to tell a rejected
+	// file from a dropped connection.
+	r.Use(s.logRequests)
 	r.Use(s.secureHeaders)
 	r.Get("/login", s.handleLoginPage)
 	r.Get("/login/start", s.handleLoginStart)
@@ -145,6 +149,36 @@ func New(o Options) (http.Handler, error) {
 		r.Get("/system", s.handleSystem)
 	})
 	return r, nil
+}
+
+// logRequests records method/path/status/duration for every admin request,
+// plus the request's Content-Length so a large upload that dies mid-flight is
+// distinguishable from one the handler rejected outright.
+func (s *Server) logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		fields := []any{
+			"method", r.Method, "path", r.URL.Path,
+			"status", rec.status, "dur_ms", time.Since(start).Milliseconds(),
+		}
+		if r.ContentLength > 0 {
+			fields = append(fields, "req_bytes", r.ContentLength)
+		}
+		s.log.Info("admin request", fields...)
+	})
+}
+
+// statusRecorder captures the status code the handler wrote.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
 }
 
 // secureHeaders: strict CSP (no scripts at all in Phase 0), no framing, no
