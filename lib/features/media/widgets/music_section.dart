@@ -14,6 +14,7 @@ import '../../../core/playback/playback_controller.dart';
 import '../../../shell/widgets/context_menu.dart';
 import '../data/music_library.dart';
 import '../data/music_metadata.dart';
+import '../../../shell/widgets/server_unavailable.dart';
 import '../data/server_music.dart';
 import '../music_player_page.dart';
 
@@ -384,7 +385,11 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
     final tracksAsync = ref.watch(catalogTracksProvider);
     return tracksAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Catalog unavailable: $e')),
+      error: (e, _) => ServerUnavailable(
+        message: "Can't load your music",
+        detail: '$e',
+        onRetry: () async => ref.invalidate(catalogTracksProvider),
+      ),
       data: (tracks) {
         if (tracks.isEmpty) {
           return const _EmptyNote(

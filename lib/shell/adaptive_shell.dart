@@ -7,6 +7,7 @@ import '../core/services/service_registry.dart';
 import 'command_palette.dart';
 import 'desktop_shell.dart';
 import 'mobile_shell.dart';
+import 'widgets/server_unavailable.dart';
 
 /// Width at which large-screen devices (web, tablets) switch from the mobile
 /// bottom-bar shell to the desktop sidebar shell.
@@ -74,9 +75,18 @@ class AdaptiveShell extends StatelessWidget {
           autofocus: true,
           child: FormFactor(
             isDesktop: isDesktop,
-            child: isDesktop
-                ? DesktopShell(shell: shell, services: services)
-                : MobileShell(shell: shell, services: services),
+            // The offline banner rides above the shell so it's visible from
+            // every tab; it collapses to nothing while the server is reachable.
+            child: Column(
+              children: [
+                const OfflineBanner(),
+                Expanded(
+                  child: isDesktop
+                      ? DesktopShell(shell: shell, services: services)
+                      : MobileShell(shell: shell, services: services),
+                ),
+              ],
+            ),
           ),
         ),
       );

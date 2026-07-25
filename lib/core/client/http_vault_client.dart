@@ -60,7 +60,10 @@ class HttpVaultClient implements VaultClient {
 
   @override
   Future<CapabilityManifest> fetchManifest() async {
-    final res = await _authedGet('/v1/manifest');
+    // Bounded: a hung/unreachable server must fail FAST so the app can fall
+    // through to its cached/offline manifest instead of sitting on a splash.
+    final res = await _authedGet('/v1/manifest')
+        .timeout(const Duration(seconds: 8));
     final body = jsonDecode(res.body) as Map<String, Object?>;
     final manifest = parseManifest(body);
     // Surface the server-known identity on the You page.
@@ -157,3 +160,15 @@ CapabilityManifest parseManifest(Map<String, Object?> j) {
         (j['default_pinned'] as List<Object?>? ?? const []).cast<String>(),
   );
 }
+
+/// Serializes a manifest back to the wire shape so it can be cached and
+/// re-read through [parseManifest] on a cold, offline start.
+Map<String, Object?> manifestToJson(CapabilityManifest m) => {
+      'device_id': m.deviceId,
+      'profile_id': m.profileId,
+      'default_pinned': m.defaultPinned,
+      'capabilities': {
+        for (final e in m.capabilities.entries)
+          e.key: {'actions': [for (final a in e.value.actions) a.name]},
+      },
+    };

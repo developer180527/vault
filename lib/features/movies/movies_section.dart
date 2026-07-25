@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/server_movie.dart';
+import '../../shell/widgets/server_unavailable.dart';
 import 'data/server_movies.dart';
 import 'movie_detail_page.dart';
 import 'widgets/poster.dart';
@@ -79,8 +80,12 @@ class _MoviesSectionState extends ConsumerState<MoviesSection> {
                 : catalog.when(
                     loading: () =>
                         const Center(child: CircularProgressIndicator()),
-                    error: (e, _) =>
-                        Center(child: Text('Catalog unavailable: $e')),
+                    error: (e, _) => ServerUnavailable(
+                      message: "Can't load your movies",
+                      detail: '$e',
+                      onRetry: () async =>
+                          ref.invalidate(movieCatalogProvider),
+                    ),
                     data: (movies) => movies.isEmpty
                         ? const _EmptyNote(
                             'No movies yet.\nThe admin loads them into the catalog on the server.',

@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/session.dart';
+import '../cache/content_cache.dart';
+import '../client/http_vault_client.dart';
 import '../client/vault_client.dart';
 import '../logging/vault_log.dart';
 import '../services/service_registry.dart';
@@ -47,17 +52,32 @@ final mockManifestProvider =
     NotifierProvider<MockManifestNotifier, CapabilityManifest>(
         MockManifestNotifier.new);
 
-/// The authoritative manifest for the session. Loading → splash; error →
-/// fail-closed retry (never "assume allowed"); data → drives all navigation.
+/// Whether the home server is currently reachable. False when the last
+/// manifest fetch failed (we're running on a cached/local manifest). Drives
+/// the offline banner and per-page "can't connect" states — NOT security,
+/// which the server always re-checks.
+class ServerReachable extends Notifier<bool> {
+  @override
+  bool build() => true;
+  void set(bool v) {
+    if (state != v) state = v;
+  }
+}
+
+final serverReachableProvider =
+    NotifierProvider<ServerReachable, bool>(ServerReachable.new);
+
+/// The authoritative manifest for the session. Connected + reachable → the
+/// server's manifest. Connected + UNREACHABLE → the last-cached manifest, or
+/// a local-only one, so the app is never blocked by a full-screen error: the
+/// always-available tabs (Media, Settings, You) work, and server-backed pages
+/// show their own "can't connect" state. Not connected → the editable mock.
 class ManifestController extends AsyncNotifier<CapabilityManifest> {
   @override
   Future<CapabilityManifest> build() async {
-    // Connected to a real server → its manifest is the only authority.
-    // Not connected → the editable mock keeps the app usable standalone
-    // (and drives all tests). select on server+device IDENTITY: login/logout
-    // and server switches refetch, but session MUTATIONS (token refresh,
-    // noteUsername — which fetchManifest itself triggers) must not — they
-    // used to cancel the in-flight fetch and double-fetch on every launch.
+    // select on server+device IDENTITY: login/logout and server switches
+    // refetch, but session MUTATIONS (token refresh, noteUsername — which
+    // fetchManifest itself triggers) must not cancel the in-flight fetch.
     final scope = ref.watch(sessionProvider.select((s) {
       final v = s.asData?.value;
       return v == null ? null : '${v.serverHost}/${v.deviceId}';
@@ -69,23 +89,54 @@ class ManifestController extends AsyncNotifier<CapabilityManifest> {
       });
       return manifest;
     }
+
+    final cache = ref.watch(contentCacheProvider);
+    final cacheKey = '$scope/manifest';
     try {
       final manifest = await ref.watch(vaultClientProvider).fetchManifest();
+      // Persist for offline starts; mark the server reachable.
+      unawaited(cache.writeSnapshot(cacheKey,
+          jsonEncode(manifestToJson(manifest))));
+      _reach(true);
       _log.info('Capability manifest loaded', fields: {
         'profile': manifest.profileId,
         'services': manifest.capabilities.length,
       });
       return manifest;
-    } catch (e, s) {
+    } catch (e) {
       // A stale build (this ref was rebuilt/disposed mid-fetch) is not a
-      // failure — a newer fetch owns the state. Don't log a scary error.
+      // failure — a newer fetch owns the state.
       if (!ref.mounted) rethrow;
-      // Fail-closed: log why, the UI shows the retry screen.
-      _log.error('Manifest fetch failed — failing closed',
-          error: e, stackTrace: s);
-      rethrow;
+      _reach(false);
+      // Degrade gracefully instead of failing closed to a blocking screen.
+      final cached = await cache.readSnapshot(cacheKey);
+      if (cached != null) {
+        try {
+          final manifest =
+              parseManifest(jsonDecode(cached) as Map<String, Object?>);
+          _log.warn('manifest fetch failed — serving cached manifest '
+              '(offline)', fields: {'services': manifest.capabilities.length});
+          return manifest;
+        } catch (_) {/* corrupt cache → fall through to local-only */}
+      }
+      // Never connected on this device (no cache): local-only. The empty
+      // manifest still yields the always-available tabs via
+      // permittedServicesProvider, so the user is never stranded.
+      _log.warn('manifest fetch failed, no cache — local-only mode',
+          fields: {'err': '$e'});
+      final sess = ref.read(sessionProvider).asData?.value;
+      return CapabilityManifest(
+        deviceId: sess?.deviceId ?? '',
+        profileId: '',
+        capabilities: const {},
+      );
     }
   }
+
+  /// Update reachability off the build stack (mutating another provider during
+  /// build is disallowed).
+  void _reach(bool up) =>
+      Future.microtask(() => ref.read(serverReachableProvider.notifier).set(up));
 
   /// Re-fetch after a failure (the retry button) or when the server signals a
   /// grant change.
