@@ -17,23 +17,22 @@
       </div>
       {{end}}
       <form method="post" action="/catalog/{{.T.ID}}">
+        {{/* Must be the FIRST submit in the form: browsers activate the first
+             submit button on implicit submission (Enter in a text box). Without
+             it, Enter in an "add tag" box would fire a chip's × instead. */}}
+        <button type="submit" class="implicit-submit" tabindex="-1"
+                aria-hidden="true"></button>
         <label class="field" for="f-title">Title</label>
         <input id="f-title" type="text" name="title" value="{{.T.Title}}" required>
+
+        {{template "tagfield" .ArtistField}}
+
+        <label class="field" for="f-album">Album</label>
+        <input id="f-album" type="text" name="album" value="{{.T.Album}}">
+
+        {{template "tagfield" .GenreField}}
+
         <div class="row">
-          <div>
-            <label class="field" for="f-artist">Artist</label>
-            <input id="f-artist" type="text" name="artist" value="{{.T.Artist}}">
-          </div>
-          <div>
-            <label class="field" for="f-album">Album</label>
-            <input id="f-album" type="text" name="album" value="{{.T.Album}}">
-          </div>
-        </div>
-        <div class="row">
-          <div>
-            <label class="field" for="f-genre">Genre</label>
-            <input id="f-genre" type="text" name="genre" value="{{.T.Genre}}">
-          </div>
           <div>
             <label class="field" for="f-track">Track №</label>
             <input id="f-track" type="number" name="track_no" min="0"

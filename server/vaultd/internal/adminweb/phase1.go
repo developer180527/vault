@@ -399,9 +399,22 @@ func (s *Server) handleTrackEditPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// `focus` comes back on the redirect after adding/removing a chip, so the
+	// cursor lands in the same box — type, Enter, type, Enter.
+	focus := r.URL.Query().Get("focus")
 	s.render(w, "catalog_edit.html", map[string]any{
 		"User": userFrom(r), "Active": "catalog",
 		"T": t, "Msg": r.URL.Query().Get("msg"),
+		"ArtistField": tagField{
+			Name: "artist", Label: "Artist", Values: splitTags(t.Artist),
+			Focus: focus == "artist",
+			Hint: "One per performer — “Asha Bhosle”, then “Mohammed Rafi”. " +
+				"The app files a duet under both.",
+		},
+		"GenreField": tagField{
+			Name: "genre", Label: "Genre", Values: splitTags(t.Genre),
+			Focus: focus == "genre",
+		},
 	})
 }
 
@@ -417,9 +430,11 @@ func (s *Server) handleTrackSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.Title = title
-	t.Artist = strings.TrimSpace(r.FormValue("artist"))
 	t.Album = strings.TrimSpace(r.FormValue("album"))
-	t.Genre = strings.TrimSpace(r.FormValue("genre"))
+	// Multi-value fields arrive as repeated hidden inputs plus this request's
+	// add/remove; resolveTags folds them into the stored comma-joined form.
+	t.Artist = resolveTags(r.Form, "artist")
+	t.Genre = resolveTags(r.Form, "genre")
 	fmt.Sscanf(r.FormValue("track_no"), "%d", &t.TrackNo)
 	fmt.Sscanf(r.FormValue("year"), "%d", &t.Year)
 	if err := s.store.Write().UpdateCatalogMeta(r.Context(), t.ID, *t); err != nil {
@@ -430,6 +445,14 @@ func (s *Server) handleTrackSave(w http.ResponseWriter, r *http.Request) {
 		"by", userFrom(r).Username)
 	s.audit(r, "track.edit", "track", t.ID, "metadata: "+t.Title)
 	s.changes.Bump("music")
+
+	// A chip edit is a rapid-entry step, not a destination: bounce back with
+	// the cursor in the same box and no self-congratulatory flash.
+	if f := tagFocusFrom(r.Form); f != "" {
+		http.Redirect(w, r, back+"?focus="+url.QueryEscape(f),
+			http.StatusSeeOther)
+		return
+	}
 	redirectMsg(w, r, back, "Saved. Edits survive rescans (DB is authoritative).")
 }
 

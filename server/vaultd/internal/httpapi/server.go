@@ -132,6 +132,9 @@ func New(o Options) http.Handler {
 	if err := s.movies.EnsureRoot(); err != nil {
 		o.Log.Warn("movies dir", "err", err)
 	}
+	// AFTER s.movies is assigned — this reads it, and a goroutine started
+	// earlier could observe a nil service.
+	go s.sweepMovieUploads()
 	// The shared catalog directory must exist before the admin's first drop.
 	if err := s.music.EnsureCatalog(); err != nil {
 		o.Log.Warn("catalog dir", "err", err)
@@ -285,6 +288,16 @@ func New(o Options) http.Handler {
 				r.Use(s.RequireGrant("movies", "write"))
 				r.Patch("/movies/{id}", s.handleMovieEdit)
 				r.Post("/movies/scan", s.handleMovieScan)
+
+				// Resumable upload: begin → read offset → PATCH chunks →
+				// finish. Built for 10–12GB files where a single POST is a
+				// coin flip (docs/MOVIES.md).
+				r.Post("/movies/uploads", s.handleBeginMovieUpload)
+				r.Get("/movies/uploads/{id}", s.handleMovieUploadOffset)
+				r.Head("/movies/uploads/{id}", s.handleMovieUploadOffset)
+				r.Patch("/movies/uploads/{id}", s.handleMovieUploadChunk)
+				r.Post("/movies/uploads/{id}/finish", s.handleFinishMovieUpload)
+				r.Delete("/movies/uploads/{id}", s.handleAbortMovieUpload)
 			})
 			// backup (M4) lands here.
 		})

@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/server_movie.dart';
 import '../../shell/widgets/server_unavailable.dart';
+import 'data/movie_upload_engine.dart';
 import 'data/server_movies.dart';
 import 'movie_detail_page.dart';
+import 'movie_uploads_page.dart';
 import 'widgets/poster.dart';
 
 /// The Movies tab: a search field, a Continue Watching shelf, then the poster
@@ -52,26 +54,54 @@ class _MoviesSectionState extends ConsumerState<MoviesSection> {
     final continueList =
         ref.watch(continueWatchingProvider).asData?.value ?? const [];
 
+    // Desktop + movies:write only — the uploader is an admin tool, and
+    // nobody pushes a 12GB movie from a phone.
+    final canUpload = ref.watch(canUploadMoviesProvider);
+    final uploading = ref
+        .watch(movieUploadQueueProvider)
+        .where((u) => u.status == UploadStatus.uploading)
+        .length;
+
     return SafeArea(
       bottom: false,
       child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
-              controller: _search,
-              onChanged: _onQuery,
-              decoration: InputDecoration(
-                hintText: 'Search movies & shows',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                isDense: true,
-                filled: true,
-                fillColor: scheme.surfaceContainerHigh,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _search,
+                    onChanged: _onQuery,
+                    decoration: InputDecoration(
+                      hintText: 'Search movies & shows',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      isDense: true,
+                      filled: true,
+                      fillColor: scheme.surfaceContainerHigh,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+                if (canUpload) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: uploading > 0
+                        ? '$uploading uploading'
+                        : 'Upload movies',
+                    onPressed: () => openMovieUploads(context),
+                    icon: Badge(
+                      isLabelVisible: uploading > 0,
+                      label: Text('$uploading'),
+                      child: const Icon(Icons.cloud_upload_outlined),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           Expanded(

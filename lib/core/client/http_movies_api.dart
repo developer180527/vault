@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -106,6 +107,68 @@ class HttpMoviesApi implements MoviesApi {
       throw Exception('subtitle fetch failed: HTTP ${res.statusCode}');
     }
     return res.body;
+  }
+
+  // --- resumable upload ---
+
+  @override
+  Future<String> beginUpload({required String name, required int size}) async {
+    final res = await http.post(
+      _session.api('/v1/movies/uploads'),
+      headers: {...await _auth(), 'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name, 'size': size}),
+    );
+    if (res.statusCode != 201) {
+      throw Exception('begin upload failed: HTTP ${res.statusCode} ${res.body}');
+    }
+    return (jsonDecode(res.body) as Map<String, Object?>)['id'] as String;
+  }
+
+  @override
+  Future<int> uploadOffset(String uploadId) async {
+    final res = await http.get(_session.api('/v1/movies/uploads/$uploadId'),
+        headers: await _auth());
+    if (res.statusCode != 200) {
+      throw Exception('upload offset failed: HTTP ${res.statusCode}');
+    }
+    final body = jsonDecode(res.body) as Map<String, Object?>;
+    return (body['offset'] as num).toInt();
+  }
+
+  @override
+  Future<int> uploadChunk(String uploadId, int offset, List<int> chunk) async {
+    final req = http.Request(
+        'PATCH', _session.api('/v1/movies/uploads/$uploadId'))
+      ..headers.addAll(await _auth())
+      ..headers['Upload-Offset'] = '$offset'
+      ..headers['Content-Type'] = 'application/offset+octet-stream'
+      ..bodyBytes = chunk is Uint8List ? chunk : Uint8List.fromList(chunk);
+    final res = await http.Response.fromStream(await req.send());
+    if (res.statusCode == 409) {
+      final body = jsonDecode(res.body) as Map<String, Object?>;
+      throw UploadOffsetConflict((body['offset'] as num).toInt());
+    }
+    if (res.statusCode != 200) {
+      throw Exception('chunk failed: HTTP ${res.statusCode}');
+    }
+    return ((jsonDecode(res.body) as Map<String, Object?>)['offset'] as num)
+        .toInt();
+  }
+
+  @override
+  Future<void> finishUpload(String uploadId) async {
+    final res = await http.post(
+        _session.api('/v1/movies/uploads/$uploadId/finish'),
+        headers: await _auth());
+    if (res.statusCode != 200) {
+      throw Exception('finish failed: HTTP ${res.statusCode} ${res.body}');
+    }
+  }
+
+  @override
+  Future<void> abortUpload(String uploadId) async {
+    await http.delete(_session.api('/v1/movies/uploads/$uploadId'),
+        headers: await _auth());
   }
 
   Future<List<ServerMovie>> _fetchList(Uri uri) async {

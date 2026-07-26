@@ -162,6 +162,39 @@
     padding-bottom: 6px; margin: 30px 0 14px;
   }
   .panel-title { font-weight: 600; font-size: 14px; margin-bottom: 10px; }
+
+  /* multi-value chip field (artist, genre) */
+  .tags {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    background: #101017; border: 1px solid #2b2b36; border-radius: 8px;
+    padding: 6px 8px; min-height: 38px;
+  }
+  .tags:focus-within { border-color: #4666cf; }
+  .tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #23232e; border: 1px solid #33333f; border-radius: 6px;
+    padding: 2px 4px 2px 8px; font-size: 13px; white-space: nowrap;
+  }
+  .tag-x {
+    background: none; border: 0; color: #8b8b98; cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 0 4px; border-radius: 4px;
+  }
+  .tag-x:hover { background: #3a2a2a; color: #ff9d9d; }
+  /* The add box is a bare input INSIDE the .tags shell — it must not draw its
+     own border/background or it looks like a nested field. */
+  input[type=text].tag-add {
+    flex: 1; min-width: 140px; width: auto;
+    background: none; border: 0; padding: 4px 2px; font-size: 13.5px;
+  }
+  input[type=text].tag-add:focus { outline: none; }
+  .tag-hint { font-size: 12px; margin: 4px 0 0; }
+  /* First submit in the form: browsers fire the FIRST submit button on
+     implicit submission (Enter in a text box). Without this, Enter in an add
+     box would trigger a chip's × and delete a tag instead of adding one. */
+  .implicit-submit {
+    position: absolute; width: 0; height: 0; padding: 0; border: 0;
+    opacity: 0; pointer-events: none;
+  }
   table.flush { margin-top: 2px; }
   section { scroll-margin-top: 16px; }
 </style>
@@ -190,6 +223,27 @@
 {{end}}
 
 {{define "flash"}}{{with .Msg}}<div class="flash">{{.}}</div>{{end}}{{end}}
+
+{{/* A multi-value field as removable chips + an "add" box. Zero JS: Enter in
+     the add box submits the form (native behaviour), the server tokenizes and
+     re-renders. Each chip's × is its own submit carrying remove_<name>.
+     The current values ride along as repeated hidden inputs, so the form is
+     the source of truth for what the admin sees. */}}
+{{define "tagfield"}}
+<label class="field" for="add-{{.Name}}">{{.Label}}</label>
+<div class="tags">
+  {{range .Values}}
+  <span class="tag">{{.}}<button type="submit" class="tag-x"
+      name="remove_{{$.Name}}" value="{{.}}"
+      title="Remove {{.}}" aria-label="Remove {{.}}">&times;</button></span>
+  <input type="hidden" name="{{$.Name}}" value="{{.}}">
+  {{end}}
+  <input type="text" id="add-{{.Name}}" name="add_{{.Name}}" class="tag-add"
+         placeholder="{{if .Values}}Add another…{{else}}Type and press Enter…{{end}}"
+         autocomplete="off"{{if .Focus}} autofocus{{end}}>
+</div>
+{{with .Hint}}<p class="tag-hint muted">{{.}}</p>{{end}}
+{{end}}
 
 {{define "foot"}}
 </body>

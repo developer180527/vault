@@ -247,6 +247,36 @@ abstract interface class MoviesApi {
 
   /// Bearer headers for art/stream fetches.
   Future<Map<String, String>> authHeaders();
+
+  // --- resumable upload (admin, docs/MOVIES.md) ---
+  //
+  // A 10–12GB single POST is all-or-nothing; these chunk it so a dropped
+  // connection costs one chunk and the transfer resumes — even days later.
+
+  /// Reserve an upload; returns its id.
+  Future<String> beginUpload({required String name, required int size});
+
+  /// Bytes the server already holds — where to resume from.
+  Future<int> uploadOffset(String uploadId);
+
+  /// Append one chunk at [offset]; returns the new offset. Throws
+  /// [UploadOffsetConflict] when [offset] isn't where the server actually is.
+  Future<int> uploadChunk(String uploadId, int offset, List<int> chunk);
+
+  /// Move the completed upload into the catalog and rescan.
+  Future<void> finishUpload(String uploadId);
+
+  /// Abandon an in-flight upload.
+  Future<void> abortUpload(String uploadId);
+}
+
+/// Thrown when a chunk is sent at the wrong offset. Carries the server's real
+/// offset so the client re-syncs instead of corrupting the file.
+class UploadOffsetConflict implements Exception {
+  const UploadOffsetConflict(this.serverOffset);
+  final int serverOffset;
+  @override
+  String toString() => 'upload offset conflict (server at $serverOffset)';
 }
 
 /// Provenance of a folder a device pushed into the vault.
