@@ -213,6 +213,11 @@ func New(o Options) http.Handler {
 				r.Patch("/admin/uploads/{id}", s.handleUploadChunk)
 				r.Post("/admin/uploads/{id}/finish", s.handleUploadFinish)
 				r.Delete("/admin/uploads/{id}", s.handleUploadAbort)
+
+				// Artwork: stored as an override beside the media, so no
+				// ffmpeg and no chance of corrupting a library file.
+				r.Put("/admin/catalog/{id}/art", s.handleAdminSetTrackArt)
+				r.Put("/admin/movies/{id}/art", s.handleAdminSetMovieArt)
 			})
 
 			// Profile picture — every user owns exactly their own.
