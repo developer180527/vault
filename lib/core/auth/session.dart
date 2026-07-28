@@ -26,7 +26,7 @@ class Session {
     this.username = '',
   });
 
-  /// Bare host, e.g. vault-server.taild29644.ts.net (always https).
+  /// Bare host, e.g. vault-server.tailXXXXXX.ts.net (always https).
   final String serverHost;
   final String deviceId;
   final String accessToken;
