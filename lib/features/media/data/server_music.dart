@@ -346,13 +346,31 @@ class TrackGroup {
   final List<ServerTrack> tracks;
 }
 
-/// Splits a credit string into individual artists: "Asha Bhosle, Mohammed
-/// Rafi" is TWO artists, not one combined act. Comma is the only separator —
-/// splitting on "&" would wrongly cut duo names like "Simon & Garfunkel".
-List<String> splitArtists(String credit) => [
-  for (final part in credit.split(','))
-    if (part.trim().isNotEmpty) part.trim(),
-];
+/// Splits a multi-value tag into its individual values. Artist and genre are
+/// both authored as chips in the admin panel and stored comma-joined, so
+/// "Asha Bhosle, Mohammed Rafi" is TWO artists (not one combined act) and
+/// "Pop, Romantic" is TWO genres (not one odd hybrid).
+///
+/// Comma is the ONLY separator — splitting on "&" would wrongly cut duo names
+/// like "Simon & Garfunkel", and slashes appear inside real genre names.
+/// Values are de-duplicated case-insensitively (first spelling wins), so a
+/// track tagged "Pop, pop" doesn't file itself twice under one heading.
+List<String> splitTagValues(String raw) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final part in raw.split(',')) {
+    final v = part.trim();
+    if (v.isEmpty) continue;
+    if (seen.add(v.toLowerCase())) out.add(v);
+  }
+  return out;
+}
+
+/// Individual performers on a track — a duet files under BOTH singers.
+List<String> splitArtists(String credit) => splitTagValues(credit);
+
+/// Individual genres on a track — a track files under EACH of its genres.
+List<String> splitGenres(String genre) => splitTagValues(genre);
 
 /// Groups catalog tracks into alphabetically-ordered [TrackGroup]s. [keysOf]
 /// may return SEVERAL keys per track — a duet files under each of its

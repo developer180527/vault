@@ -172,4 +172,56 @@ void main() {
         const {'id': 'p2', 'name': 'Gym', 'track_count': 7});
     expect(full.trackCount, 7);
   });
+
+
+  // --- multi-value tags (artist + genre are authored as chips, stored joined) ---
+
+  test('splitTagValues splits on commas only, trims, and de-dupes', () {
+    expect(splitTagValues('Asha Bhosle, Mohammed Rafi'),
+        ['Asha Bhosle', 'Mohammed Rafi']);
+    // "&" must NOT split — it's part of duo names.
+    expect(splitTagValues('Simon & Garfunkel'), ['Simon & Garfunkel']);
+    // Whitespace and empty segments are cleaned up.
+    expect(splitTagValues('  Pop ,, Romantic  ,'), ['Pop', 'Romantic']);
+    // Case-insensitive de-dupe, first spelling wins — a track tagged
+    // "Pop, pop" must not file itself twice under one heading.
+    expect(splitTagValues('Pop, pop, POP'), ['Pop']);
+    expect(splitTagValues(''), isEmpty);
+  });
+
+  test('a multi-genre track files under EACH genre, not one joined heading',
+      () {
+    const t = ServerTrack(
+      id: '1',
+      title: 'Yeh Sham Mastani',
+      artist: 'Kishore Kumar',
+      album: 'Kati Patang',
+      genre: 'Indian Pop, Romantic, Pop',
+    );
+    final groups = groupTracks([t], (x) => splitGenres(x.genre),
+        unknownLabel: 'Unsorted');
+    expect(groups.map((g) => g.label), ['Indian Pop', 'Pop', 'Romantic']);
+    for (final g in groups) {
+      expect(g.tracks.single.id, '1');
+    }
+  });
+
+  test('a duet files under both performers', () {
+    const t = ServerTrack(
+      id: '2',
+      title: 'Intaha Ho Gai',
+      artist: 'Kishore Kumar, Asha Bhosle',
+    );
+    final groups = groupTracks([t], (x) => splitArtists(x.artist),
+        unknownLabel: 'Unknown artist');
+    expect(groups.map((g) => g.label), ['Asha Bhosle', 'Kishore Kumar']);
+  });
+
+  test('untagged tracks stay reachable in the unknown bucket', () {
+    const t = ServerTrack(id: '3', title: 'Untitled', genre: '  ');
+    final groups =
+        groupTracks([t], (x) => splitGenres(x.genre), unknownLabel: 'Unsorted');
+    expect(groups.single.label, 'Unsorted');
+    expect(groups.single.tracks.single.id, '3');
+  });
 }

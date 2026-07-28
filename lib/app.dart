@@ -242,12 +242,21 @@ class VaultApp extends ConsumerWidget {
       brightness: Brightness.dark,
     );
     final scheme = seeded.copyWith(
+      // OLED black for the BACKGROUND tiers (the big areas: page, sidebar,
+      // list backdrops) — that's where true black actually pays off.
       surface: const Color.fromARGB(255, 0, 0, 0),
       surfaceContainerLowest: const Color.fromARGB(255, 0, 0, 0),
       surfaceContainerLow: const Color.fromARGB(255, 0, 0, 0),
-      surfaceContainer: const Color.fromARGB(255, 0, 0, 0),
-      surfaceContainerHigh: const Color.fromARGB(255, 0, 0, 0),
-      surfaceContainerHighest: const Color.fromARGB(255, 0, 0, 0),
+      // …but the RAISED tiers keep a real elevation ladder. Pinning these to
+      // black too made every filled component vanish into the page: search
+      // fields, art placeholders, chips, context menus and file tiles all draw
+      // on these tokens, so black-on-black left them invisible.
+      // Steps chosen by contrast against pure black rather than by eye:
+      // ~1.2 / 1.5 / 1.7 : 1, so a search field reads as a distinct control
+      // instead of dissolving into the page.
+      surfaceContainer: const Color(0xFF1C1C1E),
+      surfaceContainerHigh: const Color(0xFF2A2A2D),
+      surfaceContainerHighest: const Color(0xFF363639),
       onSurface: const Color(0xFFE7E7EA),
       onSurfaceVariant: const Color(0xFFA6A6AE),
       outline: const Color(0xFF77777F),

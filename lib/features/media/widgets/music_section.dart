@@ -356,7 +356,7 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
               ],
             ),
             Expanded(
-              child: TabBarView(
+              child: _EdgeSwipeTabs(
                 children: [
                   _buildHome(),
                   _SearchSection(
@@ -400,11 +400,12 @@ class _ServerMusicState extends ConsumerState<_ServerMusic> {
             ref.watch(mostPlayedProvider).asData?.value ?? const [];
         final groups = groupTracks(
           tracks,
-          // Artists: comma-separated credits split, so a duet lists under
-          // BOTH singers. Genres stay whole strings.
+          // Both are multi-value: a duet lists under BOTH singers, and a track
+          // tagged "Pop, Romantic" appears under EACH genre rather than under
+          // one literal "Pop, Romantic" heading.
           _groupBy == _GroupBy.artist
               ? (t) => splitArtists(t.artist)
-              : (t) => [t.genre],
+              : (t) => splitGenres(t.genre),
           unknownLabel: _groupBy == _GroupBy.artist
               ? 'Unknown artist'
               : 'Unsorted',
@@ -939,6 +940,91 @@ class _GroupHeader extends StatelessWidget {
             style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The section pager, with EDGE-INITIATED swiping on touch platforms.
+///
+/// A plain [TabBarView] swipes from anywhere, which fights the horizontal
+/// content inside these sections — dragging the "You" shelf or an album row
+/// kept flicking the whole page to Search instead of scrolling the shelf. So
+/// on touch the pager's own gesture is disabled and horizontal drags are
+/// accepted only from a narrow strip at either screen edge (the same idiom as
+/// an iOS back-swipe). Desktop keeps the normal behaviour — a mouse never
+/// generates these drags, and the tab strip is right there.
+class _EdgeSwipeTabs extends StatelessWidget {
+  const _EdgeSwipeTabs({required this.children});
+
+  final List<Widget> children;
+
+  /// How far in from each edge a drag may start. Wide enough to hit with a
+  /// thumb, narrow enough not to shadow content.
+  static const double _edge = 24;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isDesktopPlatform) {
+      return TabBarView(children: children);
+    }
+    final controller = DefaultTabController.of(context);
+    void step(int delta) {
+      final next = controller.index + delta;
+      if (next >= 0 && next < children.length) controller.animateTo(next);
+    }
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: TabBarView(
+            physics: const NeverScrollableScrollPhysics(),
+            children: children,
+          ),
+        ),
+        // Left edge: drag right → previous section.
+        _EdgeCatcher(
+          alignment: Alignment.centerLeft,
+          width: _edge,
+          onSwipe: (velocity) => step(velocity > 0 ? -1 : 1),
+        ),
+        // Right edge: drag left → next section.
+        _EdgeCatcher(
+          alignment: Alignment.centerRight,
+          width: _edge,
+          onSwipe: (velocity) => step(velocity > 0 ? -1 : 1),
+        ),
+      ],
+    );
+  }
+}
+
+/// A translucent strip that only claims horizontal drags, so taps and vertical
+/// scrolls still reach the content underneath.
+class _EdgeCatcher extends StatelessWidget {
+  const _EdgeCatcher({
+    required this.alignment,
+    required this.width,
+    required this.onSwipe,
+  });
+
+  final Alignment alignment;
+  final double width;
+  final void Function(double velocity) onSwipe;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: alignment,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragEnd: (d) {
+          final v = d.primaryVelocity ?? 0;
+          // Ignore hesitant drags — only a deliberate flick switches section.
+          if (v.abs() < 120) return;
+          onSwipe(v);
+        },
+        child: SizedBox(width: width, height: double.infinity),
       ),
     );
   }
