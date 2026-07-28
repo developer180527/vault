@@ -19,6 +19,11 @@ final _log = VaultLog.tag('upload');
 /// dropped connection throws away.
 const _chunkBytes = 16 * 1024 * 1024;
 
+/// How many consecutive failures one chunk may suffer before the upload is
+/// reported as failed. Multi-hour transfers over a tailnet WILL hit resets;
+/// giving up on the first one was the bug.
+const _maxChunkRetries = 5;
+
 /// What library an upload targets. The server uses the same two names.
 enum UploadKind {
   music,
@@ -245,6 +250,7 @@ class ContentUploadQueue extends Notifier<List<ContentUpload>> {
       }
       var offset = await api.uploadOffset(id);
       _update(path, (u) => u.copyWith(sent: offset));
+      var failures = 0;
 
       final file = File(path);
       while (offset < upload.size) {
@@ -261,14 +267,46 @@ class ContentUploadQueue extends Notifier<List<ContentUpload>> {
 
         try {
           offset = await api.uploadChunk(id, offset, chunk);
+          failures = 0; // a good chunk clears the streak
+          _update(path, (u) => u.copyWith(sent: offset, error: ''));
         } on UploadOffsetConflict catch (c) {
           // Server is elsewhere (a retry landed twice, or another client
           // wrote): re-sync rather than corrupt.
           _log.warn('offset conflict, resyncing',
               fields: {'ours': offset, 'server': c.serverOffset});
           offset = c.serverOffset;
+          _update(path, (u) => u.copyWith(sent: offset));
+        } catch (e) {
+          // A dropped connection is EXPECTED on a multi-hour transfer — it
+          // must cost one chunk, not the upload. Back off, then ask the
+          // server where it actually is (a reset can land a partial chunk,
+          // so our own offset may be stale) and carry on.
+          failures++;
+          if (failures > _maxChunkRetries) rethrow;
+          _log.warn('chunk failed, retrying', fields: {
+            'attempt': failures,
+            'err': '$e',
+          });
+          _update(
+            path,
+            (u) => u.copyWith(
+                error: 'Connection lost — retrying '
+                    '($failures/$_maxChunkRetries)…'),
+          );
+          await Future<void>.delayed(Duration(seconds: 2 * failures));
+          // The user may have paused or cancelled while we waited.
+          final still = state.where((u) => u.localPath == path);
+          if (still.isEmpty || still.first.status == UploadStatus.paused) {
+            await _persist();
+            return;
+          }
+          try {
+            offset = await api.uploadOffset(id);
+            _update(path, (u) => u.copyWith(sent: offset));
+          } catch (_) {
+            // Even the offset probe failed; the next attempt re-syncs.
+          }
         }
-        _update(path, (u) => u.copyWith(sent: offset));
         await _persist();
       }
 
@@ -288,9 +326,34 @@ class ContentUploadQueue extends Notifier<List<ContentUpload>> {
     } catch (e) {
       _log.warn('upload failed', fields: {'name': upload.name, 'err': '$e'});
       _update(
-          path, (u) => u.copyWith(status: UploadStatus.failed, error: '$e'));
+        path,
+        (u) => u.copyWith(status: UploadStatus.failed, error: _humanize(e)),
+      );
       await _persist();
     }
+  }
+
+  /// Turns a raw transport exception into something an admin can act on. The
+  /// key reassurance: nothing already uploaded is lost — resume continues from
+  /// the server's byte, not from zero.
+  static String _humanize(Object e) {
+    final raw = '$e';
+    if (raw.contains('SocketException') ||
+        raw.contains('Connection reset') ||
+        raw.contains('Connection closed')) {
+      return 'Connection to the server was lost. Resume to continue — '
+          'the bytes already uploaded are kept.';
+    }
+    if (raw.contains('HTTP 401') || raw.contains('session revoked')) {
+      return 'Session expired. Reconnect, then resume — progress is kept.';
+    }
+    if (raw.contains('HTTP 403')) {
+      return 'This account is not allowed to upload content.';
+    }
+    if (raw.contains('HTTP 415') || raw.contains('not a')) {
+      return "The server didn't accept this file type.";
+    }
+    return raw;
   }
 }
 

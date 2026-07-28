@@ -41,7 +41,7 @@ Future<void> downloadFileToLocal(
     return;
   }
   // A large download can outlive a 15-min token; refresh up front.
-  if (session.accessExpires.isBefore(DateTime.now())) {
+  if (session.needsRenewal) {
     session = await ref.read(sessionProvider.notifier).refresh();
     if (session == null) {
       messenger.showSnackBar(

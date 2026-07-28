@@ -200,10 +200,10 @@ class _UploadTile extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 4),
+          // `error` also carries the transient "retrying…" note, so show it
+          // whenever it's set — red only when the upload actually gave up.
           Text(
-            upload.status == UploadStatus.failed && upload.error.isNotEmpty
-                ? upload.error
-                : label,
+            upload.error.isNotEmpty ? upload.error : label,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(

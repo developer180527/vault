@@ -24,10 +24,10 @@ class HttpAdminApi implements AdminApi {
     return s;
   }
 
-  Future<Map<String, String>> _auth() async {
+  Future<Map<String, String>> _auth({bool force = false}) async {
     var s = _ref.read(sessionProvider).asData?.value;
     if (s == null) throw Exception('not connected');
-    if (s.accessExpires.isBefore(DateTime.now())) {
+    if (force || s.needsRenewal) {
       s = await _ref.read(sessionProvider.notifier).refresh();
       if (s == null) throw Exception('session revoked');
     }
@@ -64,13 +64,25 @@ class HttpAdminApi implements AdminApi {
 
   @override
   Future<int> uploadChunk(String uploadId, int offset, List<int> chunk) async {
-    final req =
-        http.Request('PATCH', _session.api('/v1/admin/uploads/$uploadId'))
-          ..headers.addAll(await _auth())
-          ..headers['Upload-Offset'] = '$offset'
-          ..headers['Content-Type'] = 'application/offset+octet-stream'
-          ..bodyBytes = chunk is Uint8List ? chunk : Uint8List.fromList(chunk);
-    final res = await http.Response.fromStream(await req.send());
+    final bytes = chunk is Uint8List ? chunk : Uint8List.fromList(chunk);
+    // Even with the renewal margin a token can lapse in flight on a slow
+    // chunk. One forced-refresh resend turns that into a hiccup instead of
+    // failing a multi-hour upload.
+    for (var attempt = 0;; attempt++) {
+      final req =
+          http.Request('PATCH', _session.api('/v1/admin/uploads/$uploadId'))
+            ..headers.addAll(await _auth(force: attempt > 0))
+            ..headers['Upload-Offset'] = '$offset'
+            ..headers['Content-Type'] = 'application/offset+octet-stream'
+            ..bodyBytes = bytes;
+      final res = await http.Response.fromStream(await req.send());
+      if (res.statusCode == 401 && attempt == 0) continue; // refresh + resend
+      return _chunkResult(res);
+    }
+  }
+
+  /// Interprets a chunk response: 409 carries the server's real offset.
+  int _chunkResult(http.Response res) {
     if (res.statusCode == 409) {
       // The server tells us where it actually is, so we re-sync in one trip.
       final body = jsonDecode(res.body) as Map<String, Object?>;

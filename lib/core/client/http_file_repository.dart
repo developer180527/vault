@@ -25,7 +25,7 @@ class HttpFileRepository implements FileRepository {
   Future<String> _token() async {
     var s = _ref.read(sessionProvider).asData?.value;
     if (s == null) throw Exception('not connected');
-    if (s.accessExpires.isBefore(DateTime.now())) {
+    if (s.needsRenewal) {
       s = await _ref.read(sessionProvider.notifier).refresh();
       if (s == null) throw Exception('session revoked');
     }

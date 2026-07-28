@@ -35,7 +35,7 @@ final serverRevsProvider = StreamProvider<Map<String, int>>((ref) {
   Future<String> accessToken() async {
     var s = ref.read(sessionProvider).asData?.value;
     if (s == null) throw Exception('not connected');
-    if (s.accessExpires.isBefore(DateTime.now())) {
+    if (s.needsRenewal) {
       s = await ref.read(sessionProvider.notifier).refresh();
       if (s == null) throw Exception('session revoked');
     }

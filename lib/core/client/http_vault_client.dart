@@ -96,7 +96,7 @@ class HttpVaultClient implements VaultClient {
   Future<void> setMyAvatar(Uint8List bytes) async {
     var session = _ref.read(sessionProvider).asData?.value;
     if (session == null) throw Exception('not connected to a server');
-    if (session.accessExpires.isBefore(DateTime.now())) {
+    if (session.needsRenewal) {
       session = await _ref.read(sessionProvider.notifier).refresh();
       if (session == null) throw Exception('session revoked');
     }
@@ -116,7 +116,7 @@ class HttpVaultClient implements VaultClient {
       throw Exception('not connected to a server');
     }
     // Refresh ahead of a known-expired token to save a round trip.
-    if (session.accessExpires.isBefore(DateTime.now())) {
+    if (session.needsRenewal) {
       session = await _ref.read(sessionProvider.notifier).refresh();
       if (session == null) throw Exception('session revoked');
     }

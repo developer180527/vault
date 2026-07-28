@@ -36,6 +36,17 @@ class Session {
 
   Uri api(String path) => Uri.https(serverHost, path);
 
+  /// Whether the access token should be renewed BEFORE making a request.
+  ///
+  /// Not simply "has it expired": a request that starts on a token with
+  /// seconds left can still come back 401, because the request itself takes
+  /// time — a 16 MB upload chunk runs 4–8s, and a 9 GB transfer sends hundreds
+  /// of them. Renewing while a couple of minutes remain keeps every request
+  /// comfortably inside the window. (Refresh is single-flight, so callers
+  /// checking this concurrently share one rotation.)
+  bool get needsRenewal =>
+      accessExpires.isBefore(DateTime.now().add(const Duration(minutes: 2)));
+
   Map<String, Object?> toJson() => {
         'server_host': serverHost,
         'device_id': deviceId,
