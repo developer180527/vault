@@ -46,6 +46,10 @@ abstract interface class VaultClient {
   /// The shared movie/show catalog (browse/stream — docs/MOVIES.md).
   MoviesApi get movies;
 
+  /// Administrative: resumable upload of shared content. Admin-role only —
+  /// the server enforces it; standalone has no server to curate.
+  AdminApi get admin;
+
   /// Sync folders: push a local folder into the vault (browsable everywhere)
   /// and read its provenance. Standalone has no server and never calls this.
   SyncApi get sync;
@@ -272,6 +276,60 @@ abstract interface class MoviesApi {
 
 /// Thrown when a chunk is sent at the wrong offset. Carries the server's real
 /// offset so the client re-syncs instead of corrupting the file.
+/// One in-flight upload the SERVER knows about — lets a client that lost its
+/// local record (reinstall, another device) find and resume transfers.
+class RemoteUpload {
+  const RemoteUpload({
+    required this.id,
+    required this.kind,
+    required this.name,
+    required this.size,
+    required this.offset,
+  });
+
+  final String id;
+  final String kind; // music | movies
+  final String name;
+  final int size;
+  final int offset;
+
+  factory RemoteUpload.fromJson(Map<String, Object?> j) => RemoteUpload(
+        id: j['id'] as String,
+        kind: (j['kind'] as String?) ?? '',
+        name: (j['name'] as String?) ?? '',
+        size: (j['size'] as num?)?.toInt() ?? 0,
+        offset: (j['offset'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// Administrative content upload (docs/backend/ADMIN.md). Chunked and
+/// resumable: a dropped connection costs one chunk, never the whole transfer.
+/// [kind] is `music` or `movies`.
+abstract class AdminApi {
+  /// Reserve an upload; returns its id.
+  Future<String> beginUpload({
+    required String kind,
+    required String name,
+    required int size,
+  });
+
+  /// Bytes the server already holds — where to resume from. Authoritative.
+  Future<int> uploadOffset(String uploadId);
+
+  /// Append one chunk at [offset]; returns the new offset. Throws
+  /// [UploadOffsetConflict] when [offset] isn't where the server actually is.
+  Future<int> uploadChunk(String uploadId, int offset, List<int> chunk);
+
+  /// Move the completed upload into the library, index it, and notify clients.
+  Future<void> finishUpload(String uploadId);
+
+  /// Abandon an upload and reclaim its staged bytes.
+  Future<void> abortUpload(String uploadId);
+
+  /// Uploads the server still holds, finished or not.
+  Future<List<RemoteUpload>> pendingUploads();
+}
+
 class UploadOffsetConflict implements Exception {
   const UploadOffsetConflict(this.serverOffset);
   final int serverOffset;

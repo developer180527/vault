@@ -9,6 +9,7 @@ import '../capability/capability.dart';
 import '../logging/vault_log.dart';
 import 'http_file_repository.dart';
 import 'http_jobs_api.dart';
+import 'http_admin_api.dart';
 import 'http_movies_api.dart';
 import 'http_music_api.dart';
 import 'http_photos_api.dart';
@@ -30,6 +31,7 @@ class HttpVaultClient implements VaultClient {
         _music = HttpMusicApi(_ref),
         _photos = HttpPhotosApi(_ref),
         _movies = HttpMoviesApi(_ref),
+        _admin = HttpAdminApi(_ref),
         _sync = HttpSyncApi(_ref);
 
   final Ref _ref;
@@ -38,6 +40,7 @@ class HttpVaultClient implements VaultClient {
   final HttpMusicApi _music;
   final HttpPhotosApi _photos;
   final HttpMoviesApi _movies;
+  final HttpAdminApi _admin;
   final HttpSyncApi _sync;
 
   @override
@@ -54,6 +57,9 @@ class HttpVaultClient implements VaultClient {
 
   @override
   MoviesApi get movies => _movies;
+
+  @override
+  AdminApi get admin => _admin;
 
   @override
   SyncApi get sync => _sync;

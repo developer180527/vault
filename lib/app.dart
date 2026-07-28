@@ -7,6 +7,7 @@ import 'core/habits/habits.dart';
 import 'core/prefs/theme_prefs.dart';
 import 'core/platform/design/adaptive_icons.dart';
 import 'core/services/service_registry.dart';
+import 'features/admin/admin_page.dart';
 import 'features/files/file_actions.dart';
 import 'features/files/files_page.dart';
 import 'features/files/widgets/files_toolbar_leading.dart';
@@ -98,6 +99,17 @@ final vaultServices = <ServiceDefinition>[
       title: 'AI Chat',
       icon: Icons.chat_bubble_outline,
     ),
+  ),
+  // Administrative: the admin's content tools (resumable music/movie upload
+  // today; metadata + artwork next). Visible ONLY to admins — the server
+  // injects an `admin` capability for role=admin and never grants it to a
+  // member, and every endpoint is behind RequireAdmin regardless.
+  ServiceDefinition(
+    id: 'admin',
+    label: 'Administrative',
+    icon: VaultIcons.upload,
+    category: ServiceCategory.system,
+    builder: (_) => const AdminPage(),
   ),
   ServiceDefinition(
     id: 'settings',

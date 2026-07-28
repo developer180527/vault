@@ -10,23 +10,33 @@ import '../../../core/capability/capability.dart';
 import '../../../core/capability/manifest_providers.dart';
 import '../../../core/client/vault_client.dart';
 import '../../../core/logging/vault_log.dart';
-import '../../../core/platform/platform_info.dart';
-import 'server_movies.dart';
+import '../../media/data/server_music.dart';
+import '../../movies/data/server_movies.dart';
 
-final _log = VaultLog.tag('movieupload');
+final _log = VaultLog.tag('upload');
 
 /// One chunk. 16 MB balances round-trip overhead against how much work a
 /// dropped connection throws away.
 const _chunkBytes = 16 * 1024 * 1024;
 
+/// What library an upload targets. The server uses the same two names.
+enum UploadKind {
+  music,
+  movies;
+
+  String get wire => name;
+  String get label => this == UploadKind.music ? 'Music' : 'Movie';
+}
+
 enum UploadStatus { queued, uploading, paused, done, failed }
 
-/// A single movie upload's live state.
-class MovieUpload {
-  const MovieUpload({
+/// A single upload's live state.
+class ContentUpload {
+  const ContentUpload({
     required this.localPath,
     required this.name,
     required this.size,
+    required this.kind,
     this.uploadId,
     this.sent = 0,
     this.status = UploadStatus.queued,
@@ -36,6 +46,7 @@ class MovieUpload {
   final String localPath;
   final String name;
   final int size;
+  final UploadKind kind;
 
   /// Server-side id; null until the upload has been reserved.
   final String? uploadId;
@@ -45,15 +56,16 @@ class MovieUpload {
 
   double get fraction => size == 0 ? 0 : (sent / size).clamp(0, 1);
 
-  MovieUpload copyWith({
+  ContentUpload copyWith({
     String? uploadId,
     int? sent,
     UploadStatus? status,
     String? error,
-  }) => MovieUpload(
+  }) => ContentUpload(
     localPath: localPath,
     name: name,
     size: size,
+    kind: kind,
     uploadId: uploadId ?? this.uploadId,
     sent: sent ?? this.sent,
     status: status ?? this.status,
@@ -64,17 +76,23 @@ class MovieUpload {
     'path': localPath,
     'name': name,
     'size': size,
+    'kind': kind.wire,
     'upload_id': uploadId,
     'sent': sent,
   };
 
-  static MovieUpload? fromJson(Map<String, Object?> j) {
+  static ContentUpload? fromJson(Map<String, Object?> j) {
     final path = j['path'] as String?;
     if (path == null) return null;
-    return MovieUpload(
+    return ContentUpload(
       localPath: path,
       name: (j['name'] as String?) ?? '',
       size: (j['size'] as num?)?.toInt() ?? 0,
+      kind: UploadKind.values.firstWhere(
+        (k) => k.wire == j['kind'],
+        // Pre-unification entries were movies-only and carry no kind.
+        orElse: () => UploadKind.movies,
+      ),
       uploadId: j['upload_id'] as String?,
       sent: (j['sent'] as num?)?.toInt() ?? 0,
       // Anything restored from disk starts paused — never silently resume a
@@ -84,28 +102,41 @@ class MovieUpload {
   }
 }
 
-/// The admin's movie-upload queue. Chunked and resumable: each chunk is its
-/// own request, the server's offset is authoritative, and unfinished uploads
-/// are persisted so closing the app doesn't lose a 10 GB transfer.
-class MovieUploadQueue extends Notifier<List<MovieUpload>> {
-  static const _prefsKey = 'movie_uploads_v1';
+/// The admin's content-upload queue, shared by music and movies. Chunked and
+/// resumable: each chunk is its own request, the server's offset is
+/// authoritative, and unfinished uploads are persisted so closing the app
+/// doesn't lose a 10 GB transfer.
+class ContentUploadQueue extends Notifier<List<ContentUpload>> {
+  // v2: entries gained a `kind`. v1 keys are read once and migrated (they were
+  // all movies), so an in-flight transfer survives the upgrade.
+  static const _prefsKey = 'content_uploads_v2';
+  static const _legacyKey = 'movie_uploads_v1';
 
   bool _pumping = false;
 
   @override
-  List<MovieUpload> build() {
-    // Restore unfinished uploads (paused) on first read.
+  List<ContentUpload> build() {
     Future.microtask(_restore);
     return const [];
   }
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getStringList(_prefsKey) ?? const [];
-    final restored = <MovieUpload>[];
+    var raw = prefs.getStringList(_prefsKey) ?? const [];
+    if (raw.isEmpty) {
+      // Migrate the movies-only queue from before the services merged.
+      final legacy = prefs.getStringList(_legacyKey) ?? const [];
+      if (legacy.isNotEmpty) {
+        raw = legacy;
+        await prefs.remove(_legacyKey);
+        _log.info('migrated legacy movie upload queue',
+            fields: {'n': legacy.length});
+      }
+    }
+    final restored = <ContentUpload>[];
     for (final s in raw) {
       try {
-        final u = MovieUpload.fromJson(jsonDecode(s) as Map<String, Object?>);
+        final u = ContentUpload.fromJson(jsonDecode(s) as Map<String, Object?>);
         // Drop entries whose source file is gone — nothing to resume from.
         if (u != null && await File(u.localPath).exists()) restored.add(u);
       } catch (_) {/* skip corrupt entry */}
@@ -119,27 +150,29 @@ class MovieUploadQueue extends Notifier<List<MovieUpload>> {
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
     // Only unfinished work is worth restoring.
-    final pending = state.where((u) =>
-        u.status != UploadStatus.done && u.uploadId != null);
+    final pending =
+        state.where((u) => u.status != UploadStatus.done && u.uploadId != null);
     await prefs.setStringList(
         _prefsKey, [for (final u in pending) jsonEncode(u.toJson())]);
   }
 
-  void _update(String path, MovieUpload Function(MovieUpload) f) {
+  void _update(String path, ContentUpload Function(ContentUpload) f) {
     state = [
-      for (final u in state) if (u.localPath == path) f(u) else u,
+      for (final u in state)
+        if (u.localPath == path) f(u) else u,
     ];
   }
 
-  /// Queue local files for upload and start pumping.
-  Future<void> add(List<File> files) async {
-    final additions = <MovieUpload>[];
+  /// Queue local files of [kind] and start pumping.
+  Future<void> add(List<File> files, UploadKind kind) async {
+    final additions = <ContentUpload>[];
     for (final f in files) {
       if (state.any((u) => u.localPath == f.path)) continue; // already queued
-      additions.add(MovieUpload(
+      additions.add(ContentUpload(
         localPath: f.path,
         name: f.path.split(Platform.pathSeparator).last,
         size: await f.length(),
+        kind: kind,
       ));
     }
     if (additions.isEmpty) return;
@@ -157,19 +190,26 @@ class MovieUploadQueue extends Notifier<List<MovieUpload>> {
 
   /// Remove from the queue; abandons the server-side upload too.
   Future<void> cancel(String path) async {
-    final u = state.firstWhere((x) => x.localPath == path,
-        orElse: () => const MovieUpload(localPath: '', name: '', size: 0));
+    final match = state.where((x) => x.localPath == path);
+    if (match.isEmpty) return;
+    final u = match.first;
     if (u.uploadId != null) {
       try {
-        await ref.read(vaultClientProvider).movies.abortUpload(u.uploadId!);
+        await ref.read(vaultClientProvider).admin.abortUpload(u.uploadId!);
       } catch (_) {/* best effort */}
     }
-    state = [for (final x in state) if (x.localPath != path) x];
+    state = [
+      for (final x in state)
+        if (x.localPath != path) x,
+    ];
     await _persist();
   }
 
   void clearFinished() {
-    state = [for (final u in state) if (u.status != UploadStatus.done) u];
+    state = [
+      for (final u in state)
+        if (u.status != UploadStatus.done) u,
+    ];
   }
 
   /// Drive the queue one file at a time — a 10 GB upload should own the
@@ -188,8 +228,8 @@ class MovieUploadQueue extends Notifier<List<MovieUpload>> {
     }
   }
 
-  Future<void> _run(MovieUpload upload) async {
-    final api = ref.read(vaultClientProvider).movies;
+  Future<void> _run(ContentUpload upload) async {
+    final api = ref.read(vaultClientProvider).admin;
     final path = upload.localPath;
     _update(path, (u) => u.copyWith(status: UploadStatus.uploading, error: ''));
 
@@ -198,7 +238,8 @@ class MovieUploadQueue extends Notifier<List<MovieUpload>> {
       // offset — it's the only thing that knows what actually landed.
       var id = upload.uploadId;
       if (id == null) {
-        id = await api.beginUpload(name: upload.name, size: upload.size);
+        id = await api.beginUpload(
+            kind: upload.kind.wire, name: upload.name, size: upload.size);
         _update(path, (u) => u.copyWith(uploadId: id));
         await _persist();
       }
@@ -208,16 +249,15 @@ class MovieUploadQueue extends Notifier<List<MovieUpload>> {
       final file = File(path);
       while (offset < upload.size) {
         // Honor a pause between chunks.
-        final cur = state.firstWhere((u) => u.localPath == path,
-            orElse: () => upload);
+        final cur =
+            state.firstWhere((u) => u.localPath == path, orElse: () => upload);
         if (cur.status == UploadStatus.paused) {
           await _persist();
           return;
         }
 
         final end = (offset + _chunkBytes).clamp(0, upload.size);
-        final chunk =
-            await file.openRead(offset, end).expand((b) => b).toList();
+        final chunk = await file.openRead(offset, end).expand((b) => b).toList();
 
         try {
           offset = await api.uploadChunk(id, offset, chunk);
@@ -235,26 +275,34 @@ class MovieUploadQueue extends Notifier<List<MovieUpload>> {
       await api.finishUpload(id);
       _update(path, (u) => u.copyWith(status: UploadStatus.done, sent: u.size));
       await _persist();
-      ref.invalidate(movieCatalogProvider);
-      _log.info('movie uploaded', fields: {'name': upload.name});
+      // Refresh the library this landed in. (The server also bumps the change
+      // feed, so other devices update on their own.)
+      switch (upload.kind) {
+        case UploadKind.music:
+          ref.invalidate(catalogTracksProvider);
+        case UploadKind.movies:
+          ref.invalidate(movieCatalogProvider);
+      }
+      _log.info('upload finished',
+          fields: {'name': upload.name, 'kind': upload.kind.wire});
     } catch (e) {
       _log.warn('upload failed', fields: {'name': upload.name, 'err': '$e'});
-      _update(path,
-          (u) => u.copyWith(status: UploadStatus.failed, error: '$e'));
+      _update(
+          path, (u) => u.copyWith(status: UploadStatus.failed, error: '$e'));
       await _persist();
     }
   }
 }
 
-final movieUploadQueueProvider =
-    NotifierProvider<MovieUploadQueue, List<MovieUpload>>(
-        MovieUploadQueue.new);
+final contentUploadQueueProvider =
+    NotifierProvider<ContentUploadQueue, List<ContentUpload>>(
+        ContentUploadQueue.new);
 
-/// Whether this device+account should see the uploader: desktop only (nobody
-/// pushes 12 GB from a phone) AND holding movies:write (admin).
-final canUploadMoviesProvider = Provider<bool>((ref) {
-  if (!isDesktopPlatform) return false;
+/// Whether this device+account should see the Administrative service: a
+/// connected session holding the admin-only capability. The server enforces
+/// the role regardless — this only decides what to render.
+final isAdminProvider = Provider<bool>((ref) {
   if (ref.watch(sessionProvider).asData?.value == null) return false;
-  return ref.watch(canProvider(
-      (serviceId: 'movies', action: CapabilityAction.write)));
+  return ref.watch(
+      canProvider((serviceId: 'admin', action: CapabilityAction.write)));
 });
