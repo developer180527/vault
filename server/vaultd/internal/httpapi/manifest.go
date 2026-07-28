@@ -20,6 +20,10 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 		for _, svc := range store.KnownServices {
 			caps[svc] = map[string]any{"actions": store.KnownActions}
 		}
+		// Administrative (content upload / curation) is ROLE-gated, not a
+		// grant — it's deliberately absent from KnownServices so it can never
+		// be handed to a member from the grant editor.
+		caps["admin"] = map[string]any{"actions": []string{"read", "write"}}
 	} else {
 		grants, err := s.store.Read().GrantsForUser(r.Context(), p.UserID)
 		if err != nil {

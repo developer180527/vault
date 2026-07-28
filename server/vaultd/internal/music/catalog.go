@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -185,6 +186,69 @@ func (s *Service) SaveUpload(filename string, data []byte) (string, error) {
 		return "", err
 	}
 	return name, nil
+}
+
+// AudioOK reports whether [name]'s extension is a catalog audio container.
+// Exported for the resumable uploader, which gates a file before staging it.
+func AudioOK(name string) bool {
+	return audioExt[strings.ToLower(filepath.Ext(name))]
+}
+
+// LandUpload moves an ALREADY-STAGED file into the catalog under a sanitized,
+// collision-free name, returning that name. The uploader stages inside the
+// catalog's own `.uploads` dir, so this is a same-filesystem rename — instant,
+// with no second copy of a multi-GB payload (with a stream-copy fallback if
+// the staging area ever ends up on another device).
+func (s *Service) LandUpload(stagedPath, filename string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if !audioExt[ext] {
+		return "", ErrNotAudio
+	}
+	if err := s.EnsureCatalog(); err != nil {
+		return "", err
+	}
+	base := sanitizeFilename(
+		strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename)))
+	name := base + ext
+	dst := filepath.Join(s.CatalogRoot(), name)
+	for i := 2; ; i++ {
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			break
+		}
+		name = fmt.Sprintf("%s (%d)%s", base, i, ext)
+		dst = filepath.Join(s.CatalogRoot(), name)
+	}
+	if err := moveFile(stagedPath, dst); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// moveFile renames, falling back to copy+remove across filesystems.
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+	if err != nil {
+		return err
+	}
+	buf := make([]byte, 4<<20)
+	_, err = io.CopyBuffer(out, in, buf)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	_ = os.Remove(src)
+	return nil
 }
 
 // artOverridePath is where an admin-uploaded cover for [id] lives — a

@@ -22,6 +22,7 @@ import (
 	"github.com/developer180527/vault/vaultd/internal/music"
 	"github.com/developer180527/vault/vaultd/internal/photos"
 	"github.com/developer180527/vault/vaultd/internal/store"
+	"github.com/developer180527/vault/vaultd/internal/uploads"
 )
 
 // Options are the dependencies the server needs.
@@ -88,6 +89,7 @@ type Server struct {
 	movies       *movies.Service
 	signer       *auth.StreamSigner
 	changes      *changes.Hub
+	uploads      *uploads.Service
 }
 
 // New builds the router.
@@ -132,9 +134,31 @@ func New(o Options) http.Handler {
 	if err := s.movies.EnsureRoot(); err != nil {
 		o.Log.Warn("movies dir", "err", err)
 	}
-	// AFTER s.movies is assigned — this reads it, and a goroutine started
-	// earlier could observe a nil service.
-	go s.sweepMovieUploads()
+	// Shared resumable-upload engine (music + movies). Staging lives inside
+	// each destination root, so finishing is a same-filesystem rename rather
+	// than a second copy of a multi-GB payload.
+	s.uploads = &uploads.Service{
+		Log: o.Log,
+		Targets: map[string]uploads.Target{
+			"music": {
+				Dir:   s.music.CatalogRoot,
+				Allow: music.AudioOK,
+				Land:  s.music.LandUpload,
+			},
+			"movies": {
+				Dir:   func() string { return s.movies.Root },
+				Allow: movies.VideoOK,
+				Land:  s.movies.LandUpload,
+			},
+		},
+	}
+	// AFTER the targets exist — a goroutine started earlier could observe a
+	// nil service. Abandoned transfers must not silently fill the pool.
+	go func() {
+		if n := s.uploads.Sweep(7 * 24 * time.Hour); n > 0 {
+			o.Log.Info("swept abandoned uploads", "count", n)
+		}
+	}()
 	// The shared catalog directory must exist before the admin's first drop.
 	if err := s.music.EnsureCatalog(); err != nil {
 		o.Log.Warn("catalog dir", "err", err)
@@ -177,6 +201,19 @@ func New(o Options) http.Handler {
 			// Change feed — {topic: rev} ticks, no payload, so plain auth
 			// suffices; fetching what changed still hits granted endpoints.
 			r.Get("/changes/watch", s.handleWatchChanges)
+
+			// Administrative: unified resumable upload (music + movies).
+			// Admin ROLE, not a grant — content curation isn't delegable.
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireAdmin)
+				r.Post("/admin/uploads", s.handleUploadCreate)
+				r.Get("/admin/uploads", s.handleUploadList)
+				r.Get("/admin/uploads/{id}", s.handleUploadStatus)
+				r.Head("/admin/uploads/{id}", s.handleUploadStatus)
+				r.Patch("/admin/uploads/{id}", s.handleUploadChunk)
+				r.Post("/admin/uploads/{id}/finish", s.handleUploadFinish)
+				r.Delete("/admin/uploads/{id}", s.handleUploadAbort)
+			})
 
 			// Profile picture — every user owns exactly their own.
 			r.Get("/me/avatar", s.handleGetMyAvatar)

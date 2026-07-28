@@ -282,6 +282,59 @@ func (s *Service) SidecarSubPath(rel string) string {
 // videoOK reports whether a filename is a supported video container.
 func videoOK(name string) bool { return videoExt[strings.ToLower(filepath.Ext(name))] }
 
+// VideoOK reports whether [name]'s extension is a known video container.
+// Exported for the resumable uploader, which gates a file before staging it.
+func VideoOK(name string) bool { return videoOK(name) }
+
+// LandUpload moves an ALREADY-STAGED file into the movie library under a
+// sanitized, collision-free name, returning that name. The uploader stages
+// inside the library's own `.uploads` dir, so this is a same-filesystem
+// rename — a 40 GB feature lands instantly instead of being copied twice
+// (with a stream-copy fallback if staging is ever on another device).
+func (s *Service) LandUpload(stagedPath, filename string) (string, error) {
+	if !videoOK(filename) {
+		return "", ErrNotVideo
+	}
+	if err := s.EnsureRoot(); err != nil {
+		return "", err
+	}
+	ext := filepath.Ext(filename)
+	base := sanitizeName(strings.TrimSuffix(filepath.Base(filename), ext))
+	name := base + ext
+	dst := filepath.Join(s.Root, name)
+	for i := 2; ; i++ {
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			break
+		}
+		name = fmt.Sprintf("%s (%d)%s", base, i, ext)
+		dst = filepath.Join(s.Root, name)
+	}
+	if err := os.Rename(stagedPath, dst); err == nil {
+		return name, nil
+	}
+	// Cross-device: stream it over, then drop the staged copy.
+	in, err := os.Open(stagedPath)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+	if err != nil {
+		return "", err
+	}
+	buf := make([]byte, 4<<20)
+	_, err = io.CopyBuffer(out, in, buf)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(dst)
+		return "", err
+	}
+	_ = os.Remove(stagedPath)
+	return name, nil
+}
+
 // SaveUploadStream streams one uploaded video into the catalog root under a
 // sanitized name, atomically (.part + rename), never buffering in memory —
 // movie files are gigabytes. Returns the final base name; the caller scans to

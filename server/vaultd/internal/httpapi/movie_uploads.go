@@ -1,9 +1,10 @@
-// Resumable movie uploads (docs/MOVIES.md). A tus-style subset: begin, read
-// the offset, PATCH chunks at that offset, finish. Built for 10–12 GB 4K
-// files over a tailnet, where a single-request POST is a coin flip — here a
-// dropped connection costs one chunk, and the client can resume days later.
+// Legacy movie-upload routes (docs/MOVIES.md), kept at their original paths
+// and response shapes so shipped clients keep working. The engine underneath
+// is now the SHARED uploads service (music + movies); the on-disk format is
+// unchanged, so transfers already in flight resume across the switch.
 //
-// All of it is movies:write (admin), same as scan/edit.
+// New clients should prefer the unified /v1/admin/uploads/* API, which is the
+// same protocol with an explicit kind.
 package httpapi
 
 import (
@@ -11,11 +12,10 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/developer180527/vault/vaultd/internal/movies"
+	"github.com/developer180527/vault/vaultd/internal/uploads"
 )
 
 // POST /v1/movies/uploads {name, size} → {id, offset}
@@ -28,9 +28,9 @@ func (s *Server) handleBeginMovieUpload(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	m, err := s.movies.BeginUpload(req.Name, req.Size)
+	m, err := s.uploads.Begin("movies", req.Name, req.Size)
 	if err != nil {
-		if errors.Is(err, movies.ErrNotVideo) {
+		if errors.Is(err, uploads.ErrRejected) {
 			writeErr(w, http.StatusBadRequest, "not a video file")
 			return
 		}
@@ -49,7 +49,7 @@ func (s *Server) handleBeginMovieUpload(w http.ResponseWriter, r *http.Request) 
 // (GET rather than HEAD so the body carries the numbers; HEAD is also routed
 // for tus-familiar clients.)
 func (s *Server) handleMovieUploadOffset(w http.ResponseWriter, r *http.Request) {
-	m, offset, err := s.movies.UploadInfo(chi.URLParam(r, "id"))
+	m, offset, err := s.uploads.Info(chi.URLParam(r, "id"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "no such upload")
 		return
@@ -75,16 +75,16 @@ func (s *Server) handleMovieUploadChunk(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "Upload-Offset header required")
 		return
 	}
-	newOffset, err := s.movies.AppendChunk(id, offset, r.Body)
+	newOffset, err := s.uploads.AppendChunk(id, offset, r.Body)
 	if err != nil {
-		if errors.Is(err, movies.ErrOffsetMismatch) {
+		if errors.Is(err, uploads.ErrOffsetMismatch) {
 			w.Header().Set("Upload-Offset", strconv.FormatInt(newOffset, 10))
 			writeJSON(w, http.StatusConflict, map[string]any{
 				"error": "offset mismatch", "offset": newOffset,
 			})
 			return
 		}
-		if errors.Is(err, movies.ErrNoUpload) {
+		if errors.Is(err, uploads.ErrNoUpload) {
 			writeErr(w, http.StatusNotFound, "no such upload")
 			return
 		}
@@ -99,9 +99,9 @@ func (s *Server) handleMovieUploadChunk(w http.ResponseWriter, r *http.Request) 
 // POST /v1/movies/uploads/{id}/finish → moves into the catalog + rescans.
 func (s *Server) handleFinishMovieUpload(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	name, err := s.movies.FinishUpload(id)
+	name, err := s.uploads.Finish(id)
 	if err != nil {
-		if errors.Is(err, movies.ErrNoUpload) {
+		if errors.Is(err, uploads.ErrNoUpload) {
 			writeErr(w, http.StatusNotFound, "no such upload")
 			return
 		}
@@ -114,24 +114,15 @@ func (s *Server) handleFinishMovieUpload(w http.ResponseWriter, r *http.Request)
 	}
 	p := PrincipalFrom(r.Context())
 	s.log.Info("movie upload finished", "user", p.Username, "name", name)
-	if s.changes != nil {
-		s.changes.Bump("movies")
-	}
+	s.changes.Bump("movies")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
 }
 
 // DELETE /v1/movies/uploads/{id} — abandon an upload.
 func (s *Server) handleAbortMovieUpload(w http.ResponseWriter, r *http.Request) {
-	if err := s.movies.AbortUpload(chi.URLParam(r, "id")); err != nil {
+	if err := s.uploads.Abort(chi.URLParam(r, "id")); err != nil {
 		writeErr(w, http.StatusNotFound, "no such upload")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-// sweepMovieUploads drops abandoned transfers at boot (7 days).
-func (s *Server) sweepMovieUploads() {
-	if n := s.movies.SweepUploads(7 * 24 * time.Hour); n > 0 {
-		s.log.Info("swept abandoned movie uploads", "count", n)
-	}
 }
