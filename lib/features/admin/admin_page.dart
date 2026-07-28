@@ -5,13 +5,40 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'data/content_upload_engine.dart';
+import 'library_curation.dart';
 
-/// The Administrative service: the admin's home for adding content to the
-/// shared library. One queue for BOTH music and movies — same resumable
-/// protocol underneath, so a dropped connection costs one 16 MB chunk and
-/// closing the app pauses rather than loses a 10 GB transfer.
-class AdminPage extends ConsumerWidget {
+/// The Administrative service: the admin's home for curating the shared
+/// library. Two halves — **Uploads** (one resumable queue for music AND
+/// movies) and **Library** (fix metadata and artwork on what's already there).
+class AdminPage extends StatelessWidget {
   const AdminPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          const TabBar(
+            tabs: [
+              Tab(icon: Icon(Icons.cloud_upload_outlined), text: 'Uploads'),
+              Tab(icon: Icon(Icons.tune), text: 'Library'),
+            ],
+          ),
+          const Expanded(
+            child: TabBarView(children: [UploadsTab(), LibraryCuration()]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The upload queue: pick files, watch them go, pause/resume. Chunked and
+/// resumable — a dropped connection costs one 16 MB chunk, and closing the app
+/// pauses rather than loses a 10 GB transfer.
+class UploadsTab extends ConsumerWidget {
+  const UploadsTab({super.key});
 
   static String fmtBytes(int b) {
     if (b >= 1 << 30) return '${(b / (1 << 30)).toStringAsFixed(2)} GB';
@@ -26,9 +53,9 @@ class AdminPage extends ConsumerWidget {
     // the extension and reports what it refused.
     final files = await openFiles();
     if (files.isEmpty) return;
-    await ref
-        .read(contentUploadQueueProvider.notifier)
-        .add([for (final f in files) File(f.path)], kind);
+    await ref.read(contentUploadQueueProvider.notifier).add([
+      for (final f in files) File(f.path),
+    ], kind);
   }
 
   @override
@@ -37,45 +64,45 @@ class AdminPage extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final anyDone = uploads.any((u) => u.status == UploadStatus.done);
 
-    return Scaffold(
-      body: Column(
-        children: [
-          _AddBar(
-            onAddMusic: () => _pick(ref, UploadKind.music),
-            onAddMovies: () => _pick(ref, UploadKind.movies),
-            onClearFinished: anyDone
-                ? () => ref
+    return Column(
+      children: [
+        _AddBar(
+          onAddMusic: () => _pick(ref, UploadKind.music),
+          onAddMovies: () => _pick(ref, UploadKind.movies),
+          onClearFinished: anyDone
+              ? () => ref
                     .read(contentUploadQueueProvider.notifier)
                     .clearFinished()
-                : null,
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: uploads.isEmpty
-                ? const _Empty()
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(0, 8, 0, 120),
-                    itemCount: uploads.length + 1,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, i) {
-                      if (i == uploads.length) {
-                        return Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                          child: Text(
-                            'Transfers resume from the last completed chunk if '
-                            'anything interrupts them. Closing the app pauses '
-                            'them — they pick up where they left off.',
-                            style: TextStyle(
-                                color: scheme.onSurfaceVariant, fontSize: 12.5),
+              : null,
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: uploads.isEmpty
+              ? const _Empty()
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 120),
+                  itemCount: uploads.length + 1,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    if (i == uploads.length) {
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                        child: Text(
+                          'Transfers resume from the last completed chunk if '
+                          'anything interrupts them. Closing the app pauses '
+                          'them — they pick up where they left off.',
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 12.5,
                           ),
-                        );
-                      }
-                      return _UploadTile(upload: uploads[i]);
-                    },
-                  ),
-          ),
-        ],
-      ),
+                        ),
+                      );
+                    }
+                    return _UploadTile(upload: uploads[i]);
+                  },
+                ),
+        ),
+      ],
     );
   }
 }
@@ -130,7 +157,7 @@ class _UploadTile extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final q = ref.read(contentUploadQueueProvider.notifier);
     final pct = (upload.fraction * 100).toStringAsFixed(0);
-    final fmt = AdminPage.fmtBytes;
+    final fmt = UploadsTab.fmtBytes;
 
     final (IconData icon, Color color, String label) = switch (upload.status) {
       UploadStatus.done => (Icons.check_circle, scheme.primary, 'Done'),
@@ -138,17 +165,17 @@ class _UploadTile extends ConsumerWidget {
       UploadStatus.paused => (
         Icons.pause_circle_outline,
         scheme.onSurfaceVariant,
-        'Paused · ${fmt(upload.sent)} of ${fmt(upload.size)}'
+        'Paused · ${fmt(upload.sent)} of ${fmt(upload.size)}',
       ),
       UploadStatus.uploading => (
         Icons.cloud_upload_outlined,
         scheme.primary,
-        '$pct% · ${fmt(upload.sent)} of ${fmt(upload.size)}'
+        '$pct% · ${fmt(upload.sent)} of ${fmt(upload.size)}',
       ),
       UploadStatus.queued => (
         Icons.schedule,
         scheme.onSurfaceVariant,
-        'Queued · ${fmt(upload.size)}'
+        'Queued · ${fmt(upload.size)}',
       ),
     };
 
@@ -157,8 +184,11 @@ class _UploadTile extends ConsumerWidget {
       title: Row(
         children: [
           Flexible(
-            child: Text(upload.name,
-                maxLines: 1, overflow: TextOverflow.ellipsis),
+            child: Text(
+              upload.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           const SizedBox(width: 8),
           // Which library this lands in — the one thing a merged queue must
@@ -197,7 +227,8 @@ class _UploadTile extends ConsumerWidget {
           ],
         ],
       ),
-      isThreeLine: upload.status == UploadStatus.uploading ||
+      isThreeLine:
+          upload.status == UploadStatus.uploading ||
           upload.status == UploadStatus.paused,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -260,11 +291,16 @@ class _Empty extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.admin_panel_settings_outlined,
-                size: 48, color: scheme.primary),
+            Icon(
+              Icons.admin_panel_settings_outlined,
+              size: 48,
+              color: scheme.primary,
+            ),
             const SizedBox(height: 16),
-            Text('Add content to your vault',
-                style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Add content to your vault',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Text(
               'Pick music or movie files from this device. Uploads are '

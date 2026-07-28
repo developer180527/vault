@@ -112,4 +112,80 @@ class HttpAdminApi implements AdminApi {
         RemoteUpload.fromJson(u as Map<String, Object?>),
     ];
   }
+
+  // --- curation: metadata + artwork ---
+
+  /// PATCH with only the fields that changed — the server treats absent keys
+  /// as "leave alone", so a partial edit can't blank the rest of the tags.
+  Future<void> _patch(Uri uri, Map<String, Object?> patch) async {
+    final body = {
+      for (final e in patch.entries)
+        if (e.value != null) e.key: e.value,
+    };
+    final res = await http.patch(
+      uri,
+      headers: {...await _auth(), 'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    if (res.statusCode != 200) {
+      throw Exception('edit failed: HTTP ${res.statusCode} ${res.body}');
+    }
+  }
+
+  @override
+  Future<void> editTrack(
+    String id, {
+    String? title,
+    String? artist,
+    String? album,
+    String? genre,
+    int? trackNo,
+    int? year,
+  }) =>
+      _patch(_session.api('/v1/music/catalog/$id'), {
+        'title': title,
+        'artist': artist,
+        'album': album,
+        'genre': genre,
+        'track_no': trackNo,
+        'year': year,
+      });
+
+  @override
+  Future<void> editMovie(
+    String id, {
+    String? title,
+    int? year,
+    String? series,
+    int? season,
+    int? episode,
+    String? overview,
+  }) =>
+      _patch(_session.api('/v1/movies/$id'), {
+        'title': title,
+        'year': year,
+        'series': series,
+        'season': season,
+        'episode': episode,
+        'overview': overview,
+      });
+
+  Future<void> _putArt(Uri uri, Uint8List bytes) async {
+    final req = http.Request('PUT', uri)
+      ..headers.addAll(await _auth())
+      ..headers['Content-Type'] = 'application/octet-stream'
+      ..bodyBytes = bytes;
+    final res = await http.Response.fromStream(await req.send());
+    if (res.statusCode != 200) {
+      throw Exception('artwork upload failed: HTTP ${res.statusCode} ${res.body}');
+    }
+  }
+
+  @override
+  Future<void> setTrackArt(String id, Uint8List bytes) =>
+      _putArt(_session.api('/v1/admin/catalog/$id/art'), bytes);
+
+  @override
+  Future<void> setMovieArt(String id, Uint8List bytes) =>
+      _putArt(_session.api('/v1/admin/movies/$id/art'), bytes);
 }

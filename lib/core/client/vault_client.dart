@@ -328,6 +328,38 @@ abstract class AdminApi {
 
   /// Uploads the server still holds, finished or not.
   Future<List<RemoteUpload>> pendingUploads();
+
+  // --- curation: metadata + artwork ---
+
+  /// Patch a catalog track's tags. Only non-null fields change; edits live in
+  /// the DB and survive rescans.
+  Future<void> editTrack(
+    String id, {
+    String? title,
+    String? artist,
+    String? album,
+    String? genre,
+    int? trackNo,
+    int? year,
+  });
+
+  /// Patch a movie's metadata. Only non-null fields change.
+  Future<void> editMovie(
+    String id, {
+    String? title,
+    int? year,
+    String? series,
+    int? season,
+    int? episode,
+    String? overview,
+  });
+
+  /// Replace a track's cover art. Stored as an override beside the media —
+  /// the audio file's own tags are never rewritten.
+  Future<void> setTrackArt(String id, Uint8List bytes);
+
+  /// Replace a movie's poster (same override model).
+  Future<void> setMovieArt(String id, Uint8List bytes);
 }
 
 class UploadOffsetConflict implements Exception {
