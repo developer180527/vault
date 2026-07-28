@@ -4,6 +4,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/client/vault_client.dart';
 import 'data/content_upload_engine.dart';
 import 'library_curation.dart';
 
@@ -75,6 +76,7 @@ class UploadsTab extends ConsumerWidget {
                     .clearFinished()
               : null,
         ),
+        const _OrphanBanner(),
         const Divider(height: 1),
         Expanded(
           child: uploads.isEmpty
@@ -140,6 +142,137 @@ class _AddBar extends StatelessWidget {
             TextButton(
               onPressed: onClearFinished,
               child: const Text('Clear finished'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Uploads the SERVER still holds staged bytes for, that this device has no
+/// record of — an app reinstall, a cleared queue, or a transfer begun on
+/// another device. Without this they'd sit consuming disk invisibly until the
+/// 7-day sweep, with no way to finish OR reclaim them.
+class _OrphanBanner extends ConsumerWidget {
+  const _OrphanBanner();
+
+  Future<void> _resume(
+      BuildContext context, WidgetRef ref, RemoteUpload r) async {
+    final picked = await openFile();
+    if (picked == null) return;
+    try {
+      await ref
+          .read(contentUploadQueueProvider.notifier)
+          .adopt(r, File(picked.path));
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e'.replaceAll('Exception: ', ''))));
+      }
+    }
+  }
+
+  Future<void> _discard(
+      BuildContext context, WidgetRef ref, RemoteUpload r) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard unfinished upload?'),
+        content: Text(
+          '${r.name}\n\n'
+          '${UploadsTab.fmtBytes(r.offset)} already on the server will be '
+          'deleted. The file on this device is untouched.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true) return;
+    try {
+      await ref.read(contentUploadQueueProvider.notifier).discardRemote(r.id);
+      ref.invalidate(serverUploadsProvider);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not discard: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final orphans = ref.watch(orphanUploadsProvider);
+    if (orphans.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final staged = orphans.fold<int>(0, (sum, r) => sum + r.offset);
+
+    return Container(
+      color: scheme.surfaceContainer,
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.inventory_2_outlined,
+                  size: 17, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Unfinished on the server — '
+                  '${UploadsTab.fmtBytes(staged)} staged',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Started but never completed. Point them at the file to carry on '
+            'from where they stopped, or discard to free the space.',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+          for (final r in orphans)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(r.name,
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12.5)),
+                        Text(
+                          '${UploadsTab.fmtBytes(r.offset)} of '
+                          '${UploadsTab.fmtBytes(r.size)}',
+                          style: TextStyle(
+                              fontSize: 11, color: scheme.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => _resume(context, ref, r),
+                    child: const Text('Locate & resume'),
+                  ),
+                  TextButton(
+                    onPressed: () => _discard(context, ref, r),
+                    child: Text('Discard',
+                        style: TextStyle(color: scheme.error)),
+                  ),
+                ],
+              ),
             ),
         ],
       ),

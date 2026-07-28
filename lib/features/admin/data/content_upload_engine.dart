@@ -217,6 +217,46 @@ class ContentUploadQueue extends Notifier<List<ContentUpload>> {
     ];
   }
 
+  /// Adopt an upload the SERVER still holds but this device has no record of
+  /// (app reinstalled, queue cleared, or it was started on another device).
+  ///
+  /// The caller supplies the local file to continue from. Sizes MUST match:
+  /// appending a different file to an existing partial would silently produce
+  /// a corrupt result, so a mismatch is refused rather than guessed at.
+  Future<void> adopt(RemoteUpload remote, File local) async {
+    final size = await local.length();
+    if (size != remote.size) {
+      throw Exception(
+        'That file is ${_mb(size)} but the interrupted upload is '
+        '${_mb(remote.size)} — pick the same file to continue it.',
+      );
+    }
+    if (state.any((u) => u.uploadId == remote.id)) return; // already tracked
+    state = [
+      ...state,
+      ContentUpload(
+        localPath: local.path,
+        name: remote.name,
+        size: remote.size,
+        kind: UploadKind.values.firstWhere((k) => k.wire == remote.kind,
+            orElse: () => UploadKind.movies),
+        uploadId: remote.id,
+        sent: remote.offset,
+      ),
+    ];
+    await _persist();
+    unawaited(_pump());
+  }
+
+  /// Discard a server-side upload this device isn't tracking, reclaiming its
+  /// staged bytes.
+  Future<void> discardRemote(String uploadId) async {
+    await ref.read(vaultClientProvider).admin.abortUpload(uploadId);
+    ref.invalidateSelf();
+  }
+
+  static String _mb(int b) => '${(b / (1 << 20)).toStringAsFixed(1)} MB';
+
   /// Drive the queue one file at a time — a 10 GB upload should own the
   /// uplink, not compete with three others.
   Future<void> _pump() async {
@@ -360,6 +400,36 @@ class ContentUploadQueue extends Notifier<List<ContentUpload>> {
 final contentUploadQueueProvider =
     NotifierProvider<ContentUploadQueue, List<ContentUpload>>(
         ContentUploadQueue.new);
+
+/// Uploads the SERVER is still holding staged bytes for. Fetched on demand;
+/// invalidate after finishing or discarding one.
+final serverUploadsProvider = FutureProvider<List<RemoteUpload>>((ref) async {
+  if (!ref.watch(isAdminProvider)) return const [];
+  // Re-read whenever the local queue changes, so an upload that just finished
+  // stops being listed as outstanding.
+  ref.watch(contentUploadQueueProvider);
+  try {
+    return await ref.read(vaultClientProvider).admin.pendingUploads();
+  } catch (e) {
+    _log.debug('could not list server uploads', fields: {'err': '$e'});
+    return const [];
+  }
+});
+
+/// Server-side uploads with NO local queue entry — the stranded ones. Without
+/// this they'd sit on the server invisibly until the 7-day sweep: the app
+/// could neither resume nor reclaim them.
+final orphanUploadsProvider = Provider<List<RemoteUpload>>((ref) {
+  final remote = ref.watch(serverUploadsProvider).asData?.value ?? const [];
+  final localIds = {
+    for (final u in ref.watch(contentUploadQueueProvider))
+      if (u.uploadId != null) u.uploadId!,
+  };
+  return [
+    for (final r in remote)
+      if (!localIds.contains(r.id)) r,
+  ];
+});
 
 /// Whether this device+account should see the Administrative service: a
 /// connected session holding the admin-only capability. The server enforces
