@@ -59,6 +59,17 @@ Future<void> openServerFile(
       // Audio backgrounds; the mini-player appears. No page push needed.
       return;
     case FileMediaKind.video:
+      // Ask what's inside first: a dual-audio MKV here gets the same language
+      // picker a catalog movie does. Cheap — the server caches the probe by
+      // (path, size, mtime) — and it never blocks playback (empty on failure).
+      final repo = ref.read(fileRepositoryProvider);
+      var tracks = const <AudioTrackOption>[];
+      Uri Function(int, int)? streamFor;
+      if (repo is HttpFileRepository) {
+        tracks = await repo.audioTracks(node.id);
+        streamFor = (audio, startSec) =>
+            repo.contentUriForTrack(node.id, audio, startSec);
+      }
       if (!context.mounted) return;
       await openVideoPlayback(
         context,
@@ -68,6 +79,8 @@ Future<void> openServerFile(
           uri: contentUri,
           title: node.name,
           headers: headers,
+          audioTracks: tracks,
+          streamFor: streamFor,
         ),
       );
       return;

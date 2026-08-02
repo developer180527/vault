@@ -56,6 +56,11 @@ type Options struct {
 	FFmpegBinary  string
 	FFprobeBinary string
 
+	// Prober overrides the ffprobe implementation (tests inject a fake so
+	// they can exercise track handling without ffmpeg on the box). Nil = the
+	// real FFprobe.
+	Prober movies.Prober
+
 	// WarmTrackCount is how many of the hottest catalog tracks to keep in RAM
 	// for instant, disk-free streaming (0 → disabled). Default 5.
 	WarmTrackCount int
@@ -126,9 +131,14 @@ func New(o Options) http.Handler {
 	if moviesRoot == "" {
 		moviesRoot = filepath.Join(o.DataRoot, "catalog", "movies")
 	}
+	// Injected fake in tests; the real ffprobe otherwise.
+	var prober movies.Prober = movies.FFprobe{Bin: o.FFprobeBinary}
+	if o.Prober != nil {
+		prober = o.Prober
+	}
 	s.movies = &movies.Service{
 		Root: moviesRoot, Store: o.Store, Log: o.Log,
-		Prober:     movies.FFprobe{Bin: o.FFprobeBinary},
+		Prober:     prober,
 		FFmpegPath: o.FFmpegBinary,
 	}
 	if err := s.movies.EnsureRoot(); err != nil {
@@ -240,6 +250,10 @@ func New(o Options) http.Handler {
 				r.Get("/files", s.handleListFiles)
 				r.Get("/files/path", s.handleFilePath)
 				r.Get("/files/{id}/content", s.handleFileContent)
+				// What's inside this video (audio/subtitle tracks) — lets the
+				// player offer a language picker for ANY file, not just
+				// catalog movies.
+				r.Get("/files/{id}/mediainfo", s.handleFileMediaInfo)
 				r.Get("/synced-folders", s.handleListSyncedFolders)
 			})
 			r.Group(func(r chi.Router) {

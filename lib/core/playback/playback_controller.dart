@@ -333,6 +333,9 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<VideoPlayerController> openVideo(Playable item,
       {bool autoPlay = true}) async {
     assert(item.kind == PlayableKind.video);
+    // A genuinely different title starts on its default audio; reopening the
+    // SAME id is an audio switch, which must keep the chosen track.
+    if (state.video?.id != item.id) _videoAudioTrack = 0;
     await closeVideo();
     if (_player.playing) await _player.pause();
 
@@ -363,6 +366,39 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
     _log.info('video session opened', fields: {'title': item.title});
     return c;
+  }
+
+  /// Which audio track the open video session is playing (0 = default).
+  int _videoAudioTrack = 0;
+  int get videoAudioTrack => _videoAudioTrack;
+
+  /// Switch the open video to another embedded audio track — the
+  /// Japanese-original / English-dub case.
+  ///
+  /// AVPlayer and ExoPlayer can't select an embedded track through
+  /// [video_player], so this is a stream SWAP: ask the source for a URI
+  /// carrying only the chosen track, reopen, and carry the play position
+  /// across so the switch lands on the same frame. The server's remux is
+  /// `-c copy` — a container rewrite, not a re-encode.
+  ///
+  /// Lives on the controller (not a page) because the controller owns the
+  /// session, so every video surface — movies, Files, anything later — gets
+  /// this for free.
+  Future<VideoPlayerController?> switchVideoAudio(int audioIndex) async {
+    final item = state.video;
+    final build = item?.streamFor;
+    if (item == null || build == null || audioIndex == _videoAudioTrack) {
+      return _video;
+    }
+    // Resume where we are; a remuxed stream is server-seeked, so the offset
+    // has to be baked into the URL rather than sought afterwards.
+    final at = _video?.value.position.inSeconds ?? 0;
+    _videoAudioTrack = audioIndex;
+    _log.info('switching video audio',
+        fields: {'track': audioIndex, 'at': at});
+    // closeVideo() inside openVideo would save this position as the resume
+    // point, which is right — reopening then seeks back to it.
+    return openVideo(item.copyWith(uri: build(audioIndex, at)));
   }
 
   /// Close the active video session. With [onlyIf], closes only when that item

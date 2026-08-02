@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/server_movie.dart';
+import '../../core/client/vault_client.dart';
+import '../../core/playback/playable.dart';
+import '../media/mpv_player_page.dart';
 import '../../shell/widgets/server_unavailable.dart';
 import 'data/server_movies.dart';
 import 'movie_player_page.dart';
@@ -121,6 +124,31 @@ class _Info extends ConsumerWidget {
                   ? 'Resume from ${resumeMin}m'
                   : 'Play'),
               onPressed: () => openMoviePlayer(context, movie),
+            ),
+            const SizedBox(width: 12),
+            // A/B the experimental libmpv engine against AVPlayer/ExoPlayer on
+            // the SAME title: native MKV, in-player track switching, embedded
+            // subtitles. Temporary — it goes away when one engine wins.
+            OutlinedButton.icon(
+              icon: const Icon(Icons.science_outlined, size: 18),
+              label: const Text('mpv'),
+              onPressed: () async {
+                final api = ref.read(vaultClientProvider).movies;
+                final headers = await api.authHeaders();
+                if (!context.mounted) return;
+                await openMpvPlayer(
+                  context,
+                  Playable(
+                    id: movie.id,
+                    kind: PlayableKind.video,
+                    // Raw file, default track: libmpv demuxes MKV itself, so
+                    // no remux and no ?audio= parameter is needed.
+                    uri: api.streamUri(movie.id),
+                    title: movie.title,
+                    headers: headers,
+                  ),
+                );
+              },
             ),
             if (movie.resumeMs > 0) ...[
               const SizedBox(width: 12),

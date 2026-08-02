@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/playback/playable.dart';
 import 'media_transport_controls.dart';
 
 /// THE video rendering surface: aspect-correct picture + buffering indicator.
@@ -23,6 +24,9 @@ class VideoSurface extends StatelessWidget {
     this.title,
     this.showControls = true,
     this.topOverlay,
+    this.audioTracks = const [],
+    this.currentAudioTrack = 0,
+    this.onSelectAudio,
   });
 
   final VideoPlayerController controller;
@@ -37,6 +41,12 @@ class VideoSurface extends StatelessWidget {
   /// rest of the chrome under ONE tap-catcher — never a separate always-on
   /// layer that swallows the tap-to-show-again.
   final Widget? topOverlay;
+
+  /// Audio tracks the source declares (see [Playable.audioTracks]). Passed
+  /// straight through to [VideoControls], which renders the picker.
+  final List<AudioTrackOption> audioTracks;
+  final int currentAudioTrack;
+  final ValueChanged<int>? onSelectAudio;
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +67,9 @@ class VideoSurface extends StatelessWidget {
               controller: controller,
               title: title,
               topOverlay: topOverlay,
+              audioTracks: audioTracks,
+              currentAudioTrack: currentAudioTrack,
+              onSelectAudio: onSelectAudio,
             ),
           ),
         // Above the controls so a stall is visible even mid-interaction.
@@ -81,6 +94,9 @@ class VideoControls extends StatefulWidget {
     required this.controller,
     this.title,
     this.topOverlay,
+    this.audioTracks = const [],
+    this.currentAudioTrack = 0,
+    this.onSelectAudio,
   });
 
   final VideoPlayerController controller;
@@ -88,6 +104,11 @@ class VideoControls extends StatefulWidget {
 
   /// Top chrome that fades/toggles with the controls (see [VideoSurface]).
   final Widget? topOverlay;
+
+  /// Selectable audio tracks; fewer than two hides the control.
+  final List<AudioTrackOption> audioTracks;
+  final int currentAudioTrack;
+  final ValueChanged<int>? onSelectAudio;
 
   @override
   State<VideoControls> createState() => _VideoControlsState();
@@ -204,6 +225,24 @@ class _VideoControlsState extends State<VideoControls> {
                         color: Colors.black.withValues(alpha: 0.35),
                       ),
                     ),
+                    // The audio-track picker, when the source declares more
+                    // than one. Lives HERE rather than in a specific page so
+                    // every video surface — catalog movies, a Files video,
+                    // anything later — gets it from the same code.
+                    if (widget.audioTracks.length > 1)
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: SafeArea(
+                          bottom: false,
+                          child: _AudioTrackButton(
+                            tracks: widget.audioTracks,
+                            current: widget.currentAudioTrack,
+                            onSelect: widget.onSelectAudio,
+                            onInteract: _scheduleHide,
+                          ),
+                        ),
+                      ),
                     // Top chrome (back bar / pickers), fading with everything
                     // else. SafeArea keeps it clear of the notch.
                     if (widget.topOverlay != null)
@@ -259,6 +298,56 @@ class _VideoControlsState extends State<VideoControls> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The audio-language control. Switching costs a stream swap (the engines
+/// can't select an embedded track), so the menu says which one is playing and
+/// the swap carries the position across.
+class _AudioTrackButton extends StatelessWidget {
+  const _AudioTrackButton({
+    required this.tracks,
+    required this.current,
+    required this.onSelect,
+    required this.onInteract,
+  });
+
+  final List<AudioTrackOption> tracks;
+  final int current;
+  final ValueChanged<int>? onSelect;
+  final VoidCallback onInteract;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<int>(
+      tooltip: 'Audio language',
+      icon: const Icon(Icons.multitrack_audio, color: Colors.white),
+      initialValue: current,
+      onOpened: onInteract,
+      onSelected: (i) {
+        onInteract();
+        onSelect?.call(i);
+      },
+      itemBuilder: (context) => [
+        for (final t in tracks)
+          PopupMenuItem<int>(
+            value: t.index,
+            child: Row(
+              children: [
+                Icon(
+                  Icons.check,
+                  size: 16,
+                  color: t.index == current
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.transparent,
+                ),
+                const SizedBox(width: 8),
+                Text(t.label),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

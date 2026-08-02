@@ -4,10 +4,10 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 98;
-  static const String commit = '329ae13';
-  static const String commitSubject = '1. Movie upload — the 8 GB cap was rejecting the files outright Your 9–10 GB 4K movies were hitting MaxBytesReader and failing before a byte landed. Fixed: Cap raised to 80 GB (4K features run 20–60 GB, so there\'s real headroom now). 4 MB copy buffer instead of Go\'s default 32 KB — a 10 GB file went from ~300,000 write syscalls to ~2,500. I audited the rest of the path for hidden bottlenecks and it\'s clean: Caddy has no body-size limit and streams reverse-proxied bodies (no disk buffering), and vaultd sets only ReadHeaderTimeout (headers), so nothing kills a long transfer. Honest ceiling: beyond this the limit is physics — WireGuard/tailnet throughput and disk write. For a bulk import of many 4K titles, rsync -P into /srv/vault/movies/ + Scan is still the better tool, and critically it\'s resumable — a browser upload restarts from zero if the tab or Wi-Fi drops mid-transfer. I made the panel say exactly that instead of the old vague \'8 GB per batch\'. 2. Blank posters — the real cause The poster upload wrote the override file but never flipped has_art, and the client deliberately skips art fetches when that flag is false — so it never even requested the image. Added SetMovieArt and it now flips on upload. Combined with the art_version cache-busting that landed in parallel, both halves are covered: the flag makes the client ask, the version makes it get the fresh one instead of a cached miss. 3. Controls not returning The cause was the movie player\'s always-on top bar sitting as a separate layer above the video\'s tap-catcher, swallowing taps meant to bring the chrome back. That\'s now restructured so the top bar rides inside the controls overlay (topOverlay), fading with them under one tap-catcher — a tap anywhere reliably restores everything. 4. Desktop keyboard transport Added proper keyboard control to VideoControls, so it works for both movies and file videos: Space or K → play/pause ←/→ or J/L → seek ∓10s (hold Shift for ∓60s) Any shortcut also reveals the controls so you see what your keypress did, then they auto-hide again. It autofocuses on open, so the keyboard works the instant the player appears — no clicking first.';
-  static const String date = '2026-07-24';
+  static const int build = 109;
+  static const String commit = '228eba1';
+  static const String commitSubject = 'Open-source prep: AGPL-3.0, real README, rebrand script';
+  static const String date = '2026-07-28';
 
   static String get label =>
       build == 0 ? '$version (dev)' : '$version (build $build)';

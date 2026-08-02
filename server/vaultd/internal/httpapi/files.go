@@ -217,6 +217,15 @@ func (s *Server) handleFileContent(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// ?audio=N selects a non-default audio track (a Japanese/English MKV, say)
+	// via zero-CPU remux — the same mechanism the movie catalog uses, so a
+	// video from ANY service gets the language picker. Falls through to the
+	// raw file for the default track, which keeps full Range seeking.
+	if abs, err := s.files.SafeJoin(username, rel); err == nil {
+		if s.fileStreamVariant(w, r, abs) {
+			return
+		}
+	}
 	f, info, err := s.files.Open(username, rel)
 	if err != nil {
 		s.filesErr(w, r, err)

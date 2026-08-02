@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart' hide Playable;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
@@ -18,6 +19,9 @@ Future<void> main() async {
   // Run inside a guarded zone so uncaught async errors are logged, not lost.
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    // libmpv (media_kit) — the experimental video engine. Must be initialized
+    // before any Player is constructed; cheap and side-effect-free otherwise.
+    MediaKit.ensureInitialized();
 
     // A generous image cache keeps media thumbnails decoded while scrolling a
     // large library, avoiding re-decode flicker on scroll-back.

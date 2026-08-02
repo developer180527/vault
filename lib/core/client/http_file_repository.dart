@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../auth/session.dart';
 import '../models/file_node.dart';
+import '../playback/playable.dart';
 import 'vault_client.dart';
 
 /// Server-backed file browser over the vaultd files API. The visible root is
@@ -40,6 +41,52 @@ class HttpFileRepository implements FileRepository {
   /// Public URL for streaming a node's content (used by the media players,
   /// which fetch it with the auth header).
   Uri contentUri(String id) => _session.api('/v1/files/$id/content');
+
+  /// Stream URL for a specific embedded audio track. `audio > 0` makes the
+  /// server remux with only that track (`-c copy`); a remuxed pipe can't
+  /// serve Range, so the seek offset rides in the URL.
+  Uri contentUriForTrack(String id, int audio, int startSec) {
+    final q = <String, String>{};
+    if (audio > 0) q['audio'] = '$audio';
+    if (startSec > 0) q['start'] = '$startSec';
+    final base = _session.api('/v1/files/$id/content');
+    return q.isEmpty ? base : base.replace(queryParameters: q);
+  }
+
+  /// What's inside a video: audio/subtitle tracks, codec, dimensions. The
+  /// server probes on demand and caches by (path, size, mtime). Returns an
+  /// empty list of tracks for anything not probeable.
+  Future<List<AudioTrackOption>> audioTracks(String id) async {
+    try {
+      final res = await http.get(_session.api('/v1/files/$id/mediainfo'),
+          headers: await _headers());
+      if (res.statusCode != 200) return const [];
+      final body = jsonDecode(res.body) as Map<String, Object?>;
+      final streams = (body['streams'] as Map<String, Object?>?) ?? const {};
+      final audio = (streams['audio'] as List?) ?? const [];
+      return [
+        for (final a in audio)
+          AudioTrackOption(
+            index: ((a as Map<String, Object?>)['index'] as num?)?.toInt() ?? 0,
+            label: _trackLabel(a),
+            isDefault: (a['default'] as bool?) ?? false,
+          ),
+      ];
+    } catch (_) {
+      return const []; // never block playback on track discovery
+    }
+  }
+
+  /// "English Dub" › "English 5.1" › "Track 2" — never blank.
+  static String _trackLabel(Map<String, Object?> a) {
+    final title = (a['title'] as String?) ?? '';
+    if (title.isNotEmpty) return title;
+    final lang = (a['lang'] as String?) ?? '';
+    final ch = (a['channels'] as num?)?.toInt() ?? 0;
+    final suffix = ch == 6 ? ' 5.1' : (ch == 8 ? ' 7.1' : '');
+    final idx = ((a['index'] as num?)?.toInt() ?? 0) + 1;
+    return lang.isEmpty ? 'Track $idx' : '${lang.toUpperCase()}$suffix';
+  }
 
   /// The bearer header for streaming requests.
   Future<Map<String, String>> authHeader() => _headers();

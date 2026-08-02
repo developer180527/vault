@@ -26,7 +26,7 @@ class _VideoPlaybackPageState extends ConsumerState<VideoPlaybackPage> {
   // teardown, leaking the session (the audio-persistence bug class).
   late final PlaybackController _playback =
       ref.read(playbackProvider.notifier);
-  late final Future<VideoPlayerController> _future =
+  late Future<VideoPlayerController> _future =
       _playback.openVideo(widget.item);
 
   @override
@@ -60,7 +60,21 @@ class _VideoPlaybackPageState extends ConsumerState<VideoPlaybackPage> {
           if (c == null) {
             return const Center(child: CircularProgressIndicator());
           }
-          return VideoSurface(controller: c, title: widget.item.title);
+          // Audio-language picker for ANY source that declares tracks — a
+          // catalog movie, a dual-audio MKV sitting in Files, anything later.
+          // The controller performs the swap (it owns the session).
+          return VideoSurface(
+            controller: c,
+            title: widget.item.title,
+            audioTracks: widget.item.canSwitchAudio
+                ? widget.item.audioTracks
+                : const [],
+            currentAudioTrack: _playback.videoAudioTrack,
+            onSelectAudio: (i) async {
+              final next = await _playback.switchVideoAudio(i);
+              if (mounted && next != null) setState(() => _future = Future.value(next));
+            },
+          );
         },
       ),
     );

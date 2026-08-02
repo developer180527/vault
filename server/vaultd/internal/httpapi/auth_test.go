@@ -118,7 +118,9 @@ type testEnv struct {
 	dataRoot string
 }
 
-func newTestEnv(t *testing.T) *testEnv {
+// newTestEnv builds the server. Variadic tweaks let a single test inject a
+// dependency (e.g. a fake ffprobe) without every other call site changing.
+func newTestEnv(t *testing.T, tweaks ...func(*Options)) *testEnv {
 	t.Helper()
 	idp := newFakeIDP(t)
 	st, err := store.Open(context.Background(),
@@ -133,14 +135,18 @@ func newTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("verifier: %v", err)
 	}
 	dataRoot := t.TempDir()
-	h := New(Options{
+	opts := Options{
 		Log:       slog.New(slog.DiscardHandler),
 		Store:     st,
 		Verifier:  verifier,
 		SetupCode: "cafe1234",
 		DataRoot:  dataRoot,
 		Signer:    auth.NewStreamSignerForTest([]byte("0123456789abcdef0123456789abcdef")),
-	})
+	}
+	for _, tweak := range tweaks {
+		tweak(&opts)
+	}
+	h := New(opts)
 	return &testEnv{handler: h, store: st, idp: idp, dataRoot: dataRoot}
 }
 
