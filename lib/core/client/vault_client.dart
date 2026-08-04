@@ -453,8 +453,10 @@ abstract interface class TorrentsApi {
   Future<List<TorrentEntry>> list();
   Future<TransferStats> transfer();
 
-  /// Add a .torrent file's bytes. [filename] is for display only.
-  Future<void> addFile(String filename, Uint8List bytes);
+  /// Add a .torrent file's bytes. [filename] is for display only. [dest]
+  /// selects where the finished download is filed (shared catalogs are
+  /// admin-only, enforced server-side).
+  Future<void> addFile(String filename, Uint8List bytes, {JobDest dest});
 
   Future<void> pause(String hash);
   Future<void> resume(String hash);

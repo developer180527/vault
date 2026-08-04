@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/developer180527/vault/vaultd/internal/jobs"
+	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
 // The torrent-client surface: a thin, AUTHORIZED façade over qBittorrent.
@@ -135,11 +136,17 @@ func (s *Server) handleListTorrents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"torrents": out})
 }
 
-// POST /v1/torrents/file — add a .torrent file (raw body).
+// POST /v1/torrents/file?dest= — add a .torrent file (raw body).
 //
-// Magnets keep going through the JOB pipeline (POST /v1/jobs), which downloads
-// and then files the result into the library. This endpoint is for the one
-// thing that pipeline can't take: a file the user has on disk.
+// Goes through the JOB pipeline, exactly like a magnet: the pipeline is what
+// files a finished download into the library (or the shared catalog). Adding
+// straight to qBittorrent instead left the download seeding in staging
+// forever, never appearing anywhere the user could see it.
+//
+// The magnet the job runs is synthesised from the file's own info hash. That's
+// legitimate: a magnet IS an info hash plus hints, and qBittorrent resolves
+// metadata from peers. It keeps ONE code path for both add methods rather than
+// a second pipeline that has to be kept in step.
 func (s *Server) handleAddTorrentFile(w http.ResponseWriter, r *http.Request) {
 	client, ok := s.qbit(w)
 	if !ok {
@@ -167,13 +174,43 @@ func (s *Server) handleAddTorrentFile(w http.ResponseWriter, r *http.Request) {
 	if name == "" || name == "." || name == string(filepath.Separator) {
 		name = "upload.torrent"
 	}
+	dest := strings.TrimSpace(r.URL.Query().Get("dest"))
+	switch dest {
+	case "":
+	case jobs.DestMovies, jobs.DestMusic:
+		if p.Role != "admin" {
+			writeErr(w, http.StatusForbidden,
+				"only an admin can download straight into the shared catalog")
+			return
+		}
+	default:
+		writeErr(w, http.StatusBadRequest,
+			`dest must be "", "movies" or "music"`)
+		return
+	}
+	if s.jobs == nil {
+		writeErr(w, http.StatusServiceUnavailable, "jobs are not configured")
+		return
+	}
+
+	// Hand qBittorrent the file itself (it has the trackers and piece map),
+	// then track it as a job keyed by the SAME hash so completion delivery
+	// runs. Add first: if it fails there's no orphaned job row to explain.
 	savePath := filepath.Join(s.torrentSavePath, p.UserID)
 	if err := client.AddFile(r.Context(), name, data, p.UserID, savePath); err != nil {
 		s.torrentFail(w, r, err)
 		return
 	}
-	s.log.Info("torrent file added", "user", p.Username, "hash", hash, "name", name)
-	writeJSON(w, http.StatusOK, map[string]any{"hash": hash})
+	title := strings.TrimSuffix(name, filepath.Ext(name))
+	job, err := s.jobs.Submit(p.UserID, store.JobKindTorrent,
+		"magnet:?xt=urn:btih:"+hash, title, dest)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.log.Info("torrent file added", "user", p.Username, "hash", hash,
+		"name", name, "dest", dest, "job", job.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"hash": hash, "job": job.ID})
 }
 
 // POST /v1/torrents/{hash}/pause

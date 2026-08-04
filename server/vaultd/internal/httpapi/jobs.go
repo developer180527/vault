@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/developer180527/vault/vaultd/internal/jobs"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -50,6 +51,10 @@ func (s *Server) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"`
 		Kind   string `json:"kind"`
 		Title  string `json:"title"`
+		// Dest: "" = my downloads (default), "movies"/"music" = the SHARED
+		// catalog. The point is to skip the round trip of downloading to the
+		// server, back to a laptop, and up again through the upload API.
+		Dest string `json:"dest"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Source) == "" {
 		writeErr(w, http.StatusBadRequest, "source required")
@@ -72,11 +77,28 @@ func (s *Server) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 			"missing grant: "+serviceForKind(kind)+":write")
 		return
 	}
+	// Filing into a SHARED catalog is curation, so it needs the admin role —
+	// the torrent grant only says you may download, not that you may publish
+	// to everyone's library.
+	dest := strings.TrimSpace(req.Dest)
+	switch dest {
+	case "":
+	case jobs.DestMovies, jobs.DestMusic:
+		if p.Role != "admin" {
+			writeErr(w, http.StatusForbidden,
+				"only an admin can download straight into the shared catalog")
+			return
+		}
+	default:
+		writeErr(w, http.StatusBadRequest,
+			`dest must be "", "movies" or "music"`)
+		return
+	}
 	title := req.Title
 	if title == "" {
 		title = titleFor(req.Source)
 	}
-	job, err := s.jobs.Submit(p.UserID, kind, req.Source, title)
+	job, err := s.jobs.Submit(p.UserID, kind, req.Source, title, dest)
 	if err != nil {
 		s.fail(w, r, err)
 		return

@@ -32,6 +32,10 @@ type Job struct {
 	ID        string
 	UserID    string
 	Kind      string // torrent | download | upload
+	// Dest is where the finished artifact is filed: "" = the owner's personal
+	// downloads/ zone, "movies" / "music" = the SHARED catalog. Anything but
+	// "" is admin-only (enforced at the HTTP layer).
+	Dest      string
 	Source    string
 	Title     string
 	State     string
@@ -42,12 +46,13 @@ type Job struct {
 }
 
 // CreateJob inserts a queued job and returns it.
-func (w *WriteStore) CreateJob(ctx context.Context, userID, kind, source, title string) (*Job, error) {
+func (w *WriteStore) CreateJob(ctx context.Context, userID, kind, source, title, dest string) (*Job, error) {
 	now := time.Now()
 	j := &Job{
 		ID:        uuid.NewString(),
 		UserID:    userID,
 		Kind:      kind,
+		Dest:      dest,
 		Source:    source,
 		Title:     title,
 		State:     JobQueued,
@@ -55,10 +60,10 @@ func (w *WriteStore) CreateJob(ctx context.Context, userID, kind, source, title 
 		UpdatedAt: now,
 	}
 	_, err := w.db.ExecContext(ctx, `
-		INSERT INTO jobs (id, user_id, kind, source, title, state, progress,
+		INSERT INTO jobs (id, user_id, kind, dest, source, title, state, progress,
 			message, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 'queued', 0, '', ?, ?)`,
-		j.ID, userID, kind, source, title, now.Unix(), now.Unix())
+		VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, '', ?, ?)`,
+		j.ID, userID, kind, dest, source, title, now.Unix(), now.Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -123,13 +128,13 @@ func (w *WriteStore) ReconcileRunning(ctx context.Context) (int, error) {
 	return int(n), nil
 }
 
-const jobSelect = `SELECT id, user_id, kind, source, title, state, progress,
+const jobSelect = `SELECT id, user_id, kind, dest, source, title, state, progress,
 	message, created_at, updated_at FROM jobs`
 
 func scanJob(row interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
 	var created, updated int64
-	err := row.Scan(&j.ID, &j.UserID, &j.Kind, &j.Source, &j.Title, &j.State,
+	err := row.Scan(&j.ID, &j.UserID, &j.Kind, &j.Dest, &j.Source, &j.Title, &j.State,
 		&j.Progress, &j.Message, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

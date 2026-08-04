@@ -82,15 +82,49 @@ class VaultJob {
       );
 }
 
+/// Where a finished download is filed.
+///
+/// The point of anything other than [myFiles]: the file is already ON the
+/// server when qBittorrent finishes. Routing it to the shared catalog there
+/// avoids pulling those bytes down to a laptop and pushing the identical ones
+/// back up through the upload API.
+enum JobDest {
+  /// The downloader's own downloads/ zone (default, any user).
+  myFiles(''),
+
+  /// The shared movie library — admin only, enforced server-side.
+  movies('movies'),
+
+  /// The shared music catalog — admin only, enforced server-side.
+  music('music');
+
+  const JobDest(this.wire);
+  final String wire;
+
+  String get label => switch (this) {
+        JobDest.myFiles => 'My files',
+        JobDest.movies => 'Movies library',
+        JobDest.music => 'Music catalog',
+      };
+}
+
 /// A submission. The kind is inferred by the caller (magnet: → torrent,
 /// http(s) → download, local path → upload).
 @immutable
 class JobRequest {
-  const JobRequest({required this.kind, required this.source, this.title});
+  const JobRequest({
+    required this.kind,
+    required this.source,
+    this.title,
+    this.dest = JobDest.myFiles,
+  });
 
   final JobKind kind;
   final String source;
 
   /// Optional display name; derived from [source] when omitted.
   final String? title;
+
+  /// Where the finished artifact lands.
+  final JobDest dest;
 }

@@ -50,7 +50,8 @@ class HttpJobsApi implements VaultJobsApi {
       body: jsonEncode({
         'source': request.source,
         'kind': request.kind.name,
-        if (request.title != null) 'title': request.title,
+        'title': ?request.title,
+        if (request.dest != JobDest.myFiles) 'dest': request.dest.wire,
       }),
     );
     if (res.statusCode != 200) {

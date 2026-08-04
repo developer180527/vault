@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../auth/session.dart';
+import '../jobs/job.dart';
 import 'vault_client.dart';
 
 /// Remote torrent control against `/v1/torrents/*`.
@@ -63,10 +64,12 @@ class HttpTorrentsApi implements TorrentsApi {
   }
 
   @override
-  Future<void> addFile(String filename, Uint8List bytes) async {
-    final uri = _session
-        .api('/v1/torrents/file')
-        .replace(queryParameters: {'name': filename});
+  Future<void> addFile(String filename, Uint8List bytes,
+      {JobDest dest = JobDest.myFiles}) async {
+    final uri = _session.api('/v1/torrents/file').replace(queryParameters: {
+      'name': filename,
+      if (dest != JobDest.myFiles) 'dest': dest.wire,
+    });
     final req = http.Request('POST', uri)
       ..headers.addAll(await _auth())
       ..headers['Content-Type'] = 'application/x-bittorrent'

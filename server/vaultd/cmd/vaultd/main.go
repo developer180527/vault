@@ -76,6 +76,53 @@ func main() {
 			StagingRoot: filepath.Join(staging, "ytdlp"),
 		},
 	})
+	// One shared change hub: admin-panel mutations bump it, the member API
+	// streams it (/v1/changes/watch) so apps refresh without restarting.
+	changeHub := changes.NewHub(log)
+
+	// Filing a finished download straight into a SHARED catalog. Without this
+	// an admin had to download a movie to the server, pull those same bytes
+	// down to a laptop, and push them back up through the upload API — for a
+	// file that never needed to leave the box.
+	//
+	// The catalog services own sanitising, collision-safe naming and the move
+	// (LandUpload), so delivery is: land it, index it, tell every client.
+	moviesSvc := &movies.Service{
+		Root: cfg.MoviesRoot, Store: st, Log: log,
+		Prober:     movies.FFprobe{Bin: cfg.FFprobeBinary},
+		FFmpegPath: cfg.FFmpegBinary,
+	}
+	musicSvc := &music.Service{
+		DataRoot: cfg.DataRoot, Store: st, Log: log,
+		FFmpegPath: cfg.FFmpegBinary,
+	}
+	engine.SetDelivery(jobs.DestMovies,
+		func(c context.Context, j store.Job, staged string) error {
+			name, err := moviesSvc.LandUpload(staged, filepath.Base(staged))
+			if err != nil {
+				return err
+			}
+			if _, _, err := moviesSvc.Scan(c); err != nil {
+				log.Warn("post-download movie scan", "err", err)
+			}
+			changeHub.Bump("movies")
+			log.Info("download filed into movie catalog", "name", name)
+			return nil
+		})
+	engine.SetDelivery(jobs.DestMusic,
+		func(c context.Context, j store.Job, staged string) error {
+			name, err := musicSvc.LandUpload(staged, filepath.Base(staged))
+			if err != nil {
+				return err
+			}
+			if _, _, err := musicSvc.ScanCatalog(c); err != nil {
+				log.Warn("post-download catalog scan", "err", err)
+			}
+			changeHub.Bump("music")
+			log.Info("download filed into music catalog", "name", name)
+			return nil
+		})
+
 	engine.Start()
 	defer engine.Stop()
 	log.Info("jobs engine started", "maxConcurrent", cfg.MaxJobs)
@@ -98,10 +145,6 @@ func main() {
 	if err != nil {
 		log.Warn("stream signing unavailable — streams stay bearer-only", "err", err)
 	}
-
-	// One shared change hub: admin-panel mutations bump it, the member API
-	// streams it (/v1/changes/watch) so apps refresh without restarting.
-	changeHub := changes.NewHub(log)
 
 	srv := &http.Server{
 		Addr: cfg.Addr,

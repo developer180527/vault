@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
@@ -21,12 +22,27 @@ type Runner interface {
 // Engine schedules and runs jobs: one shared queue with a concurrency cap and
 // per-user fairness, so one member queueing fifty downloads can't starve the
 // others (DESIGN.md). Torrent and download work are just different Runners.
+// Destinations a finished download can be filed into. The empty destination
+// is the owner's personal downloads/ zone and needs no registration.
+const (
+	DestMovies = "movies"
+	DestMusic  = "music"
+)
+
+// DeliverFunc files a completed job's artifact. Registered per destination by
+// the caller (main), which owns the catalog services — the engine deliberately
+// does not.
+type DeliverFunc func(ctx context.Context, job store.Job, staged string) error
+
 type Engine struct {
 	log      *slog.Logger
 	store    *store.Store
 	hub      *hub
 	dataRoot string
 	runners  map[string]Runner // kind → runner
+	// delivery maps a job's destination to how its artifact is filed. The
+	// default ("") is handled inline; see deliver.
+	delivery map[string]DeliverFunc
 	maxConc  int
 
 	ctx    context.Context
@@ -54,7 +70,15 @@ func New(log *slog.Logger, st *store.Store, dataRoot string, maxConcurrent int, 
 		ctx:      ctx,
 		cancel:   cancel,
 		running:  map[string]context.CancelFunc{},
+		delivery: map[string]DeliverFunc{},
 	}
+}
+
+// SetDelivery registers how artifacts bound for [dest] are filed. Called
+// before Start; a destination with no handler fails the job rather than
+// quietly falling back to the personal library.
+func (e *Engine) SetDelivery(dest string, fn DeliverFunc) {
+	e.delivery[dest] = fn
 }
 
 // Start reconciles crashed jobs then kicks the scheduler.
@@ -79,13 +103,15 @@ func (e *Engine) Stop() {
 	e.wg.Wait()
 }
 
-// Submit creates a queued job and triggers scheduling.
-func (e *Engine) Submit(userID, kind, source, title string) (*store.Job, error) {
-	j, err := e.store.Write().CreateJob(e.ctx, userID, kind, source, title)
+// Submit creates a queued job and triggers scheduling. [dest] selects where
+// the finished artifact is filed ("" = the owner's personal downloads/).
+func (e *Engine) Submit(userID, kind, source, title, dest string) (*store.Job, error) {
+	j, err := e.store.Write().CreateJob(e.ctx, userID, kind, source, title, dest)
 	if err != nil {
 		return nil, err
 	}
-	e.log.Info("job submitted", "id", j.ID, "kind", kind, "user", userID)
+	e.log.Info("job submitted", "id", j.ID, "kind", kind, "user", userID,
+		"dest", dest)
 	e.publish(userID)
 	e.schedule()
 	return j, nil
@@ -247,11 +273,24 @@ func (e *Engine) finish(job store.Job, jobCtx context.Context, staged string, ru
 	e.schedule()
 }
 
-// deliver moves the staged artifact into the user's downloads/ (atomic
-// ingest + EXDEV fallback). Empty staged path = nothing to move (rare).
+// deliver files a finished artifact where the job asked for it.
+//
+// The default (empty destination) is the owner's personal downloads/. Other
+// destinations — the shared movie and music catalogs — are supplied by the
+// caller as [DeliverFunc]s, so the engine stays a scheduler and doesn't need
+// to know what a catalog is. Empty staged path = nothing to move (rare).
 func (e *Engine) deliver(job store.Job, staged string) error {
 	if staged == "" {
 		return nil
+	}
+	if job.Dest != "" {
+		fn, ok := e.delivery[job.Dest]
+		if !ok {
+			// Fail loudly rather than silently dumping a shared-catalog
+			// download into someone's personal library.
+			return fmt.Errorf("no delivery configured for destination %q", job.Dest)
+		}
+		return fn(e.ctx, job, staged)
 	}
 	user, err := e.store.Read().UserByID(e.ctx, job.UserID)
 	if err != nil {

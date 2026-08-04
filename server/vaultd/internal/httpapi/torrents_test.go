@@ -102,9 +102,17 @@ func torrentEnv(t *testing.T, fake *fakeQbit) *testEnv {
 	}
 	dataRoot := t.TempDir()
 	qsrv := fake.server(t)
+	// A real engine: adding a torrent now goes through the job pipeline, so
+	// without one the endpoints answer 503 rather than exercising the
+	// authorization we're testing. No runners — these tests assert on the HTTP
+	// response, not on a download completing.
+	eng := jobs.New(slog.New(slog.DiscardHandler), st, dataRoot, 1,
+		map[string]jobs.Runner{})
+	eng.Start()
+	t.Cleanup(eng.Stop)
 	h := New(Options{
 		Log: slog.New(slog.DiscardHandler), Store: st, Verifier: verifier,
-		SetupCode: "cafe1234", DataRoot: dataRoot,
+		SetupCode: "cafe1234", DataRoot: dataRoot, Jobs: eng,
 		Torrents:        jobs.NewQbitClient(qsrv.URL, "admin", "pw"),
 		TorrentSavePath: filepath.Join(dataRoot, "staging", "torrents"),
 	})
@@ -252,5 +260,37 @@ func TestAddTorrentFileRejectsGarbage(t *testing.T) {
 	}
 	if fake.reached("/api/v2/torrents/add") {
 		t.Fatal("an invalid .torrent was forwarded to qBittorrent")
+	}
+}
+
+// Downloading straight into the SHARED catalog is curation. A member with
+// torrent:write may download for themselves, but must not be able to publish
+// into everyone's library.
+func TestSharedCatalogDestinationIsAdminOnly(t *testing.T) {
+	fake := &fakeQbit{}
+	e := torrentEnv(t, fake)
+	admin := adminToken(t, e)
+	member, _ := mintTorrentMember(t, e, "alpha")
+
+	for _, dest := range []string{"movies", "music"} {
+		code, _ := e.call(t, "POST", "/v1/jobs", member, map[string]any{
+			"kind": "torrent", "source": "magnet:?xt=urn:btih:abc", "dest": dest,
+		})
+		if code != 403 {
+			t.Fatalf("member dest=%s = %d, want 403", dest, code)
+		}
+	}
+	// A nonsense destination is refused outright rather than silently ignored,
+	// which would file a movie into the wrong place.
+	if code, _ := e.call(t, "POST", "/v1/jobs", admin, map[string]any{
+		"kind": "torrent", "source": "magnet:?xt=urn:btih:abc", "dest": "elsewhere",
+	}); code != 400 {
+		t.Fatalf("bogus dest = %d, want 400", code)
+	}
+	// The member's own downloads still work.
+	if code, _ := e.call(t, "POST", "/v1/jobs", member, map[string]any{
+		"kind": "torrent", "source": "magnet:?xt=urn:btih:abc",
+	}); code != 200 {
+		t.Fatalf("member personal download = %d, want 200", code)
 	}
 }

@@ -121,7 +121,7 @@ func TestSubmitRunsAndDelivers(t *testing.T) {
 	eng, fr, st, dataRoot := setup(t, 2)
 	uid := mkUser(t, st, dataRoot, "venu")
 
-	j, err := eng.Submit(uid, "download", "https://x.test/a", "a")
+	j, err := eng.Submit(uid, "download", "https://x.test/a", "a", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,10 +145,10 @@ func TestConcurrencyCapAndFairness(t *testing.T) {
 	// submits — so maya's job is younger than venu's queued v2.
 	var venuJobs []string
 	for i := 0; i < 3; i++ {
-		j, _ := eng.Submit(venu, "download", fmt.Sprintf("v%d", i), "v")
+		j, _ := eng.Submit(venu, "download", fmt.Sprintf("v%d", i), "v", "")
 		venuJobs = append(venuJobs, j.ID)
 	}
-	mj, _ := eng.Submit(maya, "download", "m0", "m")
+	mj, _ := eng.Submit(maya, "download", "m0", "m", "")
 
 	// Cap holds at 2 concurrent.
 	time.Sleep(100 * time.Millisecond)
@@ -181,7 +181,7 @@ func TestCancelRunningAndRetry(t *testing.T) {
 	eng, fr, st, dataRoot := setup(t, 1)
 	uid := mkUser(t, st, dataRoot, "venu")
 
-	j, _ := eng.Submit(uid, "download", "https://x.test/a", "a")
+	j, _ := eng.Submit(uid, "download", "https://x.test/a", "a", "")
 	waitState(t, st, j.ID, store.JobRunning)
 
 	if err := eng.Cancel(uid, j.ID); err != nil {
@@ -203,7 +203,7 @@ func TestFailureAndClearFinished(t *testing.T) {
 	eng, fr, st, dataRoot := setup(t, 1)
 	uid := mkUser(t, st, dataRoot, "venu")
 
-	j, _ := eng.Submit(uid, "download", "https://x.test/fail", "f")
+	j, _ := eng.Submit(uid, "download", "https://x.test/fail", "f", "")
 	waitState(t, st, j.ID, store.JobRunning)
 	fr.gate(j.ID) <- fmt.Errorf("boom")
 	waitState(t, st, j.ID, store.JobFailed)
@@ -234,7 +234,7 @@ func TestWatchSeedsAndUpdates(t *testing.T) {
 		t.Fatal("no seed snapshot")
 	}
 
-	j, _ := eng.Submit(uid, "download", "https://x.test/a", "a")
+	j, _ := eng.Submit(uid, "download", "https://x.test/a", "a", "")
 	// A snapshot containing the job arrives.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
