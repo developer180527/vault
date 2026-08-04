@@ -43,6 +43,10 @@ services:
       # the Tailscale ACL on port 8444. Remove both lines to disable.
       - VAULTD_ADMIN_ADDR=:8081
       - VAULTD_ADMIN_EXTERNAL_URL=https://${TS_HOSTNAME}:8444
+      # Browser-reachable qBittorrent WebUI (tailscale serve 8443). Only used
+      # to render the link on the admin panel's Services page; vaultd itself
+      # talks to VAULTD_QBIT_URL on the compose network.
+      - VAULTD_QBIT_EXTERNAL_URL=https://${TS_HOSTNAME}:8443
       # Jobs: vaultd drives qBittorrent's Web API over the compose network.
       - VAULTD_QBIT_URL=http://qbittorrent:8090
       - VAULTD_QBIT_USER=admin

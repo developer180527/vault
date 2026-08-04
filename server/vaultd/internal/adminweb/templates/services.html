@@ -1,0 +1,60 @@
+{{template "head" .}}
+<div class="layout">
+{{template "nav" .}}
+<main class="content">
+  <h1>Services</h1>
+  <p class="sub">The other pieces of the stack. Each keeps its own admin
+  login — these are signposts, not a way around it.</p>
+  {{template "flash" .}}
+
+  <div class="cards">
+    {{range .Links}}
+    <div class="card svc">
+      <div class="svc-head">
+        <strong>{{.Name}}</strong>
+        {{if .URL}}
+          {{if .Up}}<span class="badge ok">Reachable</span>
+          {{else}}<span class="badge bad">Not responding</span>{{end}}
+        {{else}}
+          <span class="badge">Not configured</span>
+        {{end}}
+      </div>
+      <p class="muted">{{.Purpose}}</p>
+      {{with .Detail}}<p class="why">{{.}}</p>{{end}}
+      {{if .URL}}
+        <p class="addr">{{.URL}}</p>
+        <a class="open" href="{{.URL}}" target="_blank" rel="noopener noreferrer">Open {{.Name}} &rarr;</a>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+
+  <p class="sub foot">Status is checked from the server, so it reports whether
+  the service is actually running — not whether your browser can route to it.
+  A service that answers &ldquo;unauthorized&rdquo; still counts as reachable;
+  refusing anonymous callers is its job.</p>
+</main>
+</div>
+{{template "foot" .}}
+
+<style>
+  .card.svc { min-width: 280px; }
+  .svc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid #3a3a4a; color: #b9b9c6;
+  }
+  .badge.ok { border-color: #2f6f4f; color: #7ddba8; }
+  .badge.bad { border-color: #7a3340; color: #ef9aa6; }
+  .svc .why { color: #ef9aa6; font-size: 12px; }
+  .svc .addr {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; color: #9a9aa8; word-break: break-all;
+  }
+  .svc .open {
+    display: inline-block; margin-top: 6px; padding: 6px 14px;
+    border: 1px solid #3a3a4a; border-radius: 8px; text-decoration: none;
+  }
+  .svc .open:hover { background: #1a1a22; }
+  .foot { margin-top: 22px; max-width: 62ch; }
+</style>

@@ -60,6 +60,13 @@ type Options struct {
 	// Changes is the app-facing change hub: panel mutations bump it so
 	// connected apps refresh without a restart. Nil-safe (tests omit it).
 	Changes *changes.Hub
+
+	// PocketIDURL / QbitExternalURL are how an ADMIN'S BROWSER reaches those
+	// services (their tailnet-served ports). Empty = not shown on Services.
+	// Deliberately the external URLs, not the compose-internal ones: a link to
+	// http://qbittorrent:8090 is unusable from a browser.
+	PocketIDURL     string
+	QbitExternalURL string
 }
 
 const (
@@ -77,6 +84,9 @@ type Server struct {
 	flow       OAuthFlow
 	external   *url.URL
 	changes    *changes.Hub
+
+	pocketIDURL     string
+	qbitExternalURL string
 }
 
 // New builds the admin panel handler.
@@ -88,7 +98,9 @@ func New(o Options) (http.Handler, error) {
 	s := &Server{
 		log: o.Log, store: o.Store, music: o.Music, movies: o.Movies,
 		photosRoot: o.PhotosRoot, flow: o.Flow, external: ext,
-		changes: o.Changes,
+		changes:         o.Changes,
+		pocketIDURL:     o.PocketIDURL,
+		qbitExternalURL: o.QbitExternalURL,
 	}
 
 	r := chi.NewRouter()
@@ -147,6 +159,7 @@ func New(o Options) (http.Handler, error) {
 
 		// Phase 3 — System (read-only host/data metrics).
 		r.Get("/system", s.handleSystem)
+		r.Get("/services", s.handleServices)
 	})
 	return r, nil
 }

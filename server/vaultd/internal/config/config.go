@@ -57,6 +57,11 @@ type Config struct {
 	AdminExternalURL string
 
 	// Jobs: qBittorrent Web API + worker settings.
+	// QbitExternalURL is how an ADMIN'S BROWSER reaches the qBittorrent WebUI
+	// (its tailnet-served port), as opposed to QbitURL which is the
+	// compose-internal address vaultd itself calls. Empty hides the link.
+	QbitExternalURL string
+
 	QbitURL      string
 	QbitUser     string
 	QbitPassword string
@@ -76,6 +81,7 @@ func Load() (*Config, error) {
 		AdminAddr:        os.Getenv("VAULTD_ADMIN_ADDR"),
 		AdminExternalURL: os.Getenv("VAULTD_ADMIN_EXTERNAL_URL"),
 		QbitURL:          getenv("VAULTD_QBIT_URL", "http://qbittorrent:8090"),
+		QbitExternalURL:  os.Getenv("VAULTD_QBIT_EXTERNAL_URL"),
 		QbitUser:         getenv("VAULTD_QBIT_USER", "admin"),
 		QbitPassword:     os.Getenv("VAULTD_QBIT_PASSWORD"),
 		YtdlpBinary:      getenv("VAULTD_YTDLP_BIN", "yt-dlp"),

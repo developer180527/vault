@@ -159,12 +159,12 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, "insights.html", map[string]any{
 		"User": userFrom(r), "Active": "insights",
-		"Window":    insightsWindowDays,
-		"Tracks":    trackRows,
-		"Artists":   artistRows,
-		"Listeners": listenerRows,
-		"Days":      dayRows,
-		"Recent":    recent,
+		"Window":     insightsWindowDays,
+		"Tracks":     trackRows,
+		"Artists":    artistRows,
+		"Listeners":  listenerRows,
+		"Days":       dayRows,
+		"Recent":     recent,
 		"PhotoUsers": photoUserRows,
 		"PhotoDays":  photoDayRows,
 		"PhotoYears": photoYearRows,

@@ -59,7 +59,7 @@ func removeTag(values []string, victim string) []string {
 
 // tagField is what the "tagfield" template partial renders.
 type tagField struct {
-	Name   string   // form field base name, e.g. "artist"
+	Name   string // form field base name, e.g. "artist"
 	Label  string
 	Values []string
 	Hint   string

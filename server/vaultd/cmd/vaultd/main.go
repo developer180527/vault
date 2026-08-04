@@ -144,7 +144,9 @@ func main() {
 			ExternalURL: cfg.AdminExternalURL,
 			Flow: adminweb.NewOIDCFlow(cfg.OIDCIssuer, cfg.OIDCClientID,
 				cfg.AdminExternalURL+"/oauth/callback"),
-			Changes: changeHub,
+			Changes:         changeHub,
+			PocketIDURL:     cfg.OIDCIssuer,
+			QbitExternalURL: cfg.QbitExternalURL,
 		})
 		if err != nil {
 			log.Error("admin panel", "err", err)
