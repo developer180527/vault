@@ -136,9 +136,13 @@ class _AddBar extends ConsumerWidget {
   }
 
   Future<void> _addFile(BuildContext context, WidgetRef ref) async {
-    final picked = await openFile(acceptedTypeGroups: const [
-      XTypeGroup(label: 'Torrent', extensions: ['torrent']),
-    ]);
+    // NO type filter. On Apple platforms file_selector matches by UTI, not by
+    // extension, and there is no system UTI for .torrent — so an
+    // extensions-based filter greys out every file and the picker looks
+    // broken (the same trap the movie uploader hit with .mkv). The server
+    // parses the bencode anyway and rejects anything that isn't a torrent,
+    // so filtering here would only ever be cosmetic.
+    final picked = await openFile();
     if (picked == null) return;
     try {
       final bytes = await File(picked.path).readAsBytes();

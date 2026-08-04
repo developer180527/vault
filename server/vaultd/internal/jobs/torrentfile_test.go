@@ -4,8 +4,12 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // buildTorrent assembles a minimal but REAL bencoded torrent around the given
@@ -102,5 +106,67 @@ func TestTorrentInfoHashRejectsNonDictInfo(t *testing.T) {
 	raw := []byte("d4:info5:helloe")
 	if _, err := TorrentInfoHash(raw); !errors.Is(err, ErrNoInfoDict) {
 		t.Fatalf("err = %v, want ErrNoInfoDict", err)
+	}
+}
+
+// A rejected WebUI login must be reported as ErrQbitAuth (a specific
+// configuration fault) rather than a generic failure, and must then BACK OFF:
+// qBittorrent bans an IP after a handful of failed logins, and the torrent
+// view polls every couple of seconds.
+func TestQbitLoginFailureIsTypedAndThrottled(t *testing.T) {
+	var attempts int32
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&attempts, 1)
+			// No SID cookie = rejection, which is what qBittorrent does for a
+			// wrong password.
+			_, _ = w.Write([]byte("Fails."))
+		}))
+	defer srv.Close()
+
+	c := NewQbitClient(srv.URL, "admin", "wrong")
+	for range 5 {
+		err := c.login(t.Context())
+		if !errors.Is(err, ErrQbitAuth) {
+			t.Fatalf("err = %v, want ErrQbitAuth", err)
+		}
+	}
+	if n := atomic.LoadInt32(&attempts); n != 1 {
+		t.Fatalf("hit qBittorrent %d times for 5 logins — a wrong password "+
+			"would get vaultd IP-banned; want 1", n)
+	}
+}
+
+// A good login must clear the backoff, so fixing the password works
+// immediately rather than after the retry delay.
+func TestQbitLoginSuccessClearsBackoff(t *testing.T) {
+	var ok atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if ok.Load() {
+				http.SetCookie(w, &http.Cookie{Name: "SID", Value: "sid"})
+			}
+			_, _ = w.Write([]byte("."))
+		}))
+	defer srv.Close()
+
+	c := NewQbitClient(srv.URL, "admin", "pw")
+	if err := c.login(t.Context()); !errors.Is(err, ErrQbitAuth) {
+		t.Fatalf("first login err = %v, want ErrQbitAuth", err)
+	}
+	// Simulate the operator fixing the password AND the delay elapsing.
+	ok.Store(true)
+	c.mu.Lock()
+	c.authFailedAt = time.Time{}
+	c.mu.Unlock()
+	if err := c.login(t.Context()); err != nil {
+		t.Fatalf("login after fix = %v, want nil", err)
+	}
+	// And a later failure is throttled again from scratch.
+	c.mu.Lock()
+	cleared := c.authFailedAt.IsZero()
+	c.mu.Unlock()
+	if !cleared {
+		t.Fatal("a successful login must clear the failure timestamp")
 	}
 }

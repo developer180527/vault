@@ -59,6 +59,21 @@ func toTorrentJSON(t jobs.Torrent) torrentJSON {
 	}
 }
 
+// torrentFail turns a qBittorrent error into something an admin can ACT on.
+// A rejected WebUI login is a configuration problem with one specific fix, so
+// it must not surface as "internal error" — that sent the last hour into the
+// wrong half of the stack.
+func (s *Server) torrentFail(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, jobs.ErrQbitAuth) {
+		s.log.Error("qBittorrent auth rejected", "err", err)
+		writeErr(w, http.StatusBadGateway,
+			"vaultd could not sign in to qBittorrent. Set the WebUI password "+
+				"in qBittorrent to match VAULTD_QBIT_PASSWORD, then retry.")
+		return
+	}
+	s.fail(w, r, err)
+}
+
 // qbit returns the torrent client, or writes 503 when torrents aren't
 // configured (no qBittorrent in this deployment).
 func (s *Server) qbit(w http.ResponseWriter) (*jobs.QbitClient, bool) {
@@ -86,7 +101,7 @@ func (s *Server) ownedTorrent(w http.ResponseWriter, r *http.Request) (*jobs.Tor
 	}
 	t, err := client.Get(r.Context(), hash)
 	if err != nil {
-		s.fail(w, r, err)
+		s.torrentFail(w, r, err)
 		return nil, false
 	}
 	p := PrincipalFrom(r.Context())
@@ -110,7 +125,7 @@ func (s *Server) handleListTorrents(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := client.List(r.Context(), category)
 	if err != nil {
-		s.fail(w, r, err)
+		s.torrentFail(w, r, err)
 		return
 	}
 	out := make([]torrentJSON, 0, len(list))
@@ -154,7 +169,7 @@ func (s *Server) handleAddTorrentFile(w http.ResponseWriter, r *http.Request) {
 	}
 	savePath := filepath.Join(s.torrentSavePath, p.UserID)
 	if err := client.AddFile(r.Context(), name, data, p.UserID, savePath); err != nil {
-		s.fail(w, r, err)
+		s.torrentFail(w, r, err)
 		return
 	}
 	s.log.Info("torrent file added", "user", p.Username, "hash", hash, "name", name)
@@ -198,7 +213,7 @@ func (s *Server) torrentAction(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if err := do(s.torrents, t.Hash); err != nil {
-		s.fail(w, r, err)
+		s.torrentFail(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -212,7 +227,7 @@ func (s *Server) handleTransferInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := client.Transfer(r.Context())
 	if err != nil {
-		s.fail(w, r, err)
+		s.torrentFail(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -240,7 +255,7 @@ func (s *Server) handleSetTorrentLimits(w http.ResponseWriter, r *http.Request) 
 	}
 	cur, err := client.Transfer(r.Context())
 	if err != nil {
-		s.fail(w, r, err)
+		s.torrentFail(w, r, err)
 		return
 	}
 	// Absent fields keep their current value, so setting one limit can't
@@ -257,7 +272,7 @@ func (s *Server) handleSetTorrentLimits(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := client.SetSpeedLimits(r.Context(), down, up); err != nil {
-		s.fail(w, r, err)
+		s.torrentFail(w, r, err)
 		return
 	}
 	p := PrincipalFrom(r.Context())

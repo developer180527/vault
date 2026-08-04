@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -87,6 +88,10 @@ type QbitClient struct {
 	http *http.Client
 	mu   sync.Mutex
 	sid  string // SID cookie
+
+	// authFailedAt throttles retries after a rejected login (see
+	// authRetryDelay) so polling can't get vaultd IP-banned.
+	authFailedAt time.Time
 }
 
 // NewQbitClient builds a client with a cookie jar.
@@ -99,7 +104,28 @@ func NewQbitClient(baseURL, username, password string) *QbitClient {
 	}
 }
 
+// ErrQbitAuth — qBittorrent refused our credentials. A distinct sentinel
+// because the fix is a specific human action (set the WebUI password), not a
+// retry, and callers should say so instead of reporting "internal error".
+var ErrQbitAuth = errors.New("qBittorrent rejected vaultd's WebUI credentials")
+
+// authRetryDelay throttles login attempts after a rejection.
+//
+// This is not politeness — qBittorrent BANS a client IP after a handful of
+// failed logins (default: 5 attempts, 1 hour). The torrent view polls every
+// couple of seconds, so without this a wrong password would get vaultd banned
+// within seconds, and then a CORRECTED password would keep failing until the
+// ban aged out — a genuinely baffling state to debug.
+const authRetryDelay = 60 * time.Second
+
 func (c *QbitClient) login(ctx context.Context) error {
+	c.mu.Lock()
+	if !c.authFailedAt.IsZero() && time.Since(c.authFailedAt) < authRetryDelay {
+		c.mu.Unlock()
+		return ErrQbitAuth
+	}
+	c.mu.Unlock()
+
 	form := url.Values{"username": {c.Username}, "password": {c.Password}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.BaseURL+"/api/v2/auth/login", strings.NewReader(form.Encode()))
@@ -117,11 +143,15 @@ func (c *QbitClient) login(ctx context.Context) error {
 		if ck.Name == "SID" {
 			c.mu.Lock()
 			c.sid = ck.Value
+			c.authFailedAt = time.Time{} // a good login clears the backoff
 			c.mu.Unlock()
 			return nil
 		}
 	}
-	return fmt.Errorf("qBittorrent login failed (check credentials)")
+	c.mu.Lock()
+	c.authFailedAt = time.Now()
+	c.mu.Unlock()
+	return ErrQbitAuth
 }
 
 // do performs an API call, logging in first if needed and retrying once on 403.
