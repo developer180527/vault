@@ -85,9 +85,10 @@ type QbitClient struct {
 	Username string
 	Password string
 
-	http *http.Client
-	mu   sync.Mutex
-	sid  string // SID cookie
+	http    *http.Client
+	mu      sync.Mutex
+	sid     string // session cookie value
+	sidName string // its name: "SID" (old) or "QBT_SID_<port>" (5.x)
 
 	// authFailedAt throttles retries after a rejected login (see
 	// authRetryDelay) so polling can't get vaultd IP-banned.
@@ -139,9 +140,15 @@ func (c *QbitClient) login(ctx context.Context) error {
 		return err
 	}
 	defer res.Body.Close()
+	// The session cookie's NAME is version-dependent: older qBittorrent used
+	// "SID", 5.x uses "QBT_SID_<port>". Matching only "SID" meant a perfectly
+	// good login looked like a rejection — the request succeeded, we just
+	// didn't recognise the cookie. Take whichever one it issued and remember
+	// its name so we can send it back verbatim.
 	for _, ck := range res.Cookies() {
-		if ck.Name == "SID" {
+		if ck.Name == "SID" || strings.HasPrefix(ck.Name, "QBT_SID") {
 			c.mu.Lock()
+			c.sidName = ck.Name
 			c.sid = ck.Value
 			c.authFailedAt = time.Time{} // a good login clears the backoff
 			c.mu.Unlock()
@@ -192,7 +199,9 @@ func (c *QbitClient) raw(ctx context.Context, path string, form url.Values) ([]b
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Referer", c.BaseURL)
 	c.mu.Lock()
-	req.AddCookie(&http.Cookie{Name: "SID", Value: c.sid})
+	if c.sidName != "" {
+		req.AddCookie(&http.Cookie{Name: c.sidName, Value: c.sid})
+	}
 	c.mu.Unlock()
 	res, err := c.http.Do(req)
 	if err != nil {

@@ -170,3 +170,38 @@ func TestQbitLoginSuccessClearsBackoff(t *testing.T) {
 		t.Fatal("a successful login must clear the failure timestamp")
 	}
 }
+
+// qBittorrent's session cookie is named "SID" on older builds and
+// "QBT_SID_<port>" on 5.x. Matching only "SID" made a SUCCESSFUL login look
+// like a rejected one — the feature could not work at all against a modern
+// qBittorrent, whatever the password was.
+func TestQbitAcceptsEitherSessionCookieName(t *testing.T) {
+	for _, name := range []string{"SID", "QBT_SID_8090", "QBT_SID_8080"} {
+		var sentCookie string
+		srv := httptest.NewServer(http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/auth/login") {
+					http.SetCookie(w, &http.Cookie{Name: name, Value: "tok"})
+					w.WriteHeader(http.StatusNoContent) // 5.x answers 204
+					return
+				}
+				// A later call must present the cookie back, under its own name.
+				if c, err := r.Cookie(name); err == nil {
+					sentCookie = c.Value
+				}
+				_, _ = w.Write([]byte("[]"))
+			}))
+
+		c := NewQbitClient(srv.URL, "admin", "pw")
+		if err := c.login(t.Context()); err != nil {
+			t.Fatalf("cookie %q: login = %v, want success", name, err)
+		}
+		if _, err := c.List(t.Context(), "cat"); err != nil {
+			t.Fatalf("cookie %q: list = %v", name, err)
+		}
+		if sentCookie != "tok" {
+			t.Fatalf("cookie %q was not sent back on the next request", name)
+		}
+		srv.Close()
+	}
+}

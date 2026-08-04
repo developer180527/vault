@@ -114,7 +114,7 @@ func (c *QbitClient) AddFile(ctx context.Context, filename string, data []byte,
 func (c *QbitClient) postRaw(ctx context.Context, path, contentType string, body []byte) error {
 	send := func() (int, error) {
 		c.mu.Lock()
-		sid := c.sid
+		sid, sidName := c.sid, c.sidName
 		c.mu.Unlock()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 			c.BaseURL+path, bytes.NewReader(body))
@@ -123,8 +123,8 @@ func (c *QbitClient) postRaw(ctx context.Context, path, contentType string, body
 		}
 		req.Header.Set("Content-Type", contentType)
 		req.Header.Set("Referer", c.BaseURL)
-		if sid != "" {
-			req.AddCookie(&http.Cookie{Name: "SID", Value: sid})
+		if sid != "" && sidName != "" {
+			req.AddCookie(&http.Cookie{Name: sidName, Value: sid})
 		}
 		res, err := c.http.Do(req)
 		if err != nil {
