@@ -13,13 +13,41 @@ import '../../core/playback/playable.dart';
 import '../../core/playback/playback_controller.dart';
 import '../media/widgets/video_surface.dart';
 import 'data/movie_playback.dart';
+import 'mpv_movie_player_page.dart';
+import 'widgets/movie_top_bar.dart';
 
 final _log = VaultLog.tag('movieplayer');
 
-/// Opens the movie player fullscreen (landscape-locked while open).
-Future<void> openMoviePlayer(BuildContext context, ServerMovie movie) {
-  return Navigator.of(context, rootNavigator: true).push(
-    MaterialPageRoute<void>(builder: (_) => MoviePlayerPage(movie: movie)),
+/// Opens the movie player fullscreen (landscape-locked while open), on
+/// whichever engine can actually play this title.
+///
+/// The choice is made HERE, once, rather than being a button the user has to
+/// understand: a plain MP4 the device decodes natively keeps video_player
+/// (hardware path, system PiP, lock-screen controls); anything else — MKV,
+/// HEVC, AC-3, multi-track — goes to libmpv, which is the only engine that
+/// opens it without server-side ffmpeg. Both pages wear identical chrome, so
+/// this is invisible apart from things working.
+Future<void> openMoviePlayer(
+  BuildContext context,
+  WidgetRef ref,
+  ServerMovie movie,
+) async {
+  final support = await ref.read(mediaSupportProvider.future);
+  if (!context.mounted) return;
+  final engine = videoEngineFor(movie, support);
+  _log.info('opening movie', fields: {
+    'title': movie.title,
+    'container': movie.container,
+    'vcodec': movie.vcodec,
+    'engine': engine.name,
+  });
+  await Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute<void>(
+      builder: (_) => switch (engine) {
+        VideoEngine.libmpv => MpvMoviePlayerPage(movie: movie),
+        VideoEngine.native => MoviePlayerPage(movie: movie),
+      },
+    ),
   );
 }
 
@@ -176,7 +204,8 @@ class _MoviePlayerPageState extends ConsumerState<MoviePlayerPage> {
         future: _future,
         builder: (context, snap) {
           if (snap.hasError) {
-            return _ErrorView(onBack: () => Navigator.of(context).maybePop());
+            return PlayerErrorView(
+                onBack: () => Navigator.of(context).maybePop());
           }
           final c = snap.data;
           if (c == null) {
@@ -194,7 +223,7 @@ class _MoviePlayerPageState extends ConsumerState<MoviePlayerPage> {
               VideoSurface(
                 controller: c,
                 title: movie.title,
-                topOverlay: _TopBar(
+                topOverlay: MovieTopBar(
                   movie: movie,
                   audio: _audio,
                   subKey: _subKey,
@@ -252,175 +281,6 @@ class _SubtitleOverlay extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({
-    required this.movie,
-    required this.audio,
-    required this.subKey,
-    required this.onBack,
-    required this.onAudio,
-    required this.onSubtitle,
-  });
-
-  final ServerMovie movie;
-  final int audio;
-  final String? subKey;
-  final VoidCallback onBack;
-  final ValueChanged<int> onAudio;
-  final ValueChanged<String?> onSubtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final selectableAudio = movie.audio.length > 1;
-    final selectableSubs = movie.subs.where((s) => s.text).toList();
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.black.withValues(alpha: 0.5), Colors.transparent],
-        ),
-      ),
-      padding: const EdgeInsets.fromLTRB(4, 4, 8, 16),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: onBack,
-          ),
-          Expanded(
-            child: Text(
-              movie.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-            ),
-          ),
-          if (selectableAudio)
-            _AudioMenu(movie: movie, current: audio, onSelect: onAudio),
-          if (selectableSubs.isNotEmpty)
-            _SubMenu(subs: selectableSubs, current: subKey, onSelect: onSubtitle),
-        ],
-      ),
-    );
-  }
-}
-
-class _AudioMenu extends StatelessWidget {
-  const _AudioMenu({
-    required this.movie,
-    required this.current,
-    required this.onSelect,
-  });
-  final ServerMovie movie;
-  final int current;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<int>(
-      tooltip: 'Audio track',
-      icon: const Icon(Icons.multitrack_audio, color: Colors.white),
-      initialValue: current,
-      onSelected: onSelect,
-      itemBuilder: (context) => [
-        for (final a in movie.audio)
-          PopupMenuItem(
-            value: a.index,
-            child: Row(
-              children: [
-                Icon(Icons.check,
-                    size: 16,
-                    color: a.index == current
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.transparent),
-                const SizedBox(width: 8),
-                Text(a.label),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _SubMenu extends StatelessWidget {
-  const _SubMenu({
-    required this.subs,
-    required this.current,
-    required this.onSelect,
-  });
-  final List<MovieSub> subs;
-  final String? current;
-  final ValueChanged<String?> onSelect;
-
-  /// The track key the server expects: `e<embedded idx>` or `x<sidecar idx>`.
-  static String keyFor(List<MovieSub> subs, MovieSub s) {
-    if (s.isExternal) {
-      final externals = subs.where((x) => x.isExternal).toList();
-      return 'x${externals.indexOf(s)}';
-    }
-    return 'e${s.index}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<String?>(
-      tooltip: 'Subtitles',
-      icon: Icon(
-        current == null ? Icons.subtitles_outlined : Icons.subtitles,
-        color: Colors.white,
-      ),
-      onSelected: onSelect,
-      itemBuilder: (context) => [
-        PopupMenuItem<String?>(
-          value: null,
-          child: _row(context, 'Off', current == null),
-        ),
-        for (final s in subs)
-          PopupMenuItem<String?>(
-            value: keyFor(subs, s),
-            child: _row(context, s.label, keyFor(subs, s) == current),
-          ),
-      ],
-    );
-  }
-
-  Widget _row(BuildContext context, String label, bool selected) => Row(
-    children: [
-      Icon(Icons.check,
-          size: 16,
-          color: selected
-              ? Theme.of(context).colorScheme.primary
-              : Colors.transparent),
-      const SizedBox(width: 8),
-      Text(label),
-    ],
-  );
-}
-
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.onBack});
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.error_outline, color: Colors.white54, size: 40),
-          const SizedBox(height: 12),
-          const Text('Playback failed',
-              style: TextStyle(color: Colors.white70)),
-          const SizedBox(height: 12),
-          TextButton(onPressed: onBack, child: const Text('Go back')),
-        ],
-      ),
     );
   }
 }

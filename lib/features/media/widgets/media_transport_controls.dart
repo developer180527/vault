@@ -1,37 +1,38 @@
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 
-/// The video scrubber bar: a seek slider bound to the controller's position
+import 'video_transport.dart';
+
+/// The video scrubber bar: a seek slider bound to the transport's position
 /// with elapsed/total time. Play/pause lives in [VideoSurface]'s center
 /// cluster (standard mobile video layout — thumbs reach the middle of the
-/// screen, not the bottom corner). Rebuilds off the controller's own
-/// [ValueListenable], so no polling.
+/// screen, not the bottom corner). Rebuilds off the transport's own
+/// [Listenable], so no polling.
 ///
 /// While the user drags, the thumb follows the finger (local drag value)
 /// instead of fighting the position updates — and continuous seeks during the
 /// drag are avoided (one seek on release), which kept the decoder thrashing.
 class MediaTransportControls extends StatefulWidget {
-  const MediaTransportControls({super.key, required this.controller});
+  const MediaTransportControls({super.key, required this.transport});
 
-  final VideoPlayerController controller;
+  final VideoTransport transport;
 
   @override
   State<MediaTransportControls> createState() => _MediaTransportControlsState();
 }
 
 class _MediaTransportControlsState extends State<MediaTransportControls> {
-  VideoPlayerController get controller => widget.controller;
+  VideoTransport get transport => widget.transport;
 
   /// Non-null while dragging or waiting for the seek to land.
   double? _dragMs;
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<VideoPlayerValue>(
-      valueListenable: controller,
-      builder: (context, value, _) {
-        final position = value.position;
-        final total = value.duration;
+    return ListenableBuilder(
+      listenable: transport,
+      builder: (context, _) {
+        final position = transport.position;
+        final total = transport.duration;
         final max =
             total.inMilliseconds.toDouble().clamp(1.0, double.infinity);
 
@@ -79,7 +80,7 @@ class _MediaTransportControlsState extends State<MediaTransportControls> {
                         onChangeStart: (v) => setState(() => _dragMs = v),
                         onChanged: (v) => setState(() => _dragMs = v),
                         onChangeEnd: (v) {
-                          controller
+                          transport
                               .seekTo(Duration(milliseconds: v.round()));
                           // _dragMs holds until position reflects the seek.
                         },
@@ -104,8 +105,9 @@ class _MediaTransportControlsState extends State<MediaTransportControls> {
   }
 
   static String _fmt(Duration d) {
-    final m = d.inMinutes;
+    final h = d.inHours;
+    final m = (d.inMinutes % 60).toString().padLeft(h > 0 ? 2 : 1, '0');
     final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
   }
 }

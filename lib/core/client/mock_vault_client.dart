@@ -56,6 +56,10 @@ class MockVaultClient implements VaultClient {
   AdminApi get admin =>
       throw UnsupportedError('content upload requires a connected session');
 
+  @override
+  TorrentsApi get torrents =>
+      throw UnsupportedError('torrents require a connected session');
+
   // Standalone devices have no server-side profile.
   @override
   Future<Uint8List?> myAvatar() async => null;

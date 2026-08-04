@@ -50,6 +50,11 @@ abstract interface class VaultClient {
   /// the server enforces it; standalone has no server to curate.
   AdminApi get admin;
 
+  /// Remote torrent client (qBittorrent behind the server). Adding a MAGNET
+  /// goes through [jobs] so the result is filed into the library; this manages
+  /// the torrents themselves.
+  TorrentsApi get torrents;
+
   /// Sync folders: push a local folder into the vault (browsable everywhere)
   /// and read its provenance. Standalone has no server and never calls this.
   SyncApi get sync;
@@ -360,6 +365,106 @@ abstract class AdminApi {
 
   /// Replace a movie's poster (same override model).
   Future<void> setMovieArt(String id, Uint8List bytes);
+}
+
+/// One torrent as the server reports it. Speeds are bytes/sec.
+class TorrentEntry {
+  const TorrentEntry({
+    required this.hash,
+    required this.name,
+    required this.state,
+    required this.progress,
+    required this.size,
+    required this.dlSpeed,
+    required this.upSpeed,
+    required this.eta,
+    required this.ratio,
+    required this.seeds,
+    required this.peers,
+  });
+
+  final String hash;
+  final String name;
+
+  /// qBittorrent's raw state (downloading, stalledUP, pausedDL, checkingDL…).
+  /// Kept raw rather than collapsed to an enum: qBittorrent adds states across
+  /// versions, and an unknown one should render as-is, not crash a parse.
+  final String state;
+
+  final double progress; // 0..1
+  final int size;
+  final int dlSpeed;
+  final int upSpeed;
+  final int eta; // seconds; qBittorrent uses 8640000 for "unknown"
+  final double ratio;
+  final int seeds;
+  final int peers;
+
+  bool get isPaused => state.toLowerCase().contains('paused') ||
+      state.toLowerCase().contains('stopped');
+  bool get isSeeding => state.startsWith('upload') || state.contains('UP');
+  bool get isChecking => state.toLowerCase().contains('checking');
+  bool get hasError => state == 'error' || state == 'missingFiles';
+  bool get isDone => progress >= 1.0;
+
+  /// True when qBittorrent means "no meaningful estimate".
+  bool get etaUnknown => eta <= 0 || eta >= 8640000;
+
+  factory TorrentEntry.fromJson(Map<String, Object?> j) => TorrentEntry(
+        hash: (j['hash'] as String?) ?? '',
+        name: (j['name'] as String?) ?? '',
+        state: (j['state'] as String?) ?? '',
+        progress: (j['progress'] as num?)?.toDouble() ?? 0,
+        size: (j['size'] as num?)?.toInt() ?? 0,
+        dlSpeed: (j['dl_speed'] as num?)?.toInt() ?? 0,
+        upSpeed: (j['up_speed'] as num?)?.toInt() ?? 0,
+        eta: (j['eta'] as num?)?.toInt() ?? 0,
+        ratio: (j['ratio'] as num?)?.toDouble() ?? 0,
+        seeds: (j['seeds'] as num?)?.toInt() ?? 0,
+        peers: (j['peers'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// Global transfer state and limits (bytes/sec; 0 = unlimited).
+class TransferStats {
+  const TransferStats({
+    required this.dlSpeed,
+    required this.upSpeed,
+    required this.dlLimit,
+    required this.upLimit,
+  });
+
+  final int dlSpeed;
+  final int upSpeed;
+  final int dlLimit;
+  final int upLimit;
+
+  factory TransferStats.fromJson(Map<String, Object?> j) => TransferStats(
+        dlSpeed: (j['dl_speed'] as num?)?.toInt() ?? 0,
+        upSpeed: (j['up_speed'] as num?)?.toInt() ?? 0,
+        dlLimit: (j['dl_limit'] as num?)?.toInt() ?? 0,
+        upLimit: (j['up_limit'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// Remote torrent control. Every call is scoped server-side to the caller's
+/// own torrents — a hash belonging to someone else simply doesn't exist.
+abstract interface class TorrentsApi {
+  Future<List<TorrentEntry>> list();
+  Future<TransferStats> transfer();
+
+  /// Add a .torrent file's bytes. [filename] is for display only.
+  Future<void> addFile(String filename, Uint8List bytes);
+
+  Future<void> pause(String hash);
+  Future<void> resume(String hash);
+  Future<void> recheck(String hash);
+
+  /// Remove a torrent; [withData] also deletes what it downloaded.
+  Future<void> remove(String hash, {required bool withData});
+
+  /// Set global limits in bytes/sec (0 = unlimited). Admin-only server-side.
+  Future<void> setLimits({int? dlLimit, int? upLimit});
 }
 
 class UploadOffsetConflict implements Exception {

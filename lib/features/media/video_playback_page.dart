@@ -4,6 +4,8 @@ import 'package:video_player/video_player.dart';
 
 import '../../core/playback/playable.dart';
 import '../../core/playback/playback_controller.dart';
+import '../movies/data/movie_playback.dart';
+import 'mpv_playback_page.dart';
 import 'widgets/video_surface.dart';
 
 /// The single fullscreen video surface for the whole app — server files,
@@ -81,9 +83,32 @@ class _VideoPlaybackPageState extends ConsumerState<VideoPlaybackPage> {
   }
 }
 
-/// Opens fullscreen video playback for [item] on the root navigator.
+/// Containers AVPlayer/ExoPlayer cannot open. A file in one of these has to go
+/// to libmpv — the server-remux workaround produces a pipe that can't answer
+/// Range requests, which AVPlayer rejects outright.
+const _foreignContainers = [
+  '.mkv', '.webm', '.avi', '.ts', '.m2ts', '.mts', '.wmv', '.flv', '.ogv',
+  '.vob', '.rmvb', '.divx',
+];
+
+/// Opens fullscreen video playback for [item] on the root navigator, choosing
+/// the engine automatically.
+///
+/// Same rule as the movie catalog: keep the native engine where it genuinely
+/// works (hardware decode, system PiP), and hand everything it can't open to
+/// libmpv. Here the decision is made from the file extension rather than a
+/// probe, so opening never waits on a network round trip.
 Future<void> openVideoPlayback(BuildContext context, Playable item) {
+  final name = item.title.toLowerCase();
+  final path = item.uri.path.toLowerCase();
+  final foreign = _foreignContainers
+      .any((ext) => name.endsWith(ext) || path.endsWith(ext));
+  final useMpv = libmpvAvailable && foreign;
   return Navigator.of(context, rootNavigator: true).push(
-    MaterialPageRoute<void>(builder: (_) => VideoPlaybackPage(item: item)),
+    MaterialPageRoute<void>(
+      builder: (_) => useMpv
+          ? MpvPlaybackPage(item: item)
+          : VideoPlaybackPage(item: item),
+    ),
   );
 }

@@ -19,6 +19,7 @@ import 'features/media/widgets/music_section.dart';
 import 'features/movies/movies_section.dart';
 import 'features/placeholder_page.dart';
 import 'features/settings/settings_page.dart';
+import 'features/torrents/torrents_page.dart';
 import 'features/user/user_page.dart';
 import 'features/photos/data/background_backup.dart';
 import 'shell/adaptive_shell.dart';
@@ -65,8 +66,7 @@ final vaultServices = <ServiceDefinition>[
     label: 'Torrent',
     icon: VaultIcons.torrent,
     category: ServiceCategory.tools,
-    actions: torrentServiceActions,
-    builder: (_) => const JobsPage(kind: JobKind.torrent),
+    builder: (_) => const TorrentsPage(),
   ),
   ServiceDefinition(
     id: 'downloads',

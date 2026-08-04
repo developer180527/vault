@@ -6,10 +6,16 @@ import 'package:video_player/video_player.dart';
 
 import '../../../core/playback/playable.dart';
 import 'media_transport_controls.dart';
+import 'video_transport.dart';
 
 /// THE video rendering surface: aspect-correct picture + buffering indicator.
-/// Renders a controller it does NOT own — [PlaybackController] owns every
-/// video controller (that's where PiP will attach).
+///
+/// It is engine-agnostic. The default constructor renders a
+/// [VideoPlayerController] it does NOT own — [PlaybackController] owns every
+/// video controller (that's where PiP will attach). [VideoSurface.mpv] renders
+/// a libmpv session instead. Both get the *same* chrome from [VideoControls],
+/// which is the point: the user should never be able to tell which engine is
+/// decoding.
 ///
 /// [showControls] draws the [VideoControls] overlay on top. The fullscreen
 /// playback page uses that. The media viewer sets it false and floats its own
@@ -18,9 +24,24 @@ import 'media_transport_controls.dart';
 /// overlay here would collapse onto the picture. Controls must live above the
 /// gallery to span the whole screen.
 class VideoSurface extends StatelessWidget {
-  const VideoSurface({
+  VideoSurface({
     super.key,
-    required this.controller,
+    required VideoPlayerController controller,
+    this.title,
+    this.showControls = true,
+    this.topOverlay,
+    this.audioTracks = const [],
+    this.currentAudioTrack = 0,
+    this.onSelectAudio,
+  })  : transport = VideoPlayerTransport(controller),
+        picture = _AspectVideo(controller: controller);
+
+  /// libmpv variant. The picture widget comes from the engine so media_kit
+  /// stays confined to [MpvEngine] — nothing else in the app imports it.
+  const VideoSurface.mpv({
+    super.key,
+    required this.transport,
+    required this.picture,
     this.title,
     this.showControls = true,
     this.topOverlay,
@@ -29,7 +50,10 @@ class VideoSurface extends StatelessWidget {
     this.onSelectAudio,
   });
 
-  final VideoPlayerController controller;
+  final VideoTransport transport;
+
+  /// The decoded picture, sized by the engine's own conventions.
+  final Widget picture;
 
   /// Announced to screen readers for the video region.
   final String? title;
@@ -53,18 +77,11 @@ class VideoSurface extends StatelessWidget {
     return Stack(
       alignment: Alignment.center,
       children: [
-        Center(
-          child: AspectRatio(
-            aspectRatio: controller.value.aspectRatio == 0
-                ? 16 / 9
-                : controller.value.aspectRatio,
-            child: VideoPlayer(controller),
-          ),
-        ),
+        Center(child: picture),
         if (showControls)
           Positioned.fill(
             child: VideoControls(
-              controller: controller,
+              transport: transport,
               title: title,
               topOverlay: topOverlay,
               audioTracks: audioTracks,
@@ -73,9 +90,9 @@ class VideoSurface extends StatelessWidget {
             ),
           ),
         // Above the controls so a stall is visible even mid-interaction.
-        ValueListenableBuilder(
-          valueListenable: controller,
-          builder: (context, value, _) => value.isBuffering
+        ListenableBuilder(
+          listenable: transport,
+          builder: (context, _) => transport.isBuffering
               ? const CircularProgressIndicator()
               : const SizedBox.shrink(),
         ),
@@ -84,14 +101,32 @@ class VideoSurface extends StatelessWidget {
   }
 }
 
+/// video_player's picture, letterboxed to the stream's aspect ratio.
+class _AspectVideo extends StatelessWidget {
+  const _AspectVideo({required this.controller});
+
+  final VideoPlayerController controller;
+
+  @override
+  Widget build(BuildContext context) => AspectRatio(
+        aspectRatio: controller.value.aspectRatio == 0
+            ? 16 / 9
+            : controller.value.aspectRatio,
+        child: VideoPlayer(controller),
+      );
+}
+
 /// Tap-to-toggle, auto-hiding transport chrome for a video: a scrim, the
 /// thumb-reachable center cluster (skip ±10 / play), and the bottom scrubber.
 /// Fills its parent — place it in a [Positioned.fill] (or as [VideoSurface]'s
 /// own overlay) so it spans the full area, never the video's letterbox strip.
+///
+/// Driven by a [VideoTransport], so this one widget is the chrome for BOTH
+/// engines.
 class VideoControls extends StatefulWidget {
   const VideoControls({
     super.key,
-    required this.controller,
+    required this.transport,
     this.title,
     this.topOverlay,
     this.audioTracks = const [],
@@ -99,7 +134,7 @@ class VideoControls extends StatefulWidget {
     this.onSelectAudio,
   });
 
-  final VideoPlayerController controller;
+  final VideoTransport transport;
   final String? title;
 
   /// Top chrome that fades/toggles with the controls (see [VideoSurface]).
@@ -121,7 +156,7 @@ class _VideoControlsState extends State<VideoControls> {
   void _scheduleHide() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && widget.controller.value.isPlaying) {
+      if (mounted && widget.transport.isPlaying) {
         setState(() => _visible = false);
       }
     });
@@ -140,17 +175,12 @@ class _VideoControlsState extends State<VideoControls> {
   }
 
   void _playPause() {
-    final v = widget.controller.value;
-    v.isPlaying ? widget.controller.pause() : widget.controller.play();
+    widget.transport.togglePlay();
     _reveal();
   }
 
   void _seekBy(Duration by) {
-    final v = widget.controller.value;
-    var target = v.position + by;
-    if (target < Duration.zero) target = Duration.zero;
-    if (target > v.duration) target = v.duration;
-    widget.controller.seekTo(target);
+    widget.transport.seekBy(by);
     _reveal();
   }
 
@@ -260,7 +290,7 @@ class _VideoControlsState extends State<VideoControls> {
                     Positioned.fill(
                       child: Center(
                         child: _CenterControls(
-                          controller: widget.controller,
+                          transport: widget.transport,
                           onInteract: _scheduleHide,
                         ),
                       ),
@@ -287,7 +317,7 @@ class _VideoControlsState extends State<VideoControls> {
                           bottom: MediaQuery.paddingOf(context).bottom,
                         ),
                         child: MediaTransportControls(
-                          controller: widget.controller,
+                          transport: widget.transport,
                         ),
                       ),
                     ),
@@ -302,9 +332,12 @@ class _VideoControlsState extends State<VideoControls> {
   }
 }
 
-/// The audio-language control. Switching costs a stream swap (the engines
-/// can't select an embedded track), so the menu says which one is playing and
-/// the swap carries the position across.
+/// The audio-language control.
+///
+/// On the libmpv engine the switch is in-player and instant. On
+/// video_player it costs a stream swap (the engines can't select an embedded
+/// track), so the swap carries the position across. Either way the menu says
+/// which one is playing.
 class _AudioTrackButton extends StatelessWidget {
   const _AudioTrackButton({
     required this.tracks,
@@ -355,25 +388,21 @@ class _AudioTrackButton extends StatelessWidget {
 /// The thumb-reachable transport cluster: skip back 10s, play/pause, skip
 /// forward 10s. Any press restarts the auto-hide countdown via [onInteract].
 class _CenterControls extends StatelessWidget {
-  const _CenterControls({required this.controller, required this.onInteract});
+  const _CenterControls({required this.transport, required this.onInteract});
 
-  final VideoPlayerController controller;
+  final VideoTransport transport;
   final VoidCallback onInteract;
 
   void _skip(Duration by) {
-    final v = controller.value;
-    var target = v.position + by;
-    if (target < Duration.zero) target = Duration.zero;
-    if (target > v.duration) target = v.duration;
-    controller.seekTo(target);
+    transport.seekBy(by);
     onInteract();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<VideoPlayerValue>(
-      valueListenable: controller,
-      builder: (context, value, _) => Row(
+    return ListenableBuilder(
+      listenable: transport,
+      builder: (context, _) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
@@ -387,14 +416,14 @@ class _CenterControls extends StatelessWidget {
           IconButton(
             iconSize: 64,
             color: Colors.white,
-            tooltip: value.isPlaying ? 'Pause' : 'Play',
+            tooltip: transport.isPlaying ? 'Pause' : 'Play',
             icon: Icon(
-              value.isPlaying
+              transport.isPlaying
                   ? Icons.pause_circle_filled
                   : Icons.play_circle_fill,
             ),
             onPressed: () {
-              value.isPlaying ? controller.pause() : controller.play();
+              transport.togglePlay();
               onInteract();
             },
           ),

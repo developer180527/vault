@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart';
+
 // media_kit exports its own `Playable`; hide it so ours (the app-wide
 // playback seam) is the only one in scope here.
 import 'package:media_kit/media_kit.dart' hide Playable;
@@ -52,8 +54,13 @@ class MpvEngine {
   final _stateController = StreamController<MpvState>.broadcast();
   String? _lastError;
 
-  /// The widget surface. Callers render `Video(controller: engine.controller)`.
-  VideoController get controller => _controller;
+  /// The widget surface. Returned as a built widget (rather than exposing the
+  /// media_kit controller) so no other file has to import media_kit — the
+  /// whole point of this wrapper. libmpv scales the picture itself, including
+  /// its own subtitle rendering, so there is no AspectRatio to apply here.
+  Widget videoWidget() =>
+      Video(controller: _controller, controls: NoVideoControls);
+
   Player get player => _player;
 
   /// Coarse state changes (tracks, playing, duration) for UI rebuilds.
@@ -127,11 +134,43 @@ class MpvEngine {
     _log.info('mpv audio track set', fields: {'id': id});
   }
 
+  /// Switch audio by ORDINAL position among the file's audio streams (the 0,
+  /// 1, 2… the server's stream descriptor uses), rather than by mpv's own
+  /// track id. This is what lets both engines share one picker driven by the
+  /// server's nicer labels ("Japanese (Original)") — mpv enumerates tracks in
+  /// container order, the same order ffprobe reported them to the server.
+  Future<void> setAudioTrackAt(int ordinal) async {
+    final tracks = state.audioTracks;
+    if (ordinal < 0 || ordinal >= tracks.length) return;
+    await setAudioTrack(tracks[ordinal].id);
+  }
+
   /// Switch (or disable, with id 'no') the subtitle track — including
   /// embedded ASS/PGS, which libmpv renders itself.
   Future<void> setSubtitleTrack(String id) async {
     await _player.setSubtitleTrack(SubtitleTrack(id, null, null));
   }
+
+  /// Load a SIDECAR subtitle from text we already fetched (authed) rather than
+  /// handing mpv a URL — the stream's bearer headers don't apply to a separate
+  /// subtitle request, so fetching it ourselves is the only reliable path.
+  Future<void> setSubtitleData(String vtt) async {
+    await _player.setSubtitleTrack(SubtitleTrack.data(vtt));
+  }
+
+  /// Subtitles by ordinal, mirroring [setAudioTrackAt]. A null [ordinal]
+  /// turns subtitles off.
+  Future<void> setSubtitleTrackAt(int? ordinal) async {
+    if (ordinal == null) return setSubtitleTrack('no');
+    final tracks = state.subtitleTracks;
+    if (ordinal < 0 || ordinal >= tracks.length) return;
+    await setSubtitleTrack(tracks[ordinal].id);
+  }
+
+  /// Whether libmpv has finished parsing enough of the file to enumerate
+  /// tracks. Track menus should wait for this rather than showing an empty
+  /// list for the first moment of playback.
+  bool get tracksReady => state.audioTracks.isNotEmpty;
 
   Future<void> dispose() async {
     for (final s in _subs) {

@@ -163,21 +163,28 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
+    // Downloads isn't a default dock pin (the mock manifest pins the first
+    // four services), so pin it explicitly to reach it from the bottom bar.
+    SharedPreferences.setMockInitialValues({
+      'pinned_services_v1': ['media', 'files', 'downloads'],
+    });
+
     final container = _container();
     addTearDown(container.dispose);
     await tester.pumpWidget(_appWith(container));
     await tester.pumpAndSettle();
 
-    // Torrent is pinned by default and is now a direct page (magnets); URL
-    // downloads live in the separate Downloads service.
-    await tester.tap(find.text('Torrent'));
+    // Exercised through Downloads: it's the remaining paste-a-link surface on
+    // the job pipeline. (Torrent is now a live qBittorrent client view, which
+    // needs a server session and so has nothing to drive in standalone mode.)
+    await tester.tap(find.text('Downloads'));
     await tester.pumpAndSettle();
-    expect(find.text('No torrents yet'), findsOneWidget);
+    expect(find.text('No downloads yet'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Add torrent'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Add download'));
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.byType(TextField), 'magnet:?xt=urn:btih:abc&dn=My+Movie');
+        find.byType(TextField), 'https://example.test/My+Movie');
     await tester.tap(find.text('Add'));
     await tester.pump();
 
@@ -185,7 +192,7 @@ void main() {
     // fixed steps: pumpAndSettle would stop between progress ticks (a pending
     // timer schedules no frame until it fires).
     await tester.pumpAndSettle();
-    expect(find.text('My Movie'), findsOneWidget);
+    expect(find.text('My+Movie'), findsOneWidget);
     for (var i = 0;
         i < 100 &&
             tester.widgetList(find.byIcon(Icons.check_circle_outline)).isEmpty;

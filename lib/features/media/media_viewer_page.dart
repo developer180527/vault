@@ -13,6 +13,7 @@ import 'data/local_media_library.dart';
 import 'data/media_providers.dart';
 import 'data/media_trash.dart';
 import 'widgets/video_surface.dart';
+import 'widgets/video_transport.dart';
 import 'widgets/viewer_top_bar.dart';
 
 /// Media viewer: swipe between items, pinch-zoom / double-tap photos, and
@@ -394,6 +395,9 @@ class _VideoControlsOverlay extends ConsumerWidget {
     if (session?.id != item.id || controller == null) {
       return const SizedBox.shrink();
     }
-    return VideoControls(controller: controller, title: item.asset.title);
+    return VideoControls(
+      transport: VideoPlayerTransport(controller),
+      title: item.asset.title,
+    );
   }
 }

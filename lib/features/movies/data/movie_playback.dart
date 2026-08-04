@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../core/models/server_movie.dart';
 import '../../../core/platform/media_codec.dart';
 
@@ -62,4 +64,37 @@ MovieStreamMode movieStreamMode(
   if (!videoOk || !audioOk) return MovieStreamMode.transcode;
   if (!_containerIsNative(movie.container)) return MovieStreamMode.remux;
   return MovieStreamMode.direct;
+}
+
+/// Which decoder plays a title.
+///
+///  * [native]  — video_player (AVPlayer/ExoPlayer). Hardware-backed, gets
+///                system Picture-in-Picture and lock-screen controls.
+///  * [libmpv]  — media_kit. Opens anything, selects embedded tracks
+///                in-player, renders embedded subtitles.
+enum VideoEngine { native, libmpv }
+
+/// libmpv ships as a bundled native library on every platform we build for;
+/// only web has no libmpv to fall back on.
+bool get libmpvAvailable => !kIsWeb;
+
+/// Pick the engine for [movie] on this device.
+///
+/// The rule is "native when it genuinely works, libmpv otherwise", and the
+/// reason is a measured failure rather than a preference: the native engines
+/// can't open Matroska and can't select an embedded audio track, so anything
+/// non-[MovieStreamMode.direct] had to be fed a server-side ffmpeg pipe — and
+/// an ffmpeg pipe can't answer HTTP Range requests, which AVPlayer requires
+/// before it will play a progressive MP4 at all. It aborts the connection
+/// within ~100ms. libmpv reads the original file over ordinary Range requests
+/// and needs no server help whatsoever.
+///
+/// So: a plain MP4 keeps the native engine (PiP, background audio, hardware
+/// path, zero server CPU). Everything else — MKV, HEVC, AC-3, multi-track —
+/// goes to libmpv, which is the only engine that can actually play it.
+VideoEngine videoEngineFor(ServerMovie movie, MediaSupport support) {
+  if (!libmpvAvailable) return VideoEngine.native;
+  return movieStreamMode(movie, support) == MovieStreamMode.direct
+      ? VideoEngine.native
+      : VideoEngine.libmpv;
 }

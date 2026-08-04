@@ -4,10 +4,10 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 109;
-  static const String commit = '228eba1';
-  static const String commitSubject = 'Open-source prep: AGPL-3.0, real README, rebrand script';
-  static const String date = '2026-07-28';
+  static const int build = 110;
+  static const String commit = 'f52a0ea';
+  static const String commitSubject = 'Multi-track video: per-service audio switching + libmpv prototype';
+  static const String date = '2026-08-03';
 
   static String get label =>
       build == 0 ? '$version (dev)' : '$version (build $build)';
