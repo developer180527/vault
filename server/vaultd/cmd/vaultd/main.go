@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/developer180527/vault/vaultd/internal/changes"
 	"github.com/developer180527/vault/vaultd/internal/config"
 	"github.com/developer180527/vault/vaultd/internal/httpapi"
+	"github.com/developer180527/vault/vaultd/internal/ingest"
 	"github.com/developer180527/vault/vaultd/internal/jobs"
 	"github.com/developer180527/vault/vaultd/internal/movies"
 	"github.com/developer180527/vault/vaultd/internal/music"
@@ -96,32 +98,44 @@ func main() {
 		DataRoot: cfg.DataRoot, Store: st, Log: log,
 		FFmpegPath: cfg.FFmpegBinary,
 	}
-	engine.SetDelivery(jobs.DestMovies,
-		func(c context.Context, j store.Job, staged string) error {
-			name, err := moviesSvc.LandUpload(staged, filepath.Base(staged))
+	// A torrent is rarely one clean file — the feature arrives beside a
+	// sample, a poster, an .nfo and a screens/ folder, and for a multi-file
+	// torrent `staged` is the DIRECTORY. ingest.Select works out what the
+	// download was actually for; landing the directory itself would just be
+	// rejected as "not a video file".
+	catalogDeliver := func(
+		topic string,
+		accept func(string) bool,
+		land func(string, string) (string, error),
+		rescan func(context.Context) (int, int, error),
+	) jobs.DeliverFunc {
+		return func(c context.Context, j store.Job, staged string) error {
+			picked, err := ingest.Select(staged, accept)
 			if err != nil {
 				return err
 			}
-			if _, _, err := moviesSvc.Scan(c); err != nil {
-				log.Warn("post-download movie scan", "err", err)
+			var landed []string
+			for _, f := range picked.Files {
+				name, err := land(f, filepath.Base(f))
+				if err != nil {
+					return err
+				}
+				landed = append(landed, name)
 			}
-			changeHub.Bump("movies")
-			log.Info("download filed into movie catalog", "name", name)
+			if _, _, err := rescan(c); err != nil {
+				log.Warn("post-download rescan", "topic", topic, "err", err)
+			}
+			changeHub.Bump(topic)
+			log.Info("download filed into catalog", "topic", topic,
+				"imported", len(landed), "skipped", len(picked.Skipped),
+				"names", strings.Join(landed, ", "))
 			return nil
-		})
-	engine.SetDelivery(jobs.DestMusic,
-		func(c context.Context, j store.Job, staged string) error {
-			name, err := musicSvc.LandUpload(staged, filepath.Base(staged))
-			if err != nil {
-				return err
-			}
-			if _, _, err := musicSvc.ScanCatalog(c); err != nil {
-				log.Warn("post-download catalog scan", "err", err)
-			}
-			changeHub.Bump("music")
-			log.Info("download filed into music catalog", "name", name)
-			return nil
-		})
+		}
+	}
+	engine.SetDelivery(jobs.DestMovies, catalogDeliver(
+		"movies", movies.VideoOK, moviesSvc.LandUpload, moviesSvc.Scan))
+	engine.SetDelivery(jobs.DestMusic, catalogDeliver(
+		"music", music.AudioOK, musicSvc.LandUpload, musicSvc.ScanCatalog))
 
 	engine.Start()
 	defer engine.Stop()
