@@ -27,6 +27,18 @@ func (e *testEnv) putRaw(t *testing.T, path, bearer string, body []byte) int {
 	return rec.Code
 }
 
+// putRawMethod sends a raw (non-JSON) body with an arbitrary method.
+func (e *testEnv) putRawMethod(t *testing.T, method, path, bearer string, body []byte) int {
+	t.Helper()
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	rec := httptest.NewRecorder()
+	e.handler.ServeHTTP(rec, req)
+	return rec.Code
+}
+
 // adminToken bootstraps the first admin and returns its access token.
 func adminToken(t *testing.T, e *testEnv) string {
 	t.Helper()

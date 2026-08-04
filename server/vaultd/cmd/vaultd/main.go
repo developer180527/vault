@@ -61,10 +61,15 @@ func main() {
 	// Background-work engine: torrent (qBittorrent) + URL (yt-dlp) runners,
 	// unified scheduler, SSE hub. Staging dirs live under DataRoot.
 	staging := filepath.Join(cfg.DataRoot, "staging")
+	torrentSavePath := filepath.Join(staging, "torrents")
+	// One qBittorrent client shared by the job runner and the torrent-client
+	// API: it holds a login session, so a second client would double the
+	// logins and could invalidate the other's cookie.
+	qbit := jobs.NewQbitClient(cfg.QbitURL, cfg.QbitUser, cfg.QbitPassword)
 	engine := jobs.New(log, st, cfg.DataRoot, cfg.MaxJobs, map[string]jobs.Runner{
 		store.JobKindTorrent: &jobs.TorrentRunner{
-			Client:   jobs.NewQbitClient(cfg.QbitURL, cfg.QbitUser, cfg.QbitPassword),
-			SavePath: filepath.Join(staging, "torrents"),
+			Client:   qbit,
+			SavePath: torrentSavePath,
 		},
 		store.JobKindDownload: &jobs.YtdlpRunner{
 			Binary:      cfg.YtdlpBinary,
@@ -101,20 +106,22 @@ func main() {
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(httpapi.Options{
-			Log:           log,
-			Store:         st,
-			Verifier:      verifier,
-			SetupCode:     setupCode,
-			OIDCIssuer:    cfg.OIDCIssuer,
-			OIDCClientID:  cfg.OIDCClientID,
-			DataRoot:      cfg.DataRoot,
-			PhotosRoot:    cfg.PhotosRoot,
-			MoviesRoot:    cfg.MoviesRoot,
-			FFmpegBinary:  cfg.FFmpegBinary,
-			FFprobeBinary: cfg.FFprobeBinary,
-			Jobs:          engine,
-			Signer:        signer,
-			Changes:       changeHub,
+			Log:             log,
+			Store:           st,
+			Verifier:        verifier,
+			SetupCode:       setupCode,
+			OIDCIssuer:      cfg.OIDCIssuer,
+			OIDCClientID:    cfg.OIDCClientID,
+			DataRoot:        cfg.DataRoot,
+			PhotosRoot:      cfg.PhotosRoot,
+			MoviesRoot:      cfg.MoviesRoot,
+			FFmpegBinary:    cfg.FFmpegBinary,
+			FFprobeBinary:   cfg.FFprobeBinary,
+			Jobs:            engine,
+			Signer:          signer,
+			Torrents:        qbit,
+			TorrentSavePath: torrentSavePath,
+			Changes:         changeHub,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

@@ -75,6 +75,14 @@ type Options struct {
 	// Changes is the shared change hub (also bumped by the admin panel);
 	// nil disables /v1/changes/watch. Bumps are nil-safe.
 	Changes *changes.Hub
+
+	// Torrents is the qBittorrent client backing the torrent-client API —
+	// the SAME instance the job runner uses (one login session). Nil disables
+	// /v1/torrents with 503 rather than failing obscurely.
+	Torrents *jobs.QbitClient
+
+	// TorrentSavePath is where qBittorrent writes, per user subdirectory.
+	TorrentSavePath string
 }
 
 // Server holds the dependencies shared by handlers.
@@ -95,22 +103,27 @@ type Server struct {
 	signer       *auth.StreamSigner
 	changes      *changes.Hub
 	uploads      *uploads.Service
+
+	torrents        *jobs.QbitClient
+	torrentSavePath string
 }
 
 // New builds the router.
 func New(o Options) http.Handler {
 	s := &Server{
-		log:          o.Log,
-		store:        o.Store,
-		verifier:     o.Verifier,
-		setupCode:    o.SetupCode,
-		oidcIssuer:   o.OIDCIssuer,
-		oidcClientID: o.OIDCClientID,
-		dataRoot:     o.DataRoot,
-		jobs:         o.Jobs,
-		signer:       o.Signer,
-		changes:      o.Changes,
-		files:        &files.Service{DataRoot: o.DataRoot},
+		log:             o.Log,
+		store:           o.Store,
+		verifier:        o.Verifier,
+		setupCode:       o.SetupCode,
+		oidcIssuer:      o.OIDCIssuer,
+		oidcClientID:    o.OIDCClientID,
+		dataRoot:        o.DataRoot,
+		jobs:            o.Jobs,
+		signer:          o.Signer,
+		changes:         o.Changes,
+		torrents:        o.Torrents,
+		torrentSavePath: o.TorrentSavePath,
+		files:           &files.Service{DataRoot: o.DataRoot},
 		music: &music.Service{
 			DataRoot: o.DataRoot, Store: o.Store, Log: o.Log,
 			FFmpegPath: o.FFmpegBinary},
@@ -239,6 +252,30 @@ func New(o Options) http.Handler {
 			// handlers (torrent:write for magnets, downloads:write for URLs),
 			// not at the route, so one endpoint serves both.
 			r.Get("/jobs/watch", s.handleWatchJobs)
+
+			// Torrent client. Adding a magnet still goes through /v1/jobs
+			// (which files the result into the library); these manage the
+			// torrents themselves. Ownership is re-checked per hash inside
+			// every handler — the grant alone doesn't say WHICH torrents.
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("torrent", "read"))
+				r.Get("/torrents", s.handleListTorrents)
+				r.Get("/torrents/transfer", s.handleTransferInfo)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireGrant("torrent", "write"))
+				r.Post("/torrents/file", s.handleAddTorrentFile)
+				r.Post("/torrents/{hash}/pause", s.handlePauseTorrent)
+				r.Post("/torrents/{hash}/resume", s.handleResumeTorrent)
+				r.Post("/torrents/{hash}/recheck", s.handleRecheckTorrent)
+				r.Delete("/torrents/{hash}", s.handleDeleteTorrent)
+			})
+			// Global speed limits throttle the household's single pipe, so
+			// they're admin-only, not merely torrent:write.
+			r.Group(func(r chi.Router) {
+				r.Use(s.RequireAdmin)
+				r.Put("/torrents/limits", s.handleSetTorrentLimits)
+			})
 			r.Post("/jobs", s.handleSubmitJob)
 			r.Post("/jobs/{id}/cancel", s.handleCancelJob)
 			r.Post("/jobs/{id}/retry", s.handleRetryJob)
