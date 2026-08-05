@@ -110,7 +110,16 @@ func main() {
 		rescan func(context.Context) (int, int, error),
 	) jobs.DeliverFunc {
 		return func(c context.Context, j store.Job, staged string) error {
-			picked, err := ingest.Select(staged, accept)
+			// Honour the user's file selection if they made one. qBittorrent's
+			// priorities are a hint it doesn't reliably keep, so the check is
+			// against what actually landed on disk.
+			var keep []string
+			if h := infoHashOf(j.Source); h != "" {
+				if sel, ok, err := st.Read().TorrentSelection(c, h); err == nil && ok {
+					keep = sel
+				}
+			}
+			picked, err := ingest.SelectOnly(staged, accept, keep)
 			if err != nil {
 				return err
 			}
@@ -245,4 +254,20 @@ func main() {
 		log.Error("serve", "err", err)
 		os.Exit(1)
 	}
+}
+
+// infoHashOf pulls the btih out of a magnet URI. Job sources for torrents are
+// magnets (including the ones synthesised for an uploaded .torrent), so this
+// is how a completed job finds its file selection.
+func infoHashOf(source string) string {
+	const marker = "urn:btih:"
+	i := strings.Index(source, marker)
+	if i < 0 {
+		return ""
+	}
+	h := source[i+len(marker):]
+	if j := strings.IndexAny(h, "&/?"); j >= 0 {
+		h = h[:j]
+	}
+	return strings.ToLower(h)
 }

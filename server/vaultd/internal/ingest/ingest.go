@@ -73,6 +73,52 @@ type Result struct {
 // A [root] that is itself a single acceptable file is returned as-is — the
 // common single-file torrent needs none of this.
 func Select(root string, accept func(name string) bool) (Result, error) {
+	return SelectOnly(root, accept, nil)
+}
+
+// SelectOnly is Select restricted to an explicit keep-set of torrent-relative
+// paths — the user's own choice of which files they wanted.
+//
+// This is the ENFORCEMENT half of file selection. qBittorrent's per-file
+// priorities are only a hint: it fetches pieces spanning a wanted/unwanted
+// boundary and has a habit of writing skipped files anyway. So rather than
+// trusting that the priority took, we check what is actually on disk against
+// what the user asked for, and import only the intersection. A nil keep-set
+// means "no selection recorded" and behaves exactly like [Select].
+func SelectOnly(root string, accept func(name string) bool, keep []string) (Result, error) {
+	if len(keep) == 0 {
+		return selectAll(root, accept)
+	}
+	wanted := make(map[string]bool, len(keep))
+	for _, p := range keep {
+		wanted[filepath.ToSlash(strings.TrimPrefix(p, "/"))] = true
+	}
+	// qBittorrent reports paths relative to the torrent NAME, which is the
+	// staging directory's own name for a multi-file torrent — so compare on
+	// the tail, not on an absolute path neither side agrees about.
+	base := filepath.Base(root)
+	full, err := selectAll(root, accept)
+	if err != nil {
+		return full, err
+	}
+	var files []string
+	skipped := full.Skipped
+	for _, f := range full.Files {
+		r := filepath.ToSlash(rel(root, f))
+		if wanted[r] || wanted[base+"/"+r] {
+			files = append(files, f)
+			continue
+		}
+		skipped = append(skipped, r)
+	}
+	if len(files) == 0 {
+		return Result{Skipped: skipped}, fmt.Errorf(
+			"none of the selected files were downloaded")
+	}
+	return Result{Files: files, Skipped: skipped}, nil
+}
+
+func selectAll(root string, accept func(name string) bool) (Result, error) {
 	info, err := os.Stat(root)
 	if err != nil {
 		return Result{}, err

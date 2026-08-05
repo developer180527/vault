@@ -317,3 +317,120 @@ func (s *Server) handleSetTorrentLimits(w http.ResponseWriter, r *http.Request) 
 		"dl", strconv.FormatInt(down, 10), "up", strconv.FormatInt(up, 10))
 	writeJSON(w, http.StatusOK, map[string]any{"dl_limit": down, "up_limit": up})
 }
+
+// --- file selection ---
+//
+// qBittorrent can be told which files to skip, but that's a bandwidth hint and
+// nothing more: it still pulls pieces spanning a wanted/unwanted boundary, and
+// is known to write unwanted files anyway. So the user's choice is RECORDED
+// here and enforced by vaultd against what actually landed — the priority call
+// is an optimization, not the mechanism.
+
+type torrentFileJSON struct {
+	Index    int     `json:"index"`
+	Path     string  `json:"path"`
+	Size     int64   `json:"size"`
+	Progress float64 `json:"progress"`
+	Wanted   bool    `json:"wanted"`
+}
+
+// GET /v1/torrents/{hash}/files — contents plus the current keep-set.
+func (s *Server) handleTorrentFiles(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.ownedTorrent(w, r)
+	if !ok {
+		return
+	}
+	files, err := s.torrents.Files(r.Context(), t.Hash)
+	if err != nil {
+		s.torrentFail(w, r, err)
+		return
+	}
+	keep, hasSelection, err := s.store.Read().TorrentSelection(r.Context(), t.Hash)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	kept := map[string]bool{}
+	for _, p := range keep {
+		kept[p] = true
+	}
+	out := make([]torrentFileJSON, 0, len(files))
+	for _, f := range files {
+		out = append(out, torrentFileJSON{
+			Index: f.Index, Path: f.Name, Size: f.Size, Progress: f.Progress,
+			// No selection yet = everything is wanted, so a torrent added
+			// before this feature existed reads exactly as it behaves.
+			Wanted: !hasSelection || kept[f.Name],
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"files": out, "has_selection": hasSelection,
+	})
+}
+
+// PUT /v1/torrents/{hash}/files {keep: ["path", …]}
+func (s *Server) handleSetTorrentFiles(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.ownedTorrent(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Keep []string `json:"keep"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	files, err := s.torrents.Files(r.Context(), t.Hash)
+	if err != nil {
+		s.torrentFail(w, r, err)
+		return
+	}
+	// Only paths this torrent actually contains — a selection naming anything
+	// else is a client bug, and storing it would silently keep nothing.
+	valid := map[string]int{}
+	for _, f := range files {
+		valid[f.Name] = f.Index
+	}
+	keep := make([]string, 0, len(req.Keep))
+	var wanted, unwanted []int
+	for _, p := range req.Keep {
+		if idx, ok := valid[p]; ok {
+			keep = append(keep, p)
+			wanted = append(wanted, idx)
+		}
+	}
+	if len(keep) == 0 {
+		writeErr(w, http.StatusBadRequest,
+			"keep at least one file, or remove the torrent instead")
+		return
+	}
+	keptSet := map[string]bool{}
+	for _, p := range keep {
+		keptSet[p] = true
+	}
+	for _, f := range files {
+		if !keptSet[f.Name] {
+			unwanted = append(unwanted, f.Index)
+		}
+	}
+
+	if err := s.store.Write().SetTorrentSelection(r.Context(), t.Hash, keep); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// Best-effort bandwidth saving. A failure here is NOT fatal: the selection
+	// is already recorded, and import enforces it regardless of what
+	// qBittorrent decides to fetch.
+	if err := s.torrents.SetFilePriority(r.Context(), t.Hash, unwanted, 0); err != nil {
+		s.log.Warn("could not deprioritise unwanted files (import still enforces)",
+			"hash", t.Hash, "err", err)
+	}
+	if err := s.torrents.SetFilePriority(r.Context(), t.Hash, wanted, 1); err != nil {
+		s.log.Warn("could not prioritise wanted files", "hash", t.Hash, "err", err)
+	}
+	p := PrincipalFrom(r.Context())
+	s.log.Info("torrent file selection set", "hash", t.Hash, "by", p.Username,
+		"keep", len(keep), "skip", len(unwanted))
+	writeJSON(w, http.StatusOK, map[string]any{"keep": len(keep)})
+}

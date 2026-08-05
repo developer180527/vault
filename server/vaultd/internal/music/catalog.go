@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/developer180527/vault/vaultd/internal/ingest"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -218,37 +218,12 @@ func (s *Service) LandUpload(stagedPath, filename string) (string, error) {
 		name = fmt.Sprintf("%s (%d)%s", base, i, ext)
 		dst = filepath.Join(s.CatalogRoot(), name)
 	}
-	if err := moveFile(stagedPath, dst); err != nil {
+	// Hardlink (or copy) rather than move — a seeding torrent must keep its
+	// blocks. See ingest.Link.
+	if _, err := ingest.Link(stagedPath, dst); err != nil {
 		return "", err
 	}
 	return name, nil
-}
-
-// moveFile renames, falling back to copy+remove across filesystems.
-func moveFile(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
-	if err != nil {
-		return err
-	}
-	buf := make([]byte, 4<<20)
-	_, err = io.CopyBuffer(out, in, buf)
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		_ = os.Remove(dst)
-		return err
-	}
-	_ = os.Remove(src)
-	return nil
 }
 
 // artOverridePath is where an admin-uploaded cover for [id] lives — a

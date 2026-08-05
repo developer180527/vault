@@ -282,6 +282,11 @@ func (s *Service) Finish(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Land now HARDLINKS (so a seeding torrent keeps its blocks), which means
+	// the staged file survives the call. Nothing is seeding an upload, so drop
+	// it — otherwise every finished upload leaves a staging entry behind until
+	// the sweep, and on a cross-filesystem copy that's real duplicated space.
+	_ = os.Remove(part)
 	_ = os.Remove(meta)
 	s.forget(id)
 	return name, nil

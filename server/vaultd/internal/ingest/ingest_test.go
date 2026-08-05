@@ -196,3 +196,67 @@ func TestSelectDoesNotEatLegitimateTitles(t *testing.T) {
 		t.Fatalf("imported %v, want both real titles kept", names(got.Files))
 	}
 }
+
+// Enforcement: qBittorrent's priorities are a hint, so what the user chose is
+// checked against what actually landed. Files it downloaded anyway must not be
+// imported just because they exist.
+func TestSelectOnlyHonoursTheUsersChoice(t *testing.T) {
+	root := tree(t, map[string]int64{
+		"Show.S01E01.mkv": 2 << 30,
+		"Show.S01E02.mkv": 2 << 30,
+		"Show.S01E03.mkv": 2 << 30,
+	})
+	got, err := SelectOnly(root, videoOK,
+		[]string{"Show.S01E01.mkv", "Show.S01E03.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Files) != 2 {
+		t.Fatalf("imported %v, want only the two chosen", names(got.Files))
+	}
+	for _, f := range names(got.Files) {
+		if f == "Show.S01E02.mkv" {
+			t.Fatal("imported a file the user deselected")
+		}
+	}
+	if len(got.Skipped) == 0 {
+		t.Fatal("the deselected file should be reported as skipped")
+	}
+}
+
+// qBittorrent reports paths relative to the torrent name, which is also the
+// staging directory's name — both spellings must resolve to the same file.
+func TestSelectOnlyMatchesTorrentRelativePaths(t *testing.T) {
+	root := tree(t, map[string]int64{"Pack/a.mkv": 1 << 30, "Pack/b.mkv": 1 << 30})
+	inner := filepath.Join(root, "Pack")
+	got, err := SelectOnly(inner, videoOK, []string{"Pack/a.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Files) != 1 || filepath.Base(got.Files[0]) != "a.mkv" {
+		t.Fatalf("imported %v, want a.mkv via its torrent-relative path",
+			names(got.Files))
+	}
+}
+
+// An empty keep-set means "no selection recorded" — every torrent from before
+// the feature existed must keep behaving exactly as it did.
+func TestSelectOnlyWithNoSelectionImportsEverything(t *testing.T) {
+	root := tree(t, map[string]int64{"a.mkv": 1 << 30, "b.mkv": 1 << 30})
+	got, err := SelectOnly(root, videoOK, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Files) != 2 {
+		t.Fatalf("imported %v, want everything", names(got.Files))
+	}
+}
+
+// If nothing the user chose actually arrived, that's a hard error — importing
+// whatever else happened to download would be the opposite of the request.
+func TestSelectOnlyFailsWhenNothingChosenArrived(t *testing.T) {
+	root := tree(t, map[string]int64{"unwanted.mkv": 1 << 30})
+	if _, err := SelectOnly(root, videoOK, []string{"wanted.mkv"}); err == nil {
+		t.Fatal("expected an error when no selected file was downloaded")
+	}
+}

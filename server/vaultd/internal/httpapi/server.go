@@ -261,6 +261,7 @@ func New(o Options) http.Handler {
 				r.Use(s.RequireGrant("torrent", "read"))
 				r.Get("/torrents", s.handleListTorrents)
 				r.Get("/torrents/transfer", s.handleTransferInfo)
+				r.Get("/torrents/{hash}/files", s.handleTorrentFiles)
 			})
 			r.Group(func(r chi.Router) {
 				r.Use(s.RequireGrant("torrent", "write"))
@@ -268,6 +269,7 @@ func New(o Options) http.Handler {
 				r.Post("/torrents/{hash}/pause", s.handlePauseTorrent)
 				r.Post("/torrents/{hash}/resume", s.handleResumeTorrent)
 				r.Post("/torrents/{hash}/recheck", s.handleRecheckTorrent)
+				r.Put("/torrents/{hash}/files", s.handleSetTorrentFiles)
 				r.Delete("/torrents/{hash}", s.handleDeleteTorrent)
 			})
 			// Global speed limits throttle the household's single pipe, so

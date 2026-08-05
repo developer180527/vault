@@ -226,3 +226,56 @@ func (c *QbitClient) SetSpeedLimits(ctx context.Context, down, up int64) error {
 		url.Values{"limit": {strconv.FormatInt(up, 10)}})
 	return err
 }
+
+// TorrentFile is one entry in a torrent's file list.
+type TorrentFile struct {
+	Index    int     `json:"index"`
+	Name     string  `json:"name"` // path relative to the torrent root
+	Size     int64   `json:"size"`
+	Progress float64 `json:"progress"`
+	Priority int     `json:"priority"` // 0 = don't download
+}
+
+// Files lists a torrent's contents. Available as soon as metadata resolves,
+// which is what lets the UI ask "which of these do you actually want?" before
+// gigabytes have moved.
+func (c *QbitClient) Files(ctx context.Context, hash string) ([]TorrentFile, error) {
+	body, err := c.do(ctx, "/api/v2/torrents/files",
+		url.Values{"hash": {strings.ToLower(hash)}})
+	if err != nil {
+		return nil, err
+	}
+	var list []TorrentFile
+	if err := json.Unmarshal(body, &list); err != nil {
+		return nil, fmt.Errorf("qBittorrent files: %w", err)
+	}
+	// Older builds omit `index`; positional order is the index in that case.
+	for i := range list {
+		if list[i].Index == 0 && i != 0 {
+			list[i].Index = i
+		}
+	}
+	return list, nil
+}
+
+// SetFilePriority marks files wanted (1) or unwanted (0).
+//
+// Treat this as a BANDWIDTH HINT, not a guarantee. qBittorrent still fetches
+// pieces that straddle a wanted/unwanted boundary, and has a long history of
+// quietly writing unwanted files anyway — so vaultd verifies what actually
+// landed rather than trusting the priority took.
+func (c *QbitClient) SetFilePriority(ctx context.Context, hash string, indices []int, priority int) error {
+	if len(indices) == 0 {
+		return nil
+	}
+	ids := make([]string, len(indices))
+	for i, n := range indices {
+		ids[i] = strconv.Itoa(n)
+	}
+	_, err := c.do(ctx, "/api/v2/torrents/filePrio", url.Values{
+		"hash":     {strings.ToLower(hash)},
+		"id":       {strings.Join(ids, "|")},
+		"priority": {strconv.Itoa(priority)},
+	})
+	return err
+}

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/developer180527/vault/vaultd/internal/ingest"
 	"github.com/developer180527/vault/vaultd/internal/store"
 )
 
@@ -309,29 +310,12 @@ func (s *Service) LandUpload(stagedPath, filename string) (string, error) {
 		name = fmt.Sprintf("%s (%d)%s", base, i, ext)
 		dst = filepath.Join(s.Root, name)
 	}
-	if err := os.Rename(stagedPath, dst); err == nil {
-		return name, nil
-	}
-	// Cross-device: stream it over, then drop the staged copy.
-	in, err := os.Open(stagedPath)
-	if err != nil {
+	// Hardlink (or copy across filesystems) rather than move: a torrent is
+	// still SEEDING from the staged file, and moving it makes qBittorrent
+	// report missing files and stop uploading. See ingest.Link.
+	if _, err := ingest.Link(stagedPath, dst); err != nil {
 		return "", err
 	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
-	if err != nil {
-		return "", err
-	}
-	buf := make([]byte, 4<<20)
-	_, err = io.CopyBuffer(out, in, buf)
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		_ = os.Remove(dst)
-		return "", err
-	}
-	_ = os.Remove(stagedPath)
 	return name, nil
 }
 
