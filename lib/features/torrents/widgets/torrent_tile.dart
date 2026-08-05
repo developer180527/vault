@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/client/vault_client.dart';
 import '../data/torrents.dart';
+import 'torrent_files_sheet.dart';
 
 /// One torrent: what it is, how it's doing, and what you can do to it.
 class TorrentTile extends ConsumerWidget {
@@ -151,6 +152,8 @@ class TorrentTile extends ConsumerWidget {
                   icon: const Icon(Icons.more_vert, size: 20),
                   onSelected: (v) async {
                     switch (v) {
+                      case 'files':
+                        await openTorrentFiles(context, ref, t);
                       case 'recheck':
                         await _act(
                             context, ref, (api) => api.recheck(t.hash));
@@ -159,6 +162,10 @@ class TorrentTile extends ConsumerWidget {
                     }
                   },
                   itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'files',
+                      child: Text('Choose files…'),
+                    ),
                     PopupMenuItem(
                       value: 'recheck',
                       child: Text('Re-check data'),

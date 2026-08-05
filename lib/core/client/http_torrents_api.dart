@@ -123,6 +123,35 @@ class HttpTorrentsApi implements TorrentsApi {
     }
   }
 
+  @override
+  Future<List<TorrentFileEntry>> files(String hash) async {
+    final res = await http.get(_session.api('/v1/torrents/$hash/files'),
+        headers: await _auth());
+    if (res.statusCode != 200) {
+      throw Exception('torrent files failed: HTTP ${res.statusCode}');
+    }
+    final body = jsonDecode(res.body) as Map<String, Object?>;
+    return [
+      for (final f in (body['files'] as List?) ?? const [])
+        TorrentFileEntry.fromJson(f as Map<String, Object?>),
+    ];
+  }
+
+  @override
+  Future<void> setFiles(String hash, List<String> keep) async {
+    final res = await http.put(
+      _session.api('/v1/torrents/$hash/files'),
+      headers: {...await _auth(), 'Content-Type': 'application/json'},
+      body: jsonEncode({'keep': keep}),
+    );
+    if (res.statusCode == 400) {
+      throw Exception('Keep at least one file, or remove the torrent instead.');
+    }
+    if (res.statusCode != 200) {
+      throw Exception('save selection failed: HTTP ${res.statusCode}');
+    }
+  }
+
   Future<void> _post(String path) async {
     final res =
         await http.post(_session.api(path), headers: await _auth());

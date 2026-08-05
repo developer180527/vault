@@ -467,6 +467,54 @@ abstract interface class TorrentsApi {
 
   /// Set global limits in bytes/sec (0 = unlimited). Admin-only server-side.
   Future<void> setLimits({int? dlLimit, int? upLimit});
+
+  /// What's inside a torrent, and which parts are currently wanted.
+  Future<List<TorrentFileEntry>> files(String hash);
+
+  /// Choose which files to keep, by torrent-relative path.
+  ///
+  /// The server records this and enforces it when the download is imported —
+  /// qBittorrent's own per-file priorities are only a bandwidth hint and it is
+  /// known to write skipped files anyway.
+  Future<void> setFiles(String hash, List<String> keep);
+}
+
+/// One file inside a torrent.
+class TorrentFileEntry {
+  const TorrentFileEntry({
+    required this.index,
+    required this.path,
+    required this.size,
+    required this.progress,
+    required this.wanted,
+  });
+
+  final int index;
+
+  /// Path relative to the torrent root — what the keep-set is expressed in.
+  final String path;
+  final int size;
+  final double progress;
+  final bool wanted;
+
+  /// Just the filename, for display.
+  String get name => path.split('/').last;
+
+  TorrentFileEntry copyWith({bool? wanted}) => TorrentFileEntry(
+        index: index,
+        path: path,
+        size: size,
+        progress: progress,
+        wanted: wanted ?? this.wanted,
+      );
+
+  factory TorrentFileEntry.fromJson(Map<String, Object?> j) => TorrentFileEntry(
+        index: (j['index'] as num?)?.toInt() ?? 0,
+        path: (j['path'] as String?) ?? '',
+        size: (j['size'] as num?)?.toInt() ?? 0,
+        progress: (j['progress'] as num?)?.toDouble() ?? 0,
+        wanted: (j['wanted'] as bool?) ?? true,
+      );
 }
 
 class UploadOffsetConflict implements Exception {
