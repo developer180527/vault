@@ -19,6 +19,7 @@ class BackupState {
     this.phase = BackupPhase.idle,
     this.found = 0,
     this.done = 0,
+    this.uploaded = 0,
     this.failed = 0,
     this.current = '',
     this.error = '',
@@ -33,6 +34,11 @@ class BackupState {
   /// Items confirmed on the server this run (uploaded or already there).
   final int done;
 
+  /// Of [done], how many this run actually SENT. Zero means the pass only
+  /// verified — the difference the status text must show, or a post-reinstall
+  /// re-hash reads as a full re-upload.
+  final int uploaded;
+
   final int failed;
 
   /// Filename currently uploading (uploading phase only).
@@ -45,6 +51,7 @@ class BackupState {
     BackupPhase? phase,
     int? found,
     int? done,
+    int? uploaded,
     int? failed,
     String? current,
     String? error,
@@ -53,6 +60,7 @@ class BackupState {
     phase: phase ?? this.phase,
     found: found ?? this.found,
     done: done ?? this.done,
+    uploaded: uploaded ?? this.uploaded,
     failed: failed ?? this.failed,
     current: current ?? this.current,
     error: error ?? this.error,
@@ -132,6 +140,7 @@ class BackupEngine extends Notifier<BackupState> {
         phase: t.phase,
         found: t.found,
         done: t.done,
+        uploaded: t.uploaded,
         failed: t.failed,
         // null keeps the previous value — don't blank the current filename or
         // error between per-item ticks.
@@ -157,6 +166,7 @@ class BackupEngine extends Notifier<BackupState> {
           : BackupPhase.done,
       found: outcome.found,
       done: outcome.done,
+      uploaded: outcome.uploaded,
       failed: outcome.failed,
       current: '',
       error: outcome.failed > 0

@@ -10,7 +10,12 @@ import '../../../core/logging/vault_log.dart';
 import '../../media/data/local_media_library.dart';
 
 /// Where the backup engine is in its lifecycle.
-enum BackupPhase { idle, scanning, uploading, done, error }
+/// [verifying] is deliberately distinct from [uploading]: most of a run is
+/// usually hashing local files and asking the server what it already has, and
+/// reporting that as "backing up" makes a pass that sends NOTHING look like a
+/// full re-upload. That is exactly what it looks like after a reinstall, when
+/// the on-disk ledger is gone and every item has to be re-hashed to rebuild it.
+enum BackupPhase { idle, scanning, verifying, uploading, done, error }
 
 /// A progress tick emitted from [runBackupCore] — the UI-agnostic shape both
 /// the foreground engine (→ [BackupState]) and the headless background task
@@ -20,6 +25,7 @@ class BackupTick {
     required this.phase,
     this.found = 0,
     this.done = 0,
+    this.uploaded = 0,
     this.failed = 0,
     this.current = '',
     this.error = '',
@@ -27,7 +33,16 @@ class BackupTick {
 
   final BackupPhase phase;
   final int found;
+
+  /// Items confirmed to be on the server — whether this run sent them or just
+  /// verified they were already there.
   final int done;
+
+  /// Of [done], how many bytes actually went over the wire this run. Zero on a
+  /// pure verification pass, which is what lets the UI say "nothing to upload"
+  /// instead of implying it re-sent everything.
+  final int uploaded;
+
   final int failed;
   final String current;
   final String error;
@@ -39,12 +54,17 @@ class BackupOutcome {
     required this.found,
     required this.done,
     required this.failed,
+    this.uploaded = 0,
     this.error = '',
     this.budgetHit = false,
   });
 
   final int found;
   final int done;
+
+  /// How many items this run actually transferred (vs. merely confirmed).
+  final int uploaded;
+
   final int failed;
   final String error;
 
@@ -209,6 +229,7 @@ Future<BackupOutcome> runBackupCore({
   }
 
   var done = found - todo.length;
+  var uploaded = 0;
   var failed = 0;
   var budgetHit = false;
   log.info('camera roll scanned', fields: {
@@ -229,6 +250,13 @@ Future<BackupOutcome> runBackupCore({
         start, start + chunk > todo.length ? todo.length : start + chunk);
 
     // Hash: stream each original from disk (never whole-file in memory).
+    // This is VERIFYING, not uploading — on a reinstall it's the entire run.
+    onTick?.call(BackupTick(
+        phase: BackupPhase.verifying,
+        found: found,
+        done: done,
+        uploaded: uploaded,
+        failed: failed));
     final hashed = <(MediaItem, File, String)>[];
     for (final item in batch) {
       try {
@@ -243,7 +271,11 @@ Future<BackupOutcome> runBackupCore({
     }
     if (hashed.isEmpty) {
       onTick?.call(BackupTick(
-          phase: BackupPhase.uploading, found: found, done: done, failed: failed));
+          phase: BackupPhase.verifying,
+          found: found,
+          done: done,
+          uploaded: uploaded,
+          failed: failed));
       continue;
     }
 
@@ -257,13 +289,16 @@ Future<BackupOutcome> runBackupCore({
 
     for (final (item, file, hash) in hashed) {
       if (!missing.contains(hash)) {
-        // Already on the server (e.g. this user's other device) — record it.
+        // Already on the server (another device, or a ledger we just lost to a
+        // reinstall). Nothing is sent — stay in [verifying] so the UI can't
+        // imply a re-upload.
         await ledger.record(item.id, hash);
         done++;
         onTick?.call(BackupTick(
-            phase: BackupPhase.uploading,
+            phase: BackupPhase.verifying,
             found: found,
             done: done,
+            uploaded: uploaded,
             failed: failed));
         continue;
       }
@@ -282,6 +317,7 @@ Future<BackupOutcome> runBackupCore({
           phase: BackupPhase.uploading,
           found: found,
           done: done,
+          uploaded: uploaded,
           failed: failed,
           current: name));
       if (beforeUpload != null) await beforeUpload();
@@ -309,6 +345,7 @@ Future<BackupOutcome> runBackupCore({
         });
         await ledger.record(item.id, hash);
         done++;
+        uploaded++;
       } catch (e) {
         failed++;
         log.warn('upload failed', fields: {'name': name, 'err': '$e'});
@@ -317,6 +354,7 @@ Future<BackupOutcome> runBackupCore({
           phase: BackupPhase.uploading,
           found: found,
           done: done,
+          uploaded: uploaded,
           failed: failed));
     }
   }
@@ -356,6 +394,16 @@ Future<BackupOutcome> runBackupCore({
 
   await ledger.flush();
   onBatch?.call();
+  log.info('backup pass complete', fields: {
+    'found': found,
+    'confirmed': done,
+    'uploaded': uploaded,
+    'failed': failed,
+  });
   return BackupOutcome(
-      found: found, done: done, failed: failed, budgetHit: budgetHit);
+      found: found,
+      done: done,
+      uploaded: uploaded,
+      failed: failed,
+      budgetHit: budgetHit);
 }

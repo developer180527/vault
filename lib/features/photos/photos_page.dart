@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../media/data/local_media_library.dart';
 import '../media/data/media_providers.dart';
 import 'data/backup_engine.dart';
+import 'data/backup_status.dart';
 import 'photos_timeline_page.dart';
 
 /// Opens the backup sheet over the whole shell — backup is a PROPERTY of the
@@ -53,8 +54,7 @@ class BackupSheet extends ConsumerWidget {
     final auto = ref.watch(autoBackupPrefProvider).asData?.value ?? false;
     final listing = ref.watch(backupListingProvider).asData?.value;
     final access = ref.watch(mediaAccessProvider).asData?.value;
-    final running = state.phase == BackupPhase.scanning ||
-        state.phase == BackupPhase.uploading;
+    final running = backupIsRunning(state);
 
     return SafeArea(
       top: false,
@@ -81,12 +81,7 @@ class BackupSheet extends ConsumerWidget {
                   Row(
                     children: [
                       Icon(
-                        switch (state.phase) {
-                          BackupPhase.done => Icons.cloud_done_outlined,
-                          BackupPhase.error => Icons.cloud_off_outlined,
-                          BackupPhase.idle => Icons.cloud_outlined,
-                          _ => Icons.cloud_upload_outlined,
-                        },
+                        backupStatusIcon(state),
                         color: state.phase == BackupPhase.error
                             ? scheme.error
                             : scheme.primary,
@@ -94,13 +89,7 @@ class BackupSheet extends ConsumerWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          switch (state.phase) {
-                            BackupPhase.idle => 'Ready to back up',
-                            BackupPhase.scanning => 'Scanning camera roll…',
-                            BackupPhase.uploading => 'Backing up…',
-                            BackupPhase.done => 'Backed up',
-                            BackupPhase.error => 'Backup incomplete',
-                          },
+                          backupStatusTitle(state),
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),
@@ -121,9 +110,7 @@ class BackupSheet extends ConsumerWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      state.current.isEmpty
-                          ? '${state.done} of ${state.found}'
-                          : '${state.done} of ${state.found} — ${state.current}',
+                      backupProgressDetail(state),
                       style: Theme.of(context).textTheme.bodySmall,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

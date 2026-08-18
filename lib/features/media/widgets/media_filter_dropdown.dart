@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/capability/manifest_providers.dart';
 import '../../photos/data/backup_engine.dart';
+import '../../photos/data/backup_status.dart';
 import '../../photos/photos_page.dart';
 import '../data/local_media_library.dart';
 import '../data/media_providers.dart';
@@ -71,8 +72,7 @@ class _BackupButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(backupEngineProvider);
-    final running = state.phase == BackupPhase.scanning ||
-        state.phase == BackupPhase.uploading;
+    final running = backupIsRunning(state);
     return InkWell(
       customBorder: const CircleBorder(),
       onTap: () => openBackupSheet(context),
@@ -84,9 +84,7 @@ class _BackupButton extends ConsumerWidget {
           shape: BoxShape.circle,
         ),
         child: Tooltip(
-          message: running
-              ? 'Backing up ${state.done} of ${state.found}'
-              : 'Back up to your Vault',
+          message: backupTooltip(state),
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -102,11 +100,7 @@ class _BackupButton extends ConsumerWidget {
                   ),
                 ),
               Icon(
-                switch (state.phase) {
-                  BackupPhase.done => Icons.cloud_done_outlined,
-                  BackupPhase.error => Icons.cloud_off_outlined,
-                  _ => Icons.cloud_upload_outlined,
-                },
+                backupStatusIcon(state),
                 size: 18,
                 color: scheme.onSecondaryContainer,
               ),

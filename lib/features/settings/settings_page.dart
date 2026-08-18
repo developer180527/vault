@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -30,16 +32,25 @@ class SettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Wide windows (desktop/tablet): settings read as a centered column, not
-    // full-bleed rows stretched across the whole screen.
-    final wide = MediaQuery.sizeOf(context).width > 700;
+    // Margins scale with the window instead of pinning content to a phone-width
+    // column. A fixed 620pt cap meant a 1800pt desktop window showed a narrow
+    // strip marooned in ~600pt of empty gutter on each side.
+    //
+    // Two rules, and the wider one wins:
+    //   - a proportional margin (~4.5%) so sections reach almost to the edges
+    //     and shrink gracefully as the window narrows;
+    //   - a ceiling on CONTENT width, because these rows put a label at one end
+    //     and its control at the other — past a point the eye has to travel too
+    //     far to connect them, and an ultrawide monitor would be unreadable.
+    final width = MediaQuery.sizeOf(context).width;
+    const maxContent = 1500.0;
+    final side = width <= 700
+        ? 16.0 // phone: plain margins, unchanged
+        : math.max((width * 0.045).clamp(24.0, 96.0), (width - maxContent) / 2);
     return ListView(
       // Include the bottom safe-area inset so the last row clears the iOS home
       // indicator / bottom nav on release builds.
-      padding: EdgeInsets.fromLTRB(
-          wide ? (MediaQuery.sizeOf(context).width - 620) / 2 : 16,
-          16,
-          wide ? (MediaQuery.sizeOf(context).width - 620) / 2 : 16,
+      padding: EdgeInsets.fromLTRB(side, 16, side,
           16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
         const _SectionHeader('Appearance'),
