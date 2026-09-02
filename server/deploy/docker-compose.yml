@@ -53,6 +53,21 @@ services:
       - VAULTD_QBIT_PASSWORD=${QBIT_PASSWORD}
     volumes:
       - /srv/vault:/srv/vault
+    # Resolve MagicDNS names from inside the container. vaultd performs OIDC
+    # DISCOVERY against VAULTD_OIDC_ISSUER above — a tailnet name — and Docker's
+    # embedded resolver cannot forward to Tailscale's DNS on its own, so the
+    # lookup failed with "no such host on 127.0.0.11:53" and every admin login
+    # returned 503 ("The identity provider is unreachable"). The host resolved
+    # the name fine and the IP was routable from the container; only resolution
+    # was missing.
+    #
+    # 100.100.100.100 is Tailscale's fixed resolver address — the same on every
+    # tailnet — so this pins no node-specific IP. It sets the UPSTREAM for
+    # Docker's embedded DNS rather than replacing it: /etc/resolv.conf still
+    # points at 127.0.0.11, so compose service names (qbittorrent, pocket-id)
+    # keep resolving. Verified all three before shipping.
+    dns:
+      - 100.100.100.100
     depends_on:
       - pocket-id
       - qbittorrent

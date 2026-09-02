@@ -4,10 +4,10 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 115;
-  static const String commit = 'f325cb8';
-  static const String commitSubject = 'qBittorrent: accept the session cookie 5.x actually issues';
-  static const String date = '2026-08-05';
+  static const int build = 120;
+  static const String commit = 'b1e160e';
+  static const String commitSubject = 'Settings: let sections use the window on desktop and iPad';
+  static const String date = '2026-08-19';
 
   static String get label =>
       build == 0 ? '$version (dev)' : '$version (build $build)';

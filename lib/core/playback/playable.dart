@@ -23,6 +23,24 @@ class AudioTrackOption {
   final bool isDefault;
 }
 
+/// One selectable subtitle track, in the same engine-neutral shape as
+/// [AudioTrackOption] so the shared video chrome can render a picker without
+/// knowing which decoder produced the list. [index] is the ordinal among the
+/// source's subtitle streams; "off" is represented by a null selection rather
+/// than an entry here.
+@immutable
+class SubtitleTrackOption {
+  const SubtitleTrackOption({
+    required this.index,
+    required this.label,
+    this.isDefault = false,
+  });
+
+  final int index;
+  final String label;
+  final bool isDefault;
+}
+
 /// One playable item — THE unit of the centralized playback machinery.
 ///
 /// Every playback surface (local music, a server file, a future movie

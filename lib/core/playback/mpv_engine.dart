@@ -120,6 +120,19 @@ class MpvEngine {
     _log.info('mpv opened', fields: {'title': item.title});
   }
 
+  /// Repeat the current file forever. mpv expresses this as a playlist mode;
+  /// [PlaylistMode.single] loops the one item rather than advancing.
+  bool get looping => _looping;
+  bool _looping = false;
+
+  Future<void> setLooping(bool value) async {
+    _looping = value;
+    await _player.setPlaylistMode(
+        value ? PlaylistMode.single : PlaylistMode.none);
+    _log.info('mpv loop', fields: {'on': value});
+    _emit();
+  }
+
   Future<void> playPause() =>
       _player.state.playing ? _player.pause() : _player.play();
   Future<void> play() => _player.play();

@@ -30,6 +30,11 @@ class _MpvPlaybackPageState extends State<MpvPlaybackPage> {
   MpvState _state = const MpvState();
   StreamSubscription<MpvState>? _sub;
   int _audio = 0;
+
+  /// Selected subtitle ordinal; null = off, which is where mpv starts unless
+  /// the container flags a default.
+  int? _subtitle;
+
   bool _opening = true;
   Object? _error;
 
@@ -74,6 +79,14 @@ class _MpvPlaybackPageState extends State<MpvPlaybackPage> {
     ];
   }
 
+  /// Subtitles come straight from the container — no server involvement, and
+  /// no format restriction: libmpv renders embedded ASS/PGS itself, which the
+  /// native engine can't display at all.
+  List<SubtitleTrackOption> get _subtitles => [
+        for (var i = 0; i < _state.subtitleTracks.length; i++)
+          SubtitleTrackOption(index: i, label: _state.subtitleTracks[i].label),
+      ];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -108,6 +121,12 @@ class _MpvPlaybackPageState extends State<MpvPlaybackPage> {
             onSelectAudio: (i) async {
               setState(() => _audio = i);
               await _engine.setAudioTrackAt(i);
+            },
+            subtitleTracks: _subtitles,
+            currentSubtitle: _subtitle,
+            onSelectSubtitle: (i) async {
+              setState(() => _subtitle = i);
+              await _engine.setSubtitleTrackAt(i);
             },
           );
         },

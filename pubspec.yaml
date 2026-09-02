@@ -74,43 +74,55 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 # App icon generation (run: dart run flutter_launcher_icons).
-# Source: assets/Rainbow_Sunflower.png (transparent). We pre-composite the
-# per-platform variants in assets/icon/ so each platform gets exactly what its
-# launcher expects:
-#   - iOS 18 does a TRUE light/dark flip: the light asset bakes a white bg, and
-#     image_path_ios_dark_transparent is transparent so iOS fills the dark bg
-#     itself (this is the "white on light, black on dark" the user wanted).
-#     The tinted-grayscale asset feeds iOS 18's tinted mode.
-#   - Android: the adaptive background is a FIXED colour (launchers don't flip
-#     it with system dark mode), so it's white; the monochrome asset drives
-#     Android 13+ themed icons, which the OS tints to match the wallpaper.
-#   - macOS / Windows / web can't theme-flip the icon either → static white bg.
+#
+# Source of truth is assets/New_Icon#2/:
+#   - Vault_icon.icon  — Icon Composer. THIS is what Apple platforms actually
+#     ship: it carries the layered/glass artwork and `"fill": "automatic"`, so
+#     iOS 26 / macOS 26 render the light, dark, tinted and clear appearances
+#     themselves. It's wired into the Xcode projects directly (see
+#     ASSETCATALOG_COMPILER_APPICON_NAME = Vault_icon) — flutter_launcher_icons
+#     does NOT produce it and cannot.
+#   - Vault_Icon.png   — the flat light rendering, for everything else.
+#
+# The variants below are derived (tool/gen_icons.sh) because each launcher
+# wants a different shape:
+#   - icon_apple  — the artist's PNG, Apple squircle baked in, transparent
+#     corners. Only a FALLBACK for OS versions predating the .icon format.
+#   - icon_square — flower on a white square. Windows/web draw the file as-is
+#     and would otherwise show the squircle's transparent corners.
+#   - icon_fg     — flower at 66% on transparent: Android's adaptive-icon safe
+#     zone. The launcher applies its own mask, so feeding it a pre-masked
+#     squircle would get double-masked.
+#   - icon_mono   — the same silhouette in flat black for Android 13+ themed
+#     icons, which the OS tints to the wallpaper.
 flutter_launcher_icons:
-  image_path: "assets/icon/icon_light.png"
+  image_path: "assets/icon/icon_square.png"
 
   android: true
   adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: "assets/icon/icon_fg.png"
   adaptive_icon_monochrome: "assets/icon/icon_mono.png"
 
+  # iOS/macOS below are the pre-Icon-Composer fallback path only.
   ios: true
   remove_alpha_ios: true
-  image_path_ios: "assets/icon/icon_light.png"
+  image_path_ios: "assets/icon/icon_apple.png"
   image_path_ios_dark_transparent: "assets/icon/icon_dark_transparent.png"
   image_path_ios_tinted_grayscale: "assets/icon/icon_tinted.png"
+  desaturate_tinted_to_grayscale_ios: true
 
   macos:
     generate: true
-    image_path: "assets/icon/icon_light.png"
+    image_path: "assets/icon/icon_apple.png"
 
   windows:
     generate: true
-    image_path: "assets/icon/icon_light.png"
+    image_path: "assets/icon/icon_square.png"
     icon_size: 256
 
   web:
     generate: true
-    image_path: "assets/icon/icon_light.png"
+    image_path: "assets/icon/icon_square.png"
     background_color: "#ffffff"
     theme_color: "#ffffff"
 

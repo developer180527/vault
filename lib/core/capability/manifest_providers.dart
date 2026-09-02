@@ -157,7 +157,21 @@ final manifestProvider =
 final permittedServicesProvider = Provider<List<ServiceDefinition>>((ref) {
   final manifest = ref.watch(manifestProvider).asData?.value;
   final all = ref.watch(serviceRegistryProvider);
-  if (manifest == null) return const [];
+  // Before the manifest lands, serve the services that need NO server at all
+  // (the media browser reads this device's own photos; Settings and You are
+  // local identity/prefs). Returning an empty list here is what used to strand
+  // the whole app behind a full-screen "Connecting to your Vault…" — the shell
+  // had zero branches to render, so a slow or unreachable server blocked even
+  // the parts that never touch it.
+  //
+  // This is NOT a loosening of the security model: server-backed services stay
+  // hidden until the manifest actually grants them, exactly as before.
+  if (manifest == null) {
+    return [
+      for (final s in all)
+        if (s.alwaysAvailable) s,
+    ];
+  }
   return [
     for (final s in all)
       if (s.alwaysAvailable || manifest.has(s.id)) s,

@@ -27,6 +27,12 @@ abstract class VideoTransport implements Listenable {
   Future<void> pause();
   Future<void> seekTo(Duration to);
 
+  /// Repeat the current item forever. Both engines do this natively — AVPlayer
+  /// via `setLooping`, libmpv via its single-item playlist mode — so it costs
+  /// nothing and belongs on the shared surface rather than in one player.
+  bool get looping;
+  Future<void> setLooping(bool value);
+
   /// Seek by a delta, clamped to the media — the ±10s/±60s controls and the
   /// keyboard shortcuts all funnel through here so the clamping is written
   /// once rather than in each caller.
@@ -71,6 +77,11 @@ class VideoPlayerTransport implements VideoTransport {
   Future<void> seekTo(Duration to) => controller.seekTo(to);
 
   @override
+  bool get looping => controller.value.isLooping;
+  @override
+  Future<void> setLooping(bool value) => controller.setLooping(value);
+
+  @override
   Future<void> seekBy(Duration by) => _seekBy(this, by);
   @override
   Future<void> togglePlay() => isPlaying ? pause() : play();
@@ -109,6 +120,14 @@ class MpvTransport extends ChangeNotifier implements VideoTransport {
   Future<void> pause() => _engine.pause();
   @override
   Future<void> seekTo(Duration to) => _engine.seek(to);
+
+  @override
+  bool get looping => _engine.looping;
+  @override
+  Future<void> setLooping(bool value) async {
+    await _engine.setLooping(value);
+    notifyListeners();
+  }
 
   @override
   Future<void> seekBy(Duration by) => _seekBy(this, by);

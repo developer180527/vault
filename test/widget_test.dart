@@ -248,4 +248,29 @@ void main() {
     expect(canRead, isTrue);
     expect(revoked, isFalse); // revoked service → all actions denied
   });
+
+  test('the shell renders before the manifest arrives, without loosening grants',
+      () async {
+    // Regression: permittedServicesProvider used to return [] while the
+    // manifest was in flight, so the router had zero branches and the app sat
+    // behind a full-screen "Connecting to your Vault…" — blocking the media
+    // browser, Settings and You, none of which need the server at all.
+    final container = _container();
+    addTearDown(container.dispose);
+
+    // Read BEFORE awaiting the manifest: this is the cold-start instant.
+    final early = container.read(permittedServicesProvider);
+    expect(early, isNotEmpty,
+        reason: 'an empty permitted set strands the app on a splash screen');
+    expect(early.map((s) => s.id), contains('media'));
+
+    // ...but nothing server-backed leaks in early. Fail-closed still holds.
+    expect(early.every((s) => s.alwaysAvailable), isTrue,
+        reason: 'server-backed services must stay hidden until granted');
+    expect(early.map((s) => s.id), isNot(contains('files')));
+
+    await container.read(manifestProvider.future);
+    final after = container.read(permittedServicesProvider);
+    expect(after.length, greaterThanOrEqualTo(early.length));
+  });
 }

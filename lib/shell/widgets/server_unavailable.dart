@@ -72,9 +72,42 @@ class OfflineBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reachable = ref.watch(serverReachableProvider);
-    if (reachable) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
+    final connecting = ref.watch(manifestProvider).isLoading;
+    final reachable = ref.watch(serverReachableProvider);
+
+    // Connecting is INFORMATIONAL, not an error: the app is already usable and
+    // server-backed tabs will fill in when the manifest lands. This replaces
+    // the old full-screen "Connecting to your Vault…" splash, which blocked
+    // local features (the device's own photos, settings, identity) on a
+    // network round-trip they never needed.
+    if (connecting) {
+      return Material(
+        color: scheme.surfaceContainerHigh,
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: scheme.onSurfaceVariant),
+                ),
+                const SizedBox(width: 10),
+                Text('Connecting to your Vault…',
+                    style: TextStyle(
+                        color: scheme.onSurfaceVariant, fontSize: 12.5)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (reachable) return const SizedBox.shrink();
     return Material(
       color: scheme.errorContainer,
       child: InkWell(

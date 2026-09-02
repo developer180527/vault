@@ -33,6 +33,9 @@ class VideoSurface extends StatelessWidget {
     this.audioTracks = const [],
     this.currentAudioTrack = 0,
     this.onSelectAudio,
+    this.subtitleTracks = const [],
+    this.currentSubtitle,
+    this.onSelectSubtitle,
   })  : transport = VideoPlayerTransport(controller),
         picture = _AspectVideo(controller: controller);
 
@@ -48,6 +51,9 @@ class VideoSurface extends StatelessWidget {
     this.audioTracks = const [],
     this.currentAudioTrack = 0,
     this.onSelectAudio,
+    this.subtitleTracks = const [],
+    this.currentSubtitle,
+    this.onSelectSubtitle,
   });
 
   final VideoTransport transport;
@@ -72,6 +78,11 @@ class VideoSurface extends StatelessWidget {
   final int currentAudioTrack;
   final ValueChanged<int>? onSelectAudio;
 
+  /// Subtitle tracks the source declares; null [currentSubtitle] means off.
+  final List<SubtitleTrackOption> subtitleTracks;
+  final int? currentSubtitle;
+  final ValueChanged<int?>? onSelectSubtitle;
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -87,6 +98,9 @@ class VideoSurface extends StatelessWidget {
               audioTracks: audioTracks,
               currentAudioTrack: currentAudioTrack,
               onSelectAudio: onSelectAudio,
+              subtitleTracks: subtitleTracks,
+              currentSubtitle: currentSubtitle,
+              onSelectSubtitle: onSelectSubtitle,
             ),
           ),
         // Above the controls so a stall is visible even mid-interaction.
@@ -132,6 +146,9 @@ class VideoControls extends StatefulWidget {
     this.audioTracks = const [],
     this.currentAudioTrack = 0,
     this.onSelectAudio,
+    this.subtitleTracks = const [],
+    this.currentSubtitle,
+    this.onSelectSubtitle,
   });
 
   final VideoTransport transport;
@@ -144,6 +161,11 @@ class VideoControls extends StatefulWidget {
   final List<AudioTrackOption> audioTracks;
   final int currentAudioTrack;
   final ValueChanged<int>? onSelectAudio;
+
+  /// Subtitle tracks; null [currentSubtitle] means off.
+  final List<SubtitleTrackOption> subtitleTracks;
+  final int? currentSubtitle;
+  final ValueChanged<int?>? onSelectSubtitle;
 
   @override
   State<VideoControls> createState() => _VideoControlsState();
@@ -259,20 +281,40 @@ class _VideoControlsState extends State<VideoControls> {
                     // than one. Lives HERE rather than in a specific page so
                     // every video surface — catalog movies, a Files video,
                     // anything later — gets it from the same code.
-                    if (widget.audioTracks.length > 1)
-                      Positioned(
-                        top: 0,
-                        right: 0,
-                        child: SafeArea(
-                          bottom: false,
-                          child: _AudioTrackButton(
-                            tracks: widget.audioTracks,
-                            current: widget.currentAudioTrack,
-                            onSelect: widget.onSelectAudio,
-                            onInteract: _scheduleHide,
-                          ),
+                    // Track pickers + loop, grouped top-right. Each hides
+                    // itself when the source has nothing to offer, so a plain
+                    // single-track MP4 shows only the loop toggle.
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: SafeArea(
+                        bottom: false,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (widget.audioTracks.length > 1)
+                              _AudioTrackButton(
+                                tracks: widget.audioTracks,
+                                current: widget.currentAudioTrack,
+                                onSelect: widget.onSelectAudio,
+                                onInteract: _scheduleHide,
+                              ),
+                            if (widget.subtitleTracks.isNotEmpty &&
+                                widget.onSelectSubtitle != null)
+                              _SubtitleButton(
+                                tracks: widget.subtitleTracks,
+                                current: widget.currentSubtitle,
+                                onSelect: widget.onSelectSubtitle!,
+                                onInteract: _scheduleHide,
+                              ),
+                            _LoopButton(
+                              transport: widget.transport,
+                              onInteract: _scheduleHide,
+                            ),
+                          ],
                         ),
                       ),
+                    ),
                     // Top chrome (back bar / pickers), fading with everything
                     // else. SafeArea keeps it clear of the notch.
                     if (widget.topOverlay != null)
@@ -437,6 +479,98 @@ class _CenterControls extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Subtitle selection. Only rendered when the source actually declares tracks
+/// — which in practice means an MKV opened by libmpv, where the tracks are read
+/// from the container and switched in-player (including embedded ASS/PGS the
+/// native engine cannot draw at all).
+class _SubtitleButton extends StatelessWidget {
+  const _SubtitleButton({
+    required this.tracks,
+    required this.current,
+    required this.onSelect,
+    required this.onInteract,
+  });
+
+  final List<SubtitleTrackOption> tracks;
+
+  /// null = subtitles off.
+  final int? current;
+  final ValueChanged<int?> onSelect;
+  final VoidCallback onInteract;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<int?>(
+      tooltip: 'Subtitles',
+      // A filled glyph when subtitles are ON, so the state is readable without
+      // opening the menu.
+      icon: Icon(
+        current == null ? Icons.subtitles_outlined : Icons.subtitles,
+        color: Colors.white,
+      ),
+      onOpened: onInteract,
+      onSelected: (i) {
+        onInteract();
+        onSelect(i);
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<int?>(
+          value: null,
+          child: _row(context, 'Off', current == null),
+        ),
+        for (final t in tracks)
+          PopupMenuItem<int?>(
+            value: t.index,
+            child: _row(context, t.label, t.index == current),
+          ),
+      ],
+    );
+  }
+
+  Widget _row(BuildContext context, String label, bool selected) => Row(
+        children: [
+          Icon(Icons.check,
+              size: 16,
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.transparent),
+          const SizedBox(width: 8),
+          Text(label),
+        ],
+      );
+}
+
+/// Repeat-one toggle. Reads its state straight off the transport so it stays
+/// truthful if looping is changed from anywhere else.
+class _LoopButton extends StatelessWidget {
+  const _LoopButton({required this.transport, required this.onInteract});
+
+  final VideoTransport transport;
+  final VoidCallback onInteract;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: transport,
+      builder: (context, _) {
+        final on = transport.looping;
+        return IconButton(
+          tooltip: on ? 'Looping — tap to stop' : 'Loop this video',
+          icon: Icon(
+            on ? Icons.repeat_one : Icons.repeat,
+            // Tint when active: a repeat glyph alone reads the same on and off.
+            color: on ? Theme.of(context).colorScheme.primary : Colors.white,
+          ),
+          onPressed: () {
+            transport.setLooping(!on);
+            onInteract();
+          },
+        );
+      },
     );
   }
 }

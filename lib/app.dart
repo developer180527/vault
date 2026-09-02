@@ -134,27 +134,29 @@ final vaultServices = <ServiceDefinition>[
 /// splash; if it fails we fail closed with a retry (never assume access); on
 /// success we build one stateful branch per permitted service so each keeps its
 /// own navigation stack. Rebuilt when grants change (a rare event).
+/// Where the user was when the router was last torn down. The router is
+/// REBUILT when the permitted set changes — which now happens on every cold
+/// start, the moment the manifest arrives and server-backed branches appear.
+/// Without this, that rebuild would snap you back to the landing tab a second
+/// after launch.
+String? _lastLocation;
+
 final routerProvider = Provider<GoRouter>((ref) {
-  final manifest = ref.watch(manifestProvider);
   final services = ref.watch(permittedServicesProvider);
 
   final List<RouteBase> routes;
   final String initialLocation;
 
-  if (manifest.isLoading || services.isEmpty && !manifest.hasError) {
+  // The shell renders as soon as there is ANYTHING to show, which is
+  // immediately: [permittedServicesProvider] always yields the always-available
+  // services. Connectivity is a per-page concern from here on — server-backed
+  // pages show [ServerUnavailable] and the shell carries [OfflineBanner] — so a
+  // slow or dead server no longer blocks the local parts of the app behind a
+  // full-screen splash. The splash below is now only reachable if the service
+  // REGISTRY itself is empty, which is a programming error, not a network one.
+  if (services.isEmpty) {
     initialLocation = '/_boot';
     routes = [GoRoute(path: '/_boot', builder: (_, _) => const SplashScreen())];
-  } else if (manifest.hasError) {
-    initialLocation = '/_boot';
-    routes = [
-      GoRoute(
-        path: '/_boot',
-        builder: (_, _) => ManifestErrorScreen(
-          error: manifest.error!,
-          onRetry: () => ref.read(manifestProvider.notifier).reload(),
-        ),
-      ),
-    ];
   } else {
     // Landing tab: prefer the first real CONTENT service; fall back to the You
     // page, and never Settings. A zero-grant member's permitted set is only
@@ -205,7 +207,20 @@ final routerProvider = Provider<GoRouter>((ref) {
     ];
   }
 
-  return GoRouter(initialLocation: initialLocation, routes: routes);
+  // Resume where they were, but only if that tab still exists in the new
+  // permitted set — a branch that vanished (grant revoked) would otherwise
+  // route to nothing.
+  final resume = _lastLocation != null &&
+          services.any((s) => '/${s.id}' == _lastLocation)
+      ? _lastLocation!
+      : initialLocation;
+
+  final router = GoRouter(initialLocation: resume, routes: routes);
+  ref.onDispose(() {
+    final at = router.routerDelegate.currentConfiguration.uri.toString();
+    if (at != '/_boot') _lastLocation = at;
+  });
+  return router;
 });
 
 class VaultApp extends ConsumerWidget {
