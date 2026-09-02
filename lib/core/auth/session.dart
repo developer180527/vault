@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import '../logging/vault_log.dart';
+import '../util/single_flight.dart';
 
 final _log = VaultLog.tag('auth');
 
@@ -211,8 +212,10 @@ class SessionController extends AsyncNotifier<Session?> {
     ));
   }
 
-  /// In-flight refresh, shared by all concurrent callers (single-flight).
-  Future<Session?>? _refreshing;
+  /// In-flight refresh, shared by all concurrent callers. The coalescing (and
+  /// the reason it must not leak an uncaught error) lives in [SingleFlight],
+  /// where it's covered by tests.
+  final _refresh = SingleFlight<Session?>();
 
   /// Refreshes the token pair. Returns the new session, or null when the
   /// device has been revoked (session cleared → back to login).
@@ -225,18 +228,7 @@ class SessionController extends AsyncNotifier<Session?> {
   /// grace — get the device REVOKED, and their out-of-order persists could
   /// even store a stale token that bricks the NEXT launch. Sharing one
   /// in-flight future means exactly one rotation and one persist.
-  Future<Session?> refresh() {
-    final inflight = _refreshing;
-    if (inflight != null) return inflight;
-    final f = _doRefresh();
-    _refreshing = f;
-    // Clear only if we're still the current in-flight future (a later refresh
-    // may have replaced us).
-    f.whenComplete(() {
-      if (identical(_refreshing, f)) _refreshing = null;
-    });
-    return f;
-  }
+  Future<Session?> refresh() => _refresh.run(_doRefresh);
 
   Future<Session?> _doRefresh() async {
     final s = state.asData?.value;
