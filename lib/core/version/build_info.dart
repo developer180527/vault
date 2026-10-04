@@ -4,10 +4,10 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 123;
-  static const String commit = 'e312d07';
-  static const String commitSubject = 'Tools: renew the macOS profile for `flutter run`, not just builds';
-  static const String date = '2026-09-04';
+  static const int build = 124;
+  static const String commit = 'b6b7ea7';
+  static const String commitSubject = 'Mobile: background video audio, a chrome tuning panel, iOS 15 target';
+  static const String date = '2026-10-04';
 
   static String get label =>
       build == 0 ? '$version (dev)' : '$version (build $build)';

@@ -21,7 +21,7 @@ import '../../core/tasks/background_tasks.dart';
 import '../../core/habits/habits.dart';
 import '../logs/log_viewer_page.dart';
 import 'local_data_page.dart';
-import 'chrome_tuning_page.dart';
+import 'chrome_tuning_overlay.dart';
 
 
 /// Settings. In debug it doubles as the **mock manifest editor** — a stand-in
@@ -109,12 +109,9 @@ class SettingsPage extends ConsumerWidget {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.tune),
             title: const Text('Bottom chrome tuning'),
-            subtitle: const Text('Dial in the dock and mini-player live'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                  builder: (_) => const ChromeTuningPage()),
-            ),
+            subtitle: const Text('Floating sliders — the dock stays visible'),
+            trailing: const Icon(Icons.open_in_new),
+            onTap: () => showChromeTuningOverlay(context),
           ),
         ],
 

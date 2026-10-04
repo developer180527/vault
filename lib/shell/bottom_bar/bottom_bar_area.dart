@@ -60,7 +60,11 @@ class BottomBarArea extends ConsumerWidget {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final bottomGap = math.max(6.0, bottomInset - tune.bottomLift);
 
-    final collapsed = tune.forceCollapsed || ref.watch(dockCollapsedProvider);
+    // NOT `tune.forceCollapsed || ...` — that pinned the dock collapsed and
+    // swallowed the tap to expand, leaving the chrome dead to the touch. The
+    // tuning switch drives the real provider instead (see the panel), so
+    // normal interaction keeps working while tuning.
+    final collapsed = ref.watch(dockCollapsedProvider);
     void open(String id) => _open(ref, id);
 
     return Padding(

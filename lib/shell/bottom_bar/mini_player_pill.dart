@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../core/debug/chrome_tuning.dart';
 import '../../core/platform/design/adaptive_icons.dart';
 import '../../core/playback/playable.dart';
 import '../../core/playback/playback_controller.dart';
 import '../../features/media/data/server_music.dart';
 import '../../features/media/music_player_page.dart';
-import 'metrics.dart';
 
 /// Mini-player leading art: embedded bytes (local files) or bearer-cached
 /// network art (server streams), music-note fallback.
@@ -26,7 +26,7 @@ class MiniArt extends ConsumerWidget {
                 .watch(artBytesProvider(track.artworkUri!.toString()))
                 .asData
                 ?.value);
-    const side = kMiniPlayerHeight - 12;
+    final side = ref.watch(chromeTuningProvider).miniHeight - 12;
     return ClipRRect(
       borderRadius: BorderRadius.circular(7),
       child: SizedBox(
@@ -55,8 +55,14 @@ class MiniPlayerPill extends ConsumerWidget {
     final controller = ref.read(playbackProvider.notifier);
     // select: rebuild on track changes only — video session churn is not this
     // pill's business.
-    final track = ref.watch(playbackProvider.select((s) => s.currentAudio));
+    final tune = ref.watch(chromeTuningProvider);
+    final real = ref.watch(playbackProvider.select((s) => s.currentAudio));
+    // While tuning, stand in a fake track so the pill actually RENDERS. Without
+    // this the dock squeezed open to make room for a pill that drew nothing,
+    // which read as "the toggle does nothing".
+    final track = real ?? (tune.forceMini ? _tuningPlaceholder : null);
     if (track == null) return const SizedBox.shrink();
+    final demo = real == null;
 
     // Glass is provided by the enclosing GlassSurface; here we just add a
     // transparent Material so the InkWell splash renders on top of it.
@@ -65,9 +71,9 @@ class MiniPlayerPill extends ConsumerWidget {
       child: InkWell(
         // Guarded opener: a pill tap while the player is already up (or a
         // double-tap) must not stack a second copy.
-        onTap: () => openMusicPlayer(context),
+        onTap: demo ? null : () => openMusicPlayer(context),
         child: SizedBox(
-          height: kMiniPlayerHeight,
+          height: tune.miniHeight,
           child: Row(
             children: [
               const SizedBox(width: 8),
@@ -89,7 +95,14 @@ class MiniPlayerPill extends ConsumerWidget {
                   ),
                 ),
               ),
-              StreamBuilder<PlayerState>(
+              if (demo)
+                const IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: AdaptiveIcon(VaultIcons.play, size: 20),
+                  onPressed: null,
+                )
+              else
+                StreamBuilder<PlayerState>(
                 stream: controller.player.playerStateStream,
                 builder: (context, snapshot) {
                   final playing = snapshot.data?.playing ?? false;
@@ -108,7 +121,7 @@ class MiniPlayerPill extends ConsumerWidget {
                 visualDensity: VisualDensity.compact,
                 tooltip: 'Next track',
                 icon: const AdaptiveIcon(VaultIcons.skipNext, size: 20),
-                onPressed: controller.next,
+                onPressed: demo ? null : controller.next,
               ),
               const SizedBox(width: 6),
             ],
@@ -118,3 +131,12 @@ class MiniPlayerPill extends ConsumerWidget {
     );
   }
 }
+
+/// Stand-in shown only while the tuning panel forces the mini-player on, so
+/// its size can be dialled in without finding something to play.
+final _tuningPlaceholder = Playable(
+  id: '_tuning',
+  kind: PlayableKind.audio,
+  uri: Uri.parse('vault://tuning'),
+  title: 'Sample Track — tuning',
+);
