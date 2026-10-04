@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/debug/chrome_tuning.dart';
 
 import '../../core/platform/design/glass_surface.dart';
-import 'metrics.dart';
 import 'mini_player_pill.dart';
 import 'you_circle.dart';
 
 /// The tucked-away chrome, one row: a 4-box button (tap → expand), the mini
 /// player stretched between (when a track is loaded), and the You circle.
-class CollapsedChrome extends StatelessWidget {
+class CollapsedChrome extends ConsumerWidget {
   const CollapsedChrome({
     super.key,
     required this.hasTrack,
@@ -22,11 +24,12 @@ class CollapsedChrome extends StatelessWidget {
   final VoidCallback onYou;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final tune = ref.watch(chromeTuningProvider);
     // Collapsed, everything shrinks to the mini-player's height so the 4-box,
     // the pill, and the You circle read as one consistent 44pt row.
-    const h = kMiniPlayerHeight;
+    final h = tune.miniHeight;
     return SizedBox(
       height: h,
       child: Row(
@@ -52,13 +55,13 @@ class CollapsedChrome extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: tune.gap),
           Expanded(
             child: hasTrack
                 ? GlassSurface(radius: h / 2, child: const MiniPlayerPill())
                 : const SizedBox.shrink(),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: tune.gap),
           YouCircle(selected: onUserPage, onTap: onYou, size: h),
         ],
       ),

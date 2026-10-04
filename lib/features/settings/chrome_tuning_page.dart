@@ -106,7 +106,9 @@ class _ChromeTuningPageState extends ConsumerState<ChromeTuningPage> {
                   padding:
                       EdgeInsets.symmetric(horizontal: tune.sideMargin),
                   child: SizedBox(
-                    height: tune.dockHeight,
+                    // No fixed height: expanded is now TALLER than the dock
+                    // (mini-player row + gap + dock row), so pinning it clipped
+                    // the pill clean off.
                     child: _collapsed
                         ? CollapsedChrome(
                             hasTrack: _showMini,
@@ -163,19 +165,13 @@ class _ChromeTuningPageState extends ConsumerState<ChromeTuningPage> {
                 _slider('Height', tune.miniHeight, 28, 72,
                     (v) => ctrl.update(tune.copyWith(miniHeight: v)),
                     unit: 'pt'),
-                _slider('Width share of row', tune.miniFraction, 0.2, 0.85,
-                    (v) => ctrl.update(tune.copyWith(miniFraction: v)),
-                    pct: true),
 
                 _head(scheme, 'Dock & You'),
                 _slider('Dock height', tune.dockHeight, 44, 96,
                     (v) => ctrl.update(tune.copyWith(dockHeight: v)),
                     unit: 'pt'),
-                _slider('You — idle', tune.youExpanded, 40, 96,
+                _slider('You circle', tune.youExpanded, 40, 96,
                     (v) => ctrl.update(tune.copyWith(youExpanded: v)),
-                    unit: 'pt'),
-                _slider('You — playing', tune.youShrunk, 32, 88,
-                    (v) => ctrl.update(tune.copyWith(youShrunk: v)),
                     unit: 'pt'),
 
                 _head(scheme, 'Spacing'),

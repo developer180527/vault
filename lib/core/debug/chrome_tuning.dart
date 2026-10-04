@@ -165,8 +165,6 @@ class ChromeTuning {
 const double kDockHeight = ${f(dockHeight)};
 const double kMiniPlayerHeight = ${f(miniHeight)};
 const double kYouExpanded = ${f(youExpanded)};
-const double kYouShrunk = ${f(youShrunk)};
-const double kMiniFraction = ${f(miniFraction)};
 const double kChromeGap = ${f(gap)};
 const double kChromeSideMargin = ${f(sideMargin)};
 const double kChromeBottomLift = ${f(bottomLift)};

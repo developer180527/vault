@@ -4,9 +4,9 @@ library;
 /// Build/version metadata, injected at build time.
 class BuildInfo {
   static const String version = '0.4.0';
-  static const int build = 125;
-  static const String commit = 'be876c9';
-  static const String commitSubject = 'Tuning: float the panel, and fix the two bugs that made it look dead';
+  static const int build = 126;
+  static const String commit = '3835cc1';
+  static const String commitSubject = 'Tuning: preview inside the page; hold a playback session for video';
   static const String date = '2026-10-04';
 
   static String get label =>
