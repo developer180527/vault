@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:video_player/video_player.dart';
@@ -209,6 +210,34 @@ class PlaybackController extends Notifier<PlaybackState> {
     }
   }
 
+  /// Configure + activate a playback-category session, once per process.
+  /// Category `playback` is what tells iOS this audio is the point of the app
+  /// (so it continues locked and interrupts other audio), and the matching
+  /// Android attributes drive the same decision there.
+  bool _sessionReady = false;
+  Future<void> _ensurePlaybackSession() async {
+    try {
+      final session = await AudioSession.instance;
+      if (!_sessionReady) {
+        await session.configure(const AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionMode: AVAudioSessionMode.moviePlayback,
+          androidAudioAttributes: AndroidAudioAttributes(
+            contentType: AndroidAudioContentType.movie,
+            usage: AndroidAudioUsage.media,
+          ),
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+        ));
+        _sessionReady = true;
+      }
+      await session.setActive(true);
+    } catch (e) {
+      // Never block playback on session setup — worst case is the old
+      // behaviour (audio stops when backgrounded).
+      _log.warn('audio session setup failed', fields: {'err': '$e'});
+    }
+  }
+
   Future<void> _loadSource(
       Uri uri, Map<String, String> headers, MediaItem tag) {
     return _player.setAudioSource(
@@ -341,6 +370,12 @@ class PlaybackController extends Notifier<PlaybackState> {
   Future<VideoPlayerController> openVideo(Playable item,
       {bool autoPlay = true}) async {
     assert(item.kind == PlayableKind.video);
+    // Hold a PLAYBACK audio session before anything starts decoding. Without
+    // one the OS treats video audio as incidental and silences it the moment
+    // the screen locks or the app backgrounds — which is why a clip from Files
+    // died on screen-off while music kept going (just_audio_background claims
+    // a session of its own; the video path never did).
+    await _ensurePlaybackSession();
     // A genuinely different title starts on its default audio; reopening the
     // SAME id is an audio switch, which must keep the chosen track.
     if (state.video?.id != item.id) _videoAudioTrack = 0;

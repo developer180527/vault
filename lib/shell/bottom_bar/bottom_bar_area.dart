@@ -51,8 +51,7 @@ class BottomBarArea extends ConsumerWidget {
     // select: this subtree re-lays-out only when the mini-player appears/
     // disappears, not on every playback event (track advance, video open).
     final tune = ref.watch(chromeTuningProvider);
-    // forceMini lets both states be tuned without hunting for a track to play.
-    final hasTrack = tune.forceMini ||
+    final hasTrack =
         ref.watch(playbackProvider.select((s) => s.currentAudio != null));
     final onUserPage = _currentId == 'user';
     // Sit a little lower than the OS-suggested inset (gesture bars reserve more
