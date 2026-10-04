@@ -21,6 +21,7 @@ import '../../core/tasks/background_tasks.dart';
 import '../../core/habits/habits.dart';
 import '../logs/log_viewer_page.dart';
 import 'local_data_page.dart';
+import 'chrome_tuning_page.dart';
 
 
 /// Settings. In debug it doubles as the **mock manifest editor** — a stand-in
@@ -95,6 +96,28 @@ class SettingsPage extends ConsumerWidget {
         const Divider(height: 32),
         const _SectionHeader('About'),
         const _AboutTile(),
+
+        // TEMPORARY: live tuning for the mobile bottom chrome. Deliberately
+        // NOT behind kDebugMode — the tuning happens on a sideloaded RELEASE
+        // build, where that flag is false and the Developer section below is
+        // invisible. Remove this (and chrome_tuning.dart) once the values are
+        // hardcoded into shell/bottom_bar/metrics.dart.
+        if (isAndroidOrIOS) ...[
+          const Divider(height: 32),
+          const _SectionHeader('Experimental'),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.tune),
+            title: const Text('Bottom chrome tuning'),
+            subtitle: const Text('Dial in the dock and mini-player live'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                  builder: (_) => const ChromeTuningPage()),
+            ),
+          ),
+        ],
+
         if (kDebugMode) ...[
           const Divider(height: 32),
           const _SectionHeader('Developer'),

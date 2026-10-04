@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/debug/chrome_tuning.dart';
 import '../../core/habits/habits.dart';
 import '../../core/playback/playback_controller.dart';
 import '../../core/services/service_registry.dart';
@@ -49,32 +50,35 @@ class BottomBarArea extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // select: this subtree re-lays-out only when the mini-player appears/
     // disappears, not on every playback event (track advance, video open).
-    final hasTrack = ref.watch(
-      playbackProvider.select((s) => s.currentAudio != null),
-    );
+    final tune = ref.watch(chromeTuningProvider);
+    // forceMini lets both states be tuned without hunting for a track to play.
+    final hasTrack = tune.forceMini ||
+        ref.watch(playbackProvider.select((s) => s.currentAudio != null));
     final onUserPage = _currentId == 'user';
     // Sit a little lower than the OS-suggested inset (gesture bars reserve more
     // than the chrome needs), but never flush against the screen edge.
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final bottomGap = math.max(6.0, bottomInset - 10.0);
+    final bottomGap = math.max(6.0, bottomInset - tune.bottomLift);
 
-    final collapsed = ref.watch(dockCollapsedProvider);
+    final collapsed = tune.forceCollapsed || ref.watch(dockCollapsedProvider);
     void open(String id) => _open(ref, id);
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, bottomGap),
+      padding: EdgeInsets.fromLTRB(
+          tune.sideMargin, 0, tune.sideMargin, bottomGap),
       child: AnimatedSize(
-        duration: kChromeAnim,
-        curve: kChromeCurve,
+        duration: tune.anim,
+        curve: tune.flutterCurve,
         alignment: Alignment.bottomCenter,
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
+          duration: tune.switcher,
           switchInCurve: Curves.easeOut,
           switchOutCurve: Curves.easeIn,
           transitionBuilder: (child, anim) => FadeTransition(
             opacity: anim,
             child: ScaleTransition(
-              scale: Tween(begin: 0.97, end: 1.0).animate(anim),
+              scale: Tween(begin: tune.switcherScale, end: 1.0)
+                  .animate(anim),
               child: child,
             ),
           ),

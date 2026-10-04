@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart'
-    show AppLifecycleListener, AppLifecycleState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -98,15 +96,25 @@ class PlaybackController extends Notifier<PlaybackState> {
 
   @override
   PlaybackState build() {
-    // Pause VIDEO when the app leaves the foreground; audio deliberately keeps
-    // playing (that's what background playback is for).
-    final lifecycle = AppLifecycleListener(
-      onStateChange: (s) {
-        if (s != AppLifecycleState.resumed) _video?.pause();
-      },
-    );
+    // Video used to be paused on EVERY exit from the foreground, which is why
+    // a video from Files died the moment the app was backgrounded. Two things
+    // were wrong with it:
+    //
+    //   * it fired on AppLifecycleState.inactive, which also means a pulled-down
+    //     Control Centre, an incoming-call banner, or the app switcher — so a
+    //     glance at a notification killed playback;
+    //   * leaving a video playing with no visible surface is exactly the
+    //     "keep the audio going" behaviour we want, not something to prevent.
+    //
+    // So we no longer pause. What actually continues is then up to the engine:
+    // libmpv decodes in-process and keeps its audio running (the app declares
+    // UIBackgroundModes: audio and an Android mediaPlayback service), while
+    // AVPlayer may still stop itself when its layer leaves the screen — which
+    // is no worse than the unconditional pause this replaces.
+    //
+    // Audio playback was never affected: it runs through just_audio_background
+    // with a MediaItem tag and backgrounds by design.
     ref.onDispose(() {
-      lifecycle.dispose();
       _player.dispose();
       _video?.dispose();
     });
